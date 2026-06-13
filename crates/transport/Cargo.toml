@@ -1,0 +1,17 @@
+[package]
+name = "permeant-transport"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["full"] }
+crc32fast.workspace = true
+usxf-core = { path = "../usxf-core" }
+
+[dev-dependencies]
+chrono.workspace = true
+rand.workspace = true

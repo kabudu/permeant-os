@@ -1,0 +1,175 @@
+/// FP8 (E4M3 and E5M2) quantization & dequantization utilities.
+
+/// Convert f32 to FP8 E4M3 (1 sign, 4 exponent, 3 mantissa, bias = 7)
+pub fn f32_to_e4m3(val: f32) -> u8 {
+    if val == 0.0 {
+        return 0;
+    }
+    if val.is_nan() {
+        return 0x7f;
+    }
+    
+    let sign = if val.is_sign_negative() { 0x80 } else { 0x00 };
+    let abs_val = val.abs();
+    
+    // Max representable value in E4M3 is 448.0
+    if abs_val >= 448.0 {
+        return sign | 0x7e; // clamp to max positive/negative
+    }
+    
+    let mut exp = (abs_val.log2().floor() as i32) + 7;
+    if exp < 0 {
+        // Subnormal range: value is (-1)^s * 2^-6 * (mantissa / 8)
+        let mantissa = (abs_val * 512.0).round() as i32;
+        let mantissa = mantissa.clamp(0, 7) as u8;
+        return sign | mantissa;
+    }
+    
+    if exp > 15 {
+        exp = 15;
+    }
+    
+    let scale_factor = 2.0f32.powi(exp - 7);
+    let mant_val = ((abs_val / scale_factor) - 1.0) * 8.0;
+    let mut mantissa = mant_val.round() as i32;
+    
+    if mantissa < 0 {
+        mantissa = 0;
+    }
+    
+    if mantissa > 7 {
+        if exp == 15 {
+            mantissa = 6; // max value
+        } else {
+            // Re-run with exponent incremented
+            return f32_to_e4m3(val.signum() * 2.0f32.powi(exp - 6));
+        }
+    }
+    
+    sign | ((exp as u8) << 3) | (mantissa as u8)
+}
+
+/// Convert FP8 E4M3 back to f32
+pub fn e4m3_to_f32(byte: u8) -> f32 {
+    let sign = if (byte & 0x80) != 0 { -1.0 } else { 1.0 };
+    let exp = (byte & 0x78) >> 3;
+    let mant = byte & 0x07;
+    
+    if exp == 0 {
+        // Subnormal: (-1)^s * 2^-6 * (m / 8)
+        sign * 2.0f32.powi(-6) * (mant as f32 / 8.0)
+    } else if exp == 15 && mant == 7 {
+        f32::NAN
+    } else {
+        // Normal: (-1)^s * 2^(exp - 7) * (1 + m/8)
+        sign * 2.0f32.powi(exp as i32 - 7) * (1.0 + mant as f32 / 8.0)
+    }
+}
+
+/// Convert f32 to FP8 E5M2 (1 sign, 5 exponent, 2 mantissa, bias = 15)
+pub fn f32_to_e5m2(val: f32) -> u8 {
+    if val == 0.0 {
+        return 0;
+    }
+    if val.is_nan() {
+        return 0x7f; // NaN: exp = 31, mant = 3
+    }
+    let sign = if val.is_sign_negative() { 0x80 } else { 0x00 };
+    let abs_val = val.abs();
+    
+    if abs_val.is_infinite() {
+        return sign | 0x7c; // Inf: exp = 31, mant = 0
+    }
+    
+    // Max representable value is 57344.0
+    if abs_val >= 57344.0 {
+        return sign | 0x7c; // Clamp to max/Inf
+    }
+    
+    let mut exp = (abs_val.log2().floor() as i32) + 15;
+    if exp < 0 {
+        // Subnormal: (-1)^s * 2^-14 * (m / 4)
+        let mantissa = (abs_val * 65536.0).round() as i32;
+        let mantissa = mantissa.clamp(0, 3) as u8;
+        return sign | mantissa;
+    }
+    
+    if exp > 30 {
+        exp = 30;
+    }
+    
+    let scale_factor = 2.0f32.powi(exp - 15);
+    let mant_val = ((abs_val / scale_factor) - 1.0) * 4.0;
+    let mut mantissa = mant_val.round() as i32;
+    
+    if mantissa < 0 {
+        mantissa = 0;
+    }
+    
+    if mantissa > 3 {
+        if exp == 30 {
+            mantissa = 3;
+        } else {
+            return f32_to_e5m2(val.signum() * 2.0f32.powi(exp - 14));
+        }
+    }
+    
+    sign | ((exp as u8) << 2) | (mantissa as u8)
+}
+
+/// Convert FP8 E5M2 back to f32
+pub fn e5m2_to_f32(byte: u8) -> f32 {
+    let sign = if (byte & 0x80) != 0 { -1.0 } else { 1.0 };
+    let exp = (byte & 0x7c) >> 2;
+    let mant = byte & 0x03;
+    
+    if exp == 0 {
+        // Subnormal: (-1)^s * 2^-14 * (m / 4)
+        sign * 2.0f32.powi(-14) * (mant as f32 / 4.0)
+    } else if exp == 31 {
+        if mant == 0 {
+            sign * f32::INFINITY
+        } else {
+            f32::NAN
+        }
+    } else {
+        // Normal: (-1)^s * 2^(exp - 15) * (1 + m/4)
+        sign * 2.0f32.powi(exp as i32 - 15) * (1.0 + mant as f32 / 4.0)
+    }
+}
+
+/// Computes the optimal scale factor to represent the slice in FP8 (E4M3 default)
+pub fn compute_optimal_scale(data: &[f32], max_representable: f32) -> f32 {
+    let mut max_abs = 0.0f32;
+    for &val in data {
+        let abs = val.abs();
+        if abs > max_abs && !val.is_nan() && !val.is_infinite() {
+            max_abs = abs;
+        }
+    }
+    if max_abs == 0.0 {
+        1.0
+    } else {
+        max_abs / max_representable
+    }
+}
+
+/// Quantizes float data into E4M3 bytes using scaling factor.
+pub fn quantize_e4m3_scaled(data: &[f32], scale: f32) -> Vec<u8> {
+    data.iter().map(|&x| f32_to_e4m3(x / scale)).collect()
+}
+
+/// Dequantizes E4M3 bytes back to float using scaling factor.
+pub fn dequantize_e4m3_scaled(data: &[u8], scale: f32) -> Vec<f32> {
+    data.iter().map(|&x| e4m3_to_f32(x) * scale).collect()
+}
+
+/// Quantizes float data into E5M2 bytes using scaling factor.
+pub fn quantize_e5m2_scaled(data: &[f32], scale: f32) -> Vec<u8> {
+    data.iter().map(|&x| f32_to_e5m2(x / scale)).collect()
+}
+
+/// Dequantizes E5M2 bytes back to float using scaling factor.
+pub fn dequantize_e5m2_scaled(data: &[u8], scale: f32) -> Vec<f32> {
+    data.iter().map(|&x| e5m2_to_f32(x) * scale).collect()
+}

@@ -1,0 +1,56 @@
+# Rust build outputs
+/target/
+**/*.rs.bk
+
+# Cargo-generated files from packaging/publishing
+*.crate
+
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# PermeantOS local run artifacts
+migration-*-manifest.json
+migration-manifest-*.json
+*.usxf.json
+*.safetensors
+
+# Logs and runtime output
+*.log
+logs/
+tmp/
+temp/
+
+# Editor and IDE state
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS and filesystem noise
+.DS_Store
+._*
+Thumbs.db
+
+# Coverage and profiling outputs
+coverage/
+htmlcov/
+*.profraw
+*.profdata
+

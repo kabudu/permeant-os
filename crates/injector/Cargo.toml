@@ -1,0 +1,11 @@
+[package]
+name = "permeant-injector"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+usxf-core = { path = "../usxf-core" }
+permeant-transpiler = { path = "../transpiler" }
