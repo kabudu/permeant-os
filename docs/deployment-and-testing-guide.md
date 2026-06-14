@@ -591,3 +591,124 @@ Recommended next milestone after this result:
 1. Replace the directory-spool consumer with a real target-runtime consumer.
 2. Preserve richer per-layer staging metadata for inspection and debugging.
 3. Capture the first target-runtime continuation run and compare outputs against the source.
+
+## Reusable Runpod HTTP-bridge workflow
+
+Use this workflow when:
+- the source host is your laptop
+- the target host is a Runpod pod
+- Runpod basic SSH gives you shell access but does not support SSH port forwarding for the daemon protocol
+
+### What this workflow does
+
+It keeps the successful migration path unchanged and swaps only the network carriage:
+- pod side: `adapters/runpod_http_daemon_bridge.py server` exposes the daemon over the Runpod HTTP proxy
+- local side: `adapters/runpod_http_daemon_bridge.py client` presents that HTTP path back to `sim-migrate` as a normal local TCP target
+
+### Pod-side services
+
+Start the target receiver:
+
+```bash
+mkdir -p /tmp/permeant-vllm-state /tmp/permeant-vllm-import /tmp/permeant-logs
+
+export PERMEANT_VLLM_IMPORT_DIR=/tmp/permeant-vllm-import
+export PERMEANT_VLLM_CONSUMER_HOOK=/workspace/permeant-os/adapters/vllm_directory_consumer.py:consume
+
+nohup python3 /workspace/permeant-os/adapters/vllm_runtime_receiver.py \
+  --host 127.0.0.1 \
+  --port 29100 \
+  --state-dir /tmp/permeant-vllm-state \
+  >/tmp/permeant-logs/receiver.log 2>&1 &
+```
+
+Start the target daemon:
+
+```bash
+export PERMEANT_INJECTOR_MODE=json_command
+export PERMEANT_INJECTOR_CMD='python3 /workspace/permeant-os/adapters/vllm_injector.py'
+export PERMEANT_INJECTOR_HOOK=/workspace/permeant-os/adapters/vllm_hook_template.py:injector_hook
+export PERMEANT_VLLM_RUNTIME_HOOK=/workspace/permeant-os/adapters/vllm_http_runtime_hook.py:runtime_hook
+export PERMEANT_VLLM_RUNTIME_URL=http://127.0.0.1:29100
+
+nohup /workspace/permeant-os/target/debug/permeant-cli daemon \
+  --addr 127.0.0.1:29099 \
+  >/tmp/permeant-logs/daemon.log 2>&1 &
+```
+
+Start the pod-side HTTP bridge on the Runpod-mapped HTTP port:
+
+```bash
+nohup python3 /workspace/permeant-os/adapters/runpod_http_daemon_bridge.py server \
+  --host 0.0.0.0 \
+  --port 19123 \
+  --target-host 127.0.0.1 \
+  --target-port 29099 \
+  >/tmp/permeant-logs/http-bridge.log 2>&1 &
+```
+
+Health check:
+
+```bash
+curl -sS https://POD_ID-19123.proxy.runpod.net/health
+```
+
+Expected result:
+
+```json
+{"ok": true}
+```
+
+### Local source-side bridge
+
+Expose the remote HTTP bridge as a local TCP target:
+
+```bash
+python3 /ABS/PATH/adapters/runpod_http_daemon_bridge.py client \
+  --host 127.0.0.1 \
+  --port 39099 \
+  --remote-url https://POD_ID-19123.proxy.runpod.net
+```
+
+### Source-side migration command
+
+Use the live MLX exporter as the source:
+
+```bash
+export PERMEANT_EXTRACTOR_MODE=json_command
+export PERMEANT_EXTRACTOR_CMD='python3 /ABS/PATH/adapters/mlx_extractor.py'
+export PERMEANT_EXTRACTOR_HOOK='/ABS/PATH/adapters/mlx_http_cache_provider.py:get_live_cache'
+export PERMEANT_MLX_RUNTIME_URL='http://127.0.0.1:29101'
+
+./target/debug/permeant-cli sim-migrate \
+  --target-addr 127.0.0.1:39099 \
+  --seq-len 2048
+```
+
+### What to record after the run
+
+Capture these artifacts after each Runpod HTTP-bridge run:
+- local migration manifest
+- `/tmp/permeant-logs/daemon.log`
+- `/tmp/permeant-logs/http-bridge.log`
+- target staged files under `/tmp/permeant-vllm-import`
+- any target-side state files under `/tmp/permeant-vllm-state`
+
+### Benchmark interpretation
+
+Use this path for:
+- functional proof
+- staging/commit validation
+- manifest capture
+- teardown rehearsal
+
+Do not use it as the final transport benchmark because:
+- Cloudflare proxy overhead dominates transfer timing
+- the bridge serializes request/response hops that a direct TCP path would avoid
+
+### Teardown
+
+After a successful or failed run:
+- stop the local bridge client
+- terminate the Runpod pod
+- verify the Runpod pod list is empty or contains no active billable pod for the test

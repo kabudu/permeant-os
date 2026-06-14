@@ -180,3 +180,39 @@ We should call the next milestone successful when all of these are true:
 - Target runtime accepts the staged tensors through a runtime-specific hook or plugin.
 - The migrated session produces a continuation from the target runtime.
 - Repo docs capture the benchmark, failure modes, and cleanup steps.
+
+## New next-step adapter: live target-runtime registration
+
+This repo now includes:
+- `adapters/vllm_live_runtime_registry.py`
+
+Use it when the target runtime lives inside the same Python process as your vLLM-side adapter object and you want the PermeantOS runtime hook to call directly into that object instead of only staging JSON.
+
+Environment:
+
+```bash
+export PERMEANT_VLLM_RUNTIME_HOOK="/ABS/PATH/TO/adapters/vllm_live_runtime_registry.py:runtime_hook"
+export PERMEANT_VLLM_RUNTIME_TARGET="/ABS/PATH/TO/my_vllm_runtime.py:get_runtime"
+```
+
+Optional method-name overrides:
+
+```bash
+export PERMEANT_VLLM_RUNTIME_REGISTER_METHOD=register_permeant_block
+export PERMEANT_VLLM_RUNTIME_VERIFY_METHOD=verify_permeant_hashes
+export PERMEANT_VLLM_RUNTIME_STATE_FILE=/tmp/permeant-vllm-runtime-state.json
+```
+
+Expected target object shape:
+- a provider callable that returns the live runtime object, or
+- an object resolved directly from the target spec
+
+Expected methods on that object:
+- `register_permeant_block(payload, request=None)`
+- `verify_permeant_hashes(payload, request=None)`
+
+This does not finish the full vLLM integration by itself, but it moves the project from:
+- target-side file staging only
+
+to:
+- target-side in-process runtime registration with pluggable verification
