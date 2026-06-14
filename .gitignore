@@ -12,6 +12,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.hf-cache/
 .venv/
 venv/
 env/
@@ -53,4 +54,3 @@ coverage/
 htmlcov/
 *.profraw
 *.profdata
-

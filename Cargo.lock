@@ -603,8 +603,7 @@ dependencies = [
  "anyhow",
  "permeant-transpiler",
  "serde",
- "thiserror",
- "usxf-core",
+ "serde_json",
 ]
 
 [[package]]
@@ -614,8 +613,7 @@ dependencies = [
  "anyhow",
  "permeant-transpiler",
  "serde",
- "thiserror",
- "usxf-core",
+ "serde_json",
 ]
 
 [[package]]

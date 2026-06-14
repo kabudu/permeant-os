@@ -89,17 +89,18 @@ async fn run_daemon(addr_str: &str) -> Result<()> {
             println!("[Daemon] Received migration capability request for: {}, Attn: {}, SeqLen: {}", model_architecture, attention_type, seq_len);
             
             // Validate capacity
+            let target_device = describe_runtime_target_device();
             let response = if seq_len > 131072 {
                 MigrationMessage::CapabilityResponse {
                     accepted: false,
                     error_message: Some("Context size exceeds hypervisor hardware memory limits".to_string()),
-                    target_device: "Metal/Mock".to_string(),
+                    target_device: target_device.clone(),
                 }
             } else {
                 MigrationMessage::CapabilityResponse {
                     accepted: true,
                     error_message: None,
-                    target_device: "Metal/Mock".to_string(),
+                    target_device,
                 }
             };
             
@@ -299,6 +300,11 @@ fn collect_environment_snapshot() -> EnvironmentSnapshot {
     }
 }
 
+fn describe_runtime_target_device() -> String {
+    let env = collect_environment_snapshot();
+    format!("{}/{}/{}", env.os, env.arch, env.hostname)
+}
+
 fn write_migration_manifest(manifest: &MigrationManifest) -> Result<String> {
     let manifest_str = serde_json::to_string_pretty(manifest)?;
     let filename = format!("{}-manifest.json", manifest.run_id);
@@ -328,7 +334,6 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) 
     // 2. Capability Exchange
     println!("Step 2: Performing Capability Exchange...");
     let handshake_start = std::time::Instant::now();
-    let mut target_device_name = "unknown".to_string();
     send_message(&mut socket, &MigrationMessage::CapabilityRequest {
         model_architecture: "Llama-3.1-8B-Mock".to_string(),
         attention_type: "gqa".to_string(),
@@ -336,15 +341,15 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) 
     }).await?;
     
     let resp = recv_message(&mut socket).await?;
-    if let MigrationMessage::CapabilityResponse { accepted, error_message, target_device } = resp {
+    let target_device_name = if let MigrationMessage::CapabilityResponse { accepted, error_message, target_device } = resp {
         if !accepted {
             bail!("Target daemon rejected migration capacity: {:?}", error_message);
         }
         println!("Target accepted capability request. Device: {}", target_device);
-        target_device_name = target_device;
+        target_device
     } else {
         bail!("Unexpected handshake response");
-    }
+    };
     let handshake_time = handshake_start.elapsed().as_secs_f64() * 1000.0;
     
     // 3. Build USXF Header

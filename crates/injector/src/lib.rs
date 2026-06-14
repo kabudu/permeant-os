@@ -1,81 +1,175 @@
-use anyhow::{Result, bail, Context};
+use anyhow::{bail, Context, Result};
 use permeant_transpiler::Tensor;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io::Write;
+use std::process::{Command, Stdio};
 
-/// Mock implementation of the production-grade `KVConnectorBase_V1` plugin.
-/// Manages virtual block-allocation and injection into the target vLLM page manager.
+#[derive(Debug, Clone)]
 pub struct KVConnectorBase_V1 {
-    pub block_size: usize,
-    // Maps content-addressable block hash (e.g. "sha256:...") to the layer-wise block tensor payload
-    pub physical_cache: HashMap<String, HashMap<String, Tensor>>, 
+    block_size: usize,
+    backend: InjectorBackend,
+}
+
+#[derive(Debug, Clone)]
+enum InjectorBackend {
+    Mock {
+        physical_cache: HashMap<String, HashMap<String, Tensor>>,
+    },
+    JsonCommand {
+        command: String,
+    },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+enum InjectorRequest {
+    InjectBlock {
+        block_size: usize,
+        block_hash: String,
+        tensors: Vec<SerializedTensor>,
+    },
+    VerifyContinuation {
+        block_size: usize,
+        expected_hashes: Vec<String>,
+    },
+}
+
+#[derive(Debug, Serialize)]
+struct SerializedTensor {
+    name: String,
+    shape: Vec<usize>,
+    data: Vec<f32>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct InjectorResponse {
+    success: Option<bool>,
+    error: Option<String>,
+    missing_hashes: Option<Vec<String>>,
 }
 
 impl KVConnectorBase_V1 {
     pub fn new(block_size: usize) -> Self {
-        Self {
-            block_size,
-            physical_cache: HashMap::new(),
-        }
-    }
-    
-    /// Queries which prefix blocks are already cached locally.
-    /// Returns the count of matching blocks.
-    pub fn query_matching_prefix(&self, block_hashes: &[String]) -> usize {
-        let mut match_count = 0;
-        for hash in block_hashes {
-            if self.physical_cache.contains_key(hash) {
-                match_count += 1;
-            } else {
-                break; // must be contiguous prefix
+        let backend = match std::env::var("PERMEANT_INJECTOR_MODE") {
+            Ok(value) if value.eq_ignore_ascii_case("json_command") => {
+                let command = std::env::var("PERMEANT_INJECTOR_CMD")
+                    .unwrap_or_else(|_| "".to_string());
+                InjectorBackend::JsonCommand { command }
             }
-        }
-        match_count
+            _ => InjectorBackend::Mock {
+                physical_cache: HashMap::new(),
+            },
+        };
+
+        Self { block_size, backend }
     }
-    
-    /// Injects a block's tensors into the physical cache.
+
     pub fn inject_block_tensors(
         &mut self,
         block_hash: String,
         tensors: HashMap<String, Tensor>,
     ) -> Result<()> {
-        // Validation of shape: every tensor in GQA block should match block_size along the block dimension
-        for (name, tensor) in &tensors {
-            if name.ends_with(".key") {
-                // vLLM block key layout: [num_blocks, num_kv_heads, head_dim, block_size]
-                // For a single injected block, shape should be [1, num_kv_heads, head_dim, block_size]
-                if tensor.shape.len() != 4 || tensor.shape[0] != 1 || tensor.shape[3] != self.block_size {
-                    bail!(
-                        "Invalid key block layout for tensor {}. Expected shape [1, H, D, {}], found {:?}",
-                        name,
-                        self.block_size,
-                        tensor.shape
-                    );
+        match &mut self.backend {
+            InjectorBackend::Mock { physical_cache } => {
+                physical_cache.insert(block_hash, tensors);
+                Ok(())
+            }
+            InjectorBackend::JsonCommand { command } => {
+                if command.trim().is_empty() {
+                    bail!("PERMEANT_INJECTOR_CMD must be set when PERMEANT_INJECTOR_MODE=json_command");
                 }
-            } else if name.ends_with(".value") {
-                // vLLM block value layout: [num_blocks, num_kv_heads, block_size, head_dim]
-                if tensor.shape.len() != 4 || tensor.shape[0] != 1 || tensor.shape[2] != self.block_size {
-                    bail!(
-                        "Invalid value block layout for tensor {}. Expected shape [1, H, {}, D], found {:?}",
-                        name,
-                        self.block_size,
-                        tensor.shape
-                    );
-                }
+
+                let request = InjectorRequest::InjectBlock {
+                    block_size: self.block_size,
+                    block_hash,
+                    tensors: tensors
+                        .into_iter()
+                        .map(|(name, tensor)| SerializedTensor {
+                            name,
+                            shape: tensor.shape,
+                            data: tensor.data,
+                        })
+                        .collect(),
+                };
+                run_injector_command(command, &request)
             }
         }
-        
-        self.physical_cache.insert(block_hash, tensors);
-        Ok(())
     }
-    
-    /// Verifies the continuity of generations on the injected blocks.
-    /// Simulates running the attention layer check.
-    pub fn verify_continuation(&self, block_hashes: &[String]) -> Result<()> {
-        for hash in block_hashes {
-            if !self.physical_cache.contains_key(hash) {
-                bail!("Missing block in physical cache for hash: {}", hash);
+
+    pub fn verify_continuation(&self, expected_hashes: &[String]) -> Result<()> {
+        match &self.backend {
+            InjectorBackend::Mock { physical_cache } => {
+                let missing: Vec<String> = expected_hashes
+                    .iter()
+                    .filter(|hash| !physical_cache.contains_key((*hash).as_str()))
+                    .cloned()
+                    .collect();
+
+                if missing.is_empty() {
+                    Ok(())
+                } else {
+                    bail!("Missing migrated KV blocks in target cache: {:?}", missing)
+                }
+            }
+            InjectorBackend::JsonCommand { command } => {
+                if command.trim().is_empty() {
+                    bail!("PERMEANT_INJECTOR_CMD must be set when PERMEANT_INJECTOR_MODE=json_command");
+                }
+
+                let request = InjectorRequest::VerifyContinuation {
+                    block_size: self.block_size,
+                    expected_hashes: expected_hashes.to_vec(),
+                };
+                run_injector_command(command, &request)
             }
         }
+    }
+}
+
+fn run_injector_command(command: &str, request: &InjectorRequest) -> Result<()> {
+    let request_bytes = serde_json::to_vec(request)?;
+
+    let mut child = Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("Failed to start injector command: {}", command))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(&request_bytes)
+            .context("Failed to write injector request to stdin")?;
+    }
+
+    let output = child.wait_with_output().context("Failed to wait for injector command")?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("Injector command failed: {}", stderr.trim());
+    }
+
+    let response: InjectorResponse = if output.stdout.is_empty() {
+        InjectorResponse {
+            success: Some(true),
+            error: None,
+            missing_hashes: None,
+        }
+    } else {
+        serde_json::from_slice(&output.stdout)
+            .context("Failed to parse injector command JSON output")?
+    };
+
+    if response.success.unwrap_or(true) {
         Ok(())
+    } else if let Some(missing) = response.missing_hashes {
+        bail!("Injector command reported missing hashes: {:?}", missing)
+    } else {
+        bail!(
+            "Injector command reported failure: {}",
+            response.error.unwrap_or_else(|| "unknown error".to_string())
+        )
     }
 }
