@@ -129,12 +129,14 @@ def _load_symbol(spec: str) -> Any:
     if module_part.endswith(".py") or path.exists():
         resolved = path.resolve()
         module_name = f"permeant_vllm_runtime_{resolved.stem}_{abs(hash(str(resolved)))}"
-        module_spec = importlib.util.spec_from_file_location(module_name, resolved)
-        if module_spec is None or module_spec.loader is None:
-            raise RuntimeError(f"unable to load runtime module from {resolved}")
-        module = importlib.util.module_from_spec(module_spec)
-        sys.modules[module_name] = module
-        module_spec.loader.exec_module(module)
+        module = sys.modules.get(module_name)
+        if module is None:
+            module_spec = importlib.util.spec_from_file_location(module_name, resolved)
+            if module_spec is None or module_spec.loader is None:
+                raise RuntimeError(f"unable to load runtime module from {resolved}")
+            module = importlib.util.module_from_spec(module_spec)
+            sys.modules[module_name] = module
+            module_spec.loader.exec_module(module)
     else:
         module = importlib.import_module(module_part)
 
@@ -228,33 +230,127 @@ def _get_layer_map(runtime: Any, kv_caches: dict[str, Any]) -> dict[int, str]:
     raise RuntimeError("unable to infer layer-name mapping from runtime kv_caches")
 
 
+def _layer_block_views(layer: dict[str, Any]) -> tuple[Any, Any, int, int, int, bool]:
+    key_blocks = layer.get("key_blocks")
+    value_blocks = layer.get("value_blocks")
+    if key_blocks is not None and value_blocks is not None:
+        block_size = len(value_blocks[0][0]) if value_blocks and value_blocks[0] else 0
+        kv_heads = len(key_blocks[0]) if key_blocks else 0
+        head_dim = len(key_blocks[0][0]) if key_blocks and key_blocks[0] else 0
+        return key_blocks, value_blocks, block_size, kv_heads, head_dim, False
+
+    key_tensor = layer.get("key_tensor")
+    value_tensor = layer.get("value_tensor")
+    if not isinstance(key_tensor, dict) or not isinstance(value_tensor, dict):
+        raise RuntimeError("prepared payload layer must expose key/value blocks or key_tensor/value_tensor")
+
+    key_shape = key_tensor.get("shape")
+    value_shape = value_tensor.get("shape")
+    key_data = key_tensor.get("data")
+    value_data = value_tensor.get("data")
+    if (
+        not isinstance(key_shape, list)
+        or len(key_shape) != 4
+        or not isinstance(value_shape, list)
+        or len(value_shape) != 4
+        or not isinstance(key_data, list)
+        or not isinstance(value_data, list)
+    ):
+        raise RuntimeError("prepared key/value tensor payloads must include flat data with 4D shapes")
+
+    block_size = int(key_shape[3])
+    kv_heads = int(key_shape[1])
+    head_dim = int(key_shape[2])
+    return key_tensor, value_tensor, block_size, kv_heads, head_dim, True
+
+
+def _flat_key_value(key_tensor: dict[str, Any], value_tensor: dict[str, Any], block_index: int, head_index: int, dim_index: int, token_index: int) -> tuple[float, float]:
+    key_shape = key_tensor["shape"]
+    value_shape = value_tensor["shape"]
+    key_data = key_tensor["data"]
+    value_data = value_tensor["data"]
+
+    key_offset = (((block_index * int(key_shape[1]) + head_index) * int(key_shape[2]) + dim_index) * int(key_shape[3])) + token_index
+    value_offset = (((block_index * int(value_shape[1]) + head_index) * int(value_shape[2]) + token_index) * int(value_shape[3])) + dim_index
+    return key_data[key_offset], value_data[value_offset]
+
+
+def _source_block_count(key_source: Any, is_flat: bool) -> int:
+    if is_flat:
+        return int(key_source["shape"][0])
+    return len(key_source)
+
+
 def _write_combined_cache(cache: Any, layer: dict[str, Any]) -> None:
     shape = _shape_of_storage(cache)
-    key_blocks = layer["key_blocks"]
-    value_blocks = layer["value_blocks"]
-    block_size = len(value_blocks[0][0]) if value_blocks and value_blocks[0] else 0
-    kv_heads = len(key_blocks[0]) if key_blocks else 0
-    head_dim = len(key_blocks[0][0]) if key_blocks and key_blocks[0] else 0
+    key_source, value_source, block_size, kv_heads, head_dim, is_flat = _layer_block_views(layer)
+    source_block_count = _source_block_count(key_source, is_flat)
 
     if len(shape) != 5 or shape[1] != 2:
         raise RuntimeError(f"unsupported combined kv_cache shape {shape}")
 
     if shape[2] == block_size and shape[3] == kv_heads and shape[4] == head_dim:
-        for block_index in range(len(key_blocks)):
+        for block_index in range(source_block_count):
             for token_index in range(block_size):
                 for head_index in range(kv_heads):
                     for dim_index in range(head_dim):
-                        cache[block_index][0][token_index][head_index][dim_index] = key_blocks[block_index][head_index][dim_index][token_index]
-                        cache[block_index][1][token_index][head_index][dim_index] = value_blocks[block_index][head_index][token_index][dim_index]
+                        if is_flat:
+                            key_value, value_value = _flat_key_value(key_source, value_source, block_index, head_index, dim_index, token_index)
+                        else:
+                            key_value = key_source[block_index][head_index][dim_index][token_index]
+                            value_value = value_source[block_index][head_index][token_index][dim_index]
+                        cache[block_index][0][token_index][head_index][dim_index] = key_value
+                        cache[block_index][1][token_index][head_index][dim_index] = value_value
         return
 
     if shape[2] == kv_heads and shape[3] == block_size and shape[4] == head_dim:
-        for block_index in range(len(key_blocks)):
+        for block_index in range(source_block_count):
             for head_index in range(kv_heads):
                 for token_index in range(block_size):
                     for dim_index in range(head_dim):
-                        cache[block_index][0][head_index][token_index][dim_index] = key_blocks[block_index][head_index][dim_index][token_index]
-                        cache[block_index][1][head_index][token_index][dim_index] = value_blocks[block_index][head_index][token_index][dim_index]
+                        if is_flat:
+                            key_value, value_value = _flat_key_value(key_source, value_source, block_index, head_index, dim_index, token_index)
+                        else:
+                            key_value = key_source[block_index][head_index][dim_index][token_index]
+                            value_value = value_source[block_index][head_index][token_index][dim_index]
+                        cache[block_index][0][head_index][token_index][dim_index] = key_value
+                        cache[block_index][1][head_index][token_index][dim_index] = value_value
+        return
+
+    if shape[3] == kv_heads and shape[4] == head_dim and block_size % shape[2] == 0:
+        tokens_per_target_block = shape[2]
+        blocks_per_source_block = block_size // tokens_per_target_block
+        for block_index in range(source_block_count):
+            for token_index in range(block_size):
+                target_block_index = block_index * blocks_per_source_block + (token_index // tokens_per_target_block)
+                target_token_index = token_index % tokens_per_target_block
+                for head_index in range(kv_heads):
+                    for dim_index in range(head_dim):
+                        if is_flat:
+                            key_value, value_value = _flat_key_value(key_source, value_source, block_index, head_index, dim_index, token_index)
+                        else:
+                            key_value = key_source[block_index][head_index][dim_index][token_index]
+                            value_value = value_source[block_index][head_index][token_index][dim_index]
+                        cache[target_block_index][0][target_token_index][head_index][dim_index] = key_value
+                        cache[target_block_index][1][target_token_index][head_index][dim_index] = value_value
+        return
+
+    if shape[2] == kv_heads and shape[4] == head_dim and block_size % shape[3] == 0:
+        tokens_per_target_block = shape[3]
+        blocks_per_source_block = block_size // tokens_per_target_block
+        for block_index in range(source_block_count):
+            for token_index in range(block_size):
+                target_block_index = block_index * blocks_per_source_block + (token_index // tokens_per_target_block)
+                target_token_index = token_index % tokens_per_target_block
+                for head_index in range(kv_heads):
+                    for dim_index in range(head_dim):
+                        if is_flat:
+                            key_value, value_value = _flat_key_value(key_source, value_source, block_index, head_index, dim_index, token_index)
+                        else:
+                            key_value = key_source[block_index][head_index][dim_index][token_index]
+                            value_value = value_source[block_index][head_index][token_index][dim_index]
+                        cache[target_block_index][0][head_index][target_token_index][dim_index] = key_value
+                        cache[target_block_index][1][head_index][target_token_index][dim_index] = value_value
         return
 
     raise RuntimeError(f"unsupported combined kv_cache layout {shape}")
@@ -272,42 +368,42 @@ def _write_separate_cache(cache_pair: Any, layer: dict[str, Any]) -> None:
     if key_cache is None or value_cache is None:
         raise RuntimeError("separate kv cache pair is missing key/value storage")
 
-    key_blocks = layer["key_blocks"]
-    value_blocks = layer["value_blocks"]
-    block_size = len(value_blocks[0][0]) if value_blocks and value_blocks[0] else 0
-    kv_heads = len(key_blocks[0]) if key_blocks else 0
-    head_dim = len(key_blocks[0][0]) if key_blocks and key_blocks[0] else 0
+    key_source, value_source, block_size, kv_heads, head_dim, is_flat = _layer_block_views(layer)
 
     key_shape = _shape_of_storage(key_cache)
     value_shape = _shape_of_storage(value_cache)
 
-    if key_shape == [len(key_blocks), kv_heads, head_dim, block_size]:
-        for block_index in range(len(key_blocks)):
+    if key_shape == [int(key_shape[0]), kv_heads, head_dim, block_size]:
+        for block_index in range(key_shape[0]):
             for head_index in range(kv_heads):
                 for dim_index in range(head_dim):
                     for token_index in range(block_size):
-                        key_cache[block_index][head_index][dim_index][token_index] = key_blocks[block_index][head_index][dim_index][token_index]
-    elif key_shape == [len(key_blocks), block_size, kv_heads, head_dim]:
-        for block_index in range(len(key_blocks)):
+                        key_value = _flat_key_value(key_source, value_source, block_index, head_index, dim_index, token_index)[0] if is_flat else key_source[block_index][head_index][dim_index][token_index]
+                        key_cache[block_index][head_index][dim_index][token_index] = key_value
+    elif key_shape == [int(key_shape[0]), block_size, kv_heads, head_dim]:
+        for block_index in range(key_shape[0]):
             for token_index in range(block_size):
                 for head_index in range(kv_heads):
                     for dim_index in range(head_dim):
-                        key_cache[block_index][token_index][head_index][dim_index] = key_blocks[block_index][head_index][dim_index][token_index]
+                        key_value = _flat_key_value(key_source, value_source, block_index, head_index, dim_index, token_index)[0] if is_flat else key_source[block_index][head_index][dim_index][token_index]
+                        key_cache[block_index][token_index][head_index][dim_index] = key_value
     else:
         raise RuntimeError(f"unsupported key cache layout {key_shape}")
 
-    if value_shape == [len(value_blocks), kv_heads, block_size, head_dim]:
-        for block_index in range(len(value_blocks)):
+    if value_shape == [int(value_shape[0]), kv_heads, block_size, head_dim]:
+        for block_index in range(value_shape[0]):
             for head_index in range(kv_heads):
                 for token_index in range(block_size):
                     for dim_index in range(head_dim):
-                        value_cache[block_index][head_index][token_index][dim_index] = value_blocks[block_index][head_index][token_index][dim_index]
-    elif value_shape == [len(value_blocks), block_size, kv_heads, head_dim]:
-        for block_index in range(len(value_blocks)):
+                        value_value = _flat_key_value(key_source, value_source, block_index, head_index, dim_index, token_index)[1] if is_flat else value_source[block_index][head_index][token_index][dim_index]
+                        value_cache[block_index][head_index][token_index][dim_index] = value_value
+    elif value_shape == [int(value_shape[0]), block_size, kv_heads, head_dim]:
+        for block_index in range(value_shape[0]):
             for token_index in range(block_size):
                 for head_index in range(kv_heads):
                     for dim_index in range(head_dim):
-                        value_cache[block_index][token_index][head_index][dim_index] = value_blocks[block_index][head_index][token_index][dim_index]
+                        value_value = _flat_key_value(key_source, value_source, block_index, head_index, dim_index, token_index)[1] if is_flat else value_source[block_index][head_index][token_index][dim_index]
+                        value_cache[block_index][token_index][head_index][dim_index] = value_value
     else:
         raise RuntimeError(f"unsupported value cache layout {value_shape}")
 

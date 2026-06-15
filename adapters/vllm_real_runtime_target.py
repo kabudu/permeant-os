@@ -24,6 +24,85 @@ class RealVllmRuntime:
         self.permeant_layer_map = layer_map
         self.registered_hashes: set[str] = set()
         self.metadata = metadata
+        self.last_register_payload: dict[str, Any] | None = None
+        self.last_verify_result: dict[str, Any] | None = None
+        self.last_continuation: dict[str, Any] | None = None
+
+    def register_permeant_block(self, payload: dict[str, Any], request: dict[str, Any] | None = None) -> dict[str, Any]:
+        from vllm_live_runtime_registry import _direct_register_into_kv_caches
+
+        result = dict(_direct_register_into_kv_caches(self, payload))
+        self.last_register_payload = {
+            "hash": payload.get("hash"),
+            "layer_count": len(payload.get("layers", [])),
+            "request": request or {},
+        }
+        _append_probe_event(
+            {
+                "event": "register_permeant_block",
+                "hash": payload.get("hash"),
+                "layer_count": len(payload.get("layers", [])),
+                "written_layers": result.get("written_layers", []),
+            }
+        )
+        return result
+
+    def verify_permeant_hashes(self, payload: dict[str, Any], request: dict[str, Any] | None = None) -> dict[str, Any]:
+        block_hashes = payload.get("block_hashes", [])
+        missing = [hash_value for hash_value in block_hashes if hash_value not in self.registered_hashes]
+        if missing:
+            result = {"success": False, "missing_hashes": missing}
+            self.last_verify_result = result
+            _append_probe_event({"event": "verify_permeant_hashes", **result})
+            return result
+
+        result: dict[str, Any] = {"success": True, "verified_hashes": list(block_hashes)}
+        prompt = os.getenv("PERMEANT_VLLM_CONTINUATION_PROMPT")
+        if prompt:
+            continuation = self.generate_continuation(
+                prompt=prompt,
+                max_tokens=int(os.getenv("PERMEANT_VLLM_CONTINUATION_MAX_TOKENS", "16")),
+            )
+            self.last_continuation = continuation
+            result["continuation"] = continuation
+
+        self.last_verify_result = result
+        _append_probe_event(
+            {
+                "event": "verify_permeant_hashes",
+                "request": request or {},
+                "continuation_generated": "continuation" in result,
+                **{k: v for k, v in result.items() if k != "continuation"},
+            }
+        )
+        return result
+
+    def generate_continuation(self, prompt: str, max_tokens: int = 16) -> dict[str, Any]:
+        from vllm import SamplingParams
+
+        sampling = SamplingParams(max_tokens=max_tokens, temperature=0.0)
+        outputs = self.llm.generate([prompt], sampling)
+        text = ""
+        token_ids: list[int] = []
+
+        if outputs:
+            first = outputs[0]
+            candidates = getattr(first, "outputs", None) or []
+            if candidates:
+                candidate = candidates[0]
+                text = getattr(candidate, "text", "") or ""
+                maybe_token_ids = getattr(candidate, "token_ids", None)
+                if isinstance(maybe_token_ids, list):
+                    token_ids = [int(item) for item in maybe_token_ids]
+
+        continuation = {
+            "prompt": prompt,
+            "max_tokens": max_tokens,
+            "text": text,
+            "token_ids": token_ids,
+        }
+        _append_probe_event({"event": "generate_continuation", **continuation})
+        return continuation
 
 
 def _probe_file() -> Path | None:
@@ -41,27 +120,94 @@ def _write_probe(payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2))
 
 
+def _append_probe_event(payload: dict[str, Any]) -> None:
+    path = _probe_file()
+    if path is None:
+        return
+    existing: dict[str, Any] = {}
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text())
+        except Exception:
+            existing = {}
+    events = existing.get("events")
+    if not isinstance(events, list):
+        events = []
+    events.append(payload)
+    existing["events"] = events
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(existing, indent=2))
+
+
+def _looks_like_cache_storage(value: Any) -> bool:
+    shape = getattr(value, "shape", None)
+    if shape is not None:
+        try:
+            dims = [int(item) for item in shape]
+        except Exception:
+            dims = []
+        if 4 <= len(dims) <= 5:
+            return True
+
+    if isinstance(value, dict):
+        keys = set(value)
+        if {"key", "value"}.issubset(keys):
+            return True
+
+    if isinstance(value, (list, tuple)) and len(value) == 2:
+        first_shape = getattr(value[0], "shape", None)
+        second_shape = getattr(value[1], "shape", None)
+        if first_shape is not None and second_shape is not None:
+            return True
+
+    return False
+
+
+def _merge_cache_mapping(kv_caches: dict[str, Any], value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+
+    added = False
+    for key, cache_value in value.items():
+        if not isinstance(key, str):
+            continue
+        if _looks_like_cache_storage(cache_value):
+            kv_caches.setdefault(key, cache_value)
+            added = True
+    return added
+
+
 def _find_kv_caches(root: Any) -> tuple[dict[str, Any], dict[int, str]]:
     seen: set[int] = set()
     kv_caches: dict[str, Any] = {}
 
     def walk(obj: Any, path: str, depth: int) -> None:
-        if obj is None or depth > 8:
+        if obj is None or depth > 12:
             return
         obj_id = id(obj)
         if obj_id in seen:
             return
         seen.add(obj_id)
 
-        if hasattr(obj, "kv_cache"):
-            cache = getattr(obj, "kv_cache")
-            if cache is not None:
-                kv_caches[path] = cache
+        if _looks_like_cache_storage(obj):
+            kv_caches.setdefault(path, obj)
+
+        if _merge_cache_mapping(kv_caches, obj):
+            return
+
+        for attr_name in ("kv_cache", "kv_caches", "device_kv_caches"):
+            if not hasattr(obj, attr_name):
+                continue
+            cache = getattr(obj, attr_name)
+            if cache is None:
+                continue
+            if _looks_like_cache_storage(cache):
+                kv_caches.setdefault(path, cache)
+            if _merge_cache_mapping(kv_caches, cache):
+                return
 
         if hasattr(obj, "__dict__"):
             for name, value in vars(obj).items():
-                if name.startswith("_"):
-                    continue
                 walk(value, f"{path}.{name}" if path else name, depth + 1)
 
         if isinstance(obj, dict):

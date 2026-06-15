@@ -185,6 +185,8 @@ We should call the next milestone successful when all of these are true:
 
 This repo now includes:
 - `adapters/vllm_live_runtime_registry.py`
+- `adapters/vllm_real_runtime_consumer.py`
+- `adapters/vllm_real_runtime_target.py`
 
 Use it when the target runtime lives inside the same Python process as your vLLM-side adapter object and you want the PermeantOS runtime hook to call directly into that object instead of only staging JSON.
 
@@ -193,6 +195,7 @@ Environment:
 ```bash
 export PERMEANT_VLLM_RUNTIME_HOOK="/ABS/PATH/TO/adapters/vllm_live_runtime_registry.py:runtime_hook"
 export PERMEANT_VLLM_RUNTIME_TARGET="/ABS/PATH/TO/my_vllm_runtime.py:get_runtime"
+export VLLM_ENABLE_V1_MULTIPROCESSING=0
 ```
 
 Optional method-name overrides:
@@ -201,7 +204,13 @@ Optional method-name overrides:
 export PERMEANT_VLLM_RUNTIME_REGISTER_METHOD=register_permeant_block
 export PERMEANT_VLLM_RUNTIME_VERIFY_METHOD=verify_permeant_hashes
 export PERMEANT_VLLM_RUNTIME_STATE_FILE=/tmp/permeant-vllm-runtime-state.json
+export PERMEANT_VLLM_RUNTIME_PROBE_FILE=/tmp/permeant-vllm-runtime-probe.json
 ```
+
+For `vLLM 0.23.0`, the successful AWS real-runtime run required
+`VLLM_ENABLE_V1_MULTIPROCESSING=0`. Without it, `LLM(...)` exposed a `SyncMPClient`
+wrapper and the live KV cache stayed hidden in a child engine process instead of the
+receiver hook process.
 
 Expected target object shape:
 - a provider callable that returns the live runtime object, or
@@ -216,3 +225,29 @@ This does not finish the full vLLM integration by itself, but it moves the proje
 
 to:
 - target-side in-process runtime registration with pluggable verification
+
+## Direct real-runtime consumer path
+
+The current fastest path to a first continuation probe is to let the receiver call the live runtime hook directly:
+
+```bash
+export PERMEANT_VLLM_CONSUMER_HOOK="/ABS/PATH/TO/adapters/vllm_real_runtime_consumer.py:consume"
+export PERMEANT_VLLM_RUNTIME_TARGET="/ABS/PATH/TO/adapters/vllm_real_runtime_target.py:get_runtime"
+export PERMEANT_VLLM_MODEL="Qwen/Qwen2.5-0.5B-Instruct"
+export PERMEANT_VLLM_CONTINUATION_PROMPT="PermeantOS continuation probe"
+export PERMEANT_VLLM_CONTINUATION_MAX_TOKENS=16
+export PERMEANT_VLLM_RUNTIME_STATE_FILE=/tmp/permeant-vllm-runtime-state.json
+export PERMEANT_VLLM_RUNTIME_PROBE_FILE=/tmp/permeant-vllm-runtime-probe.json
+```
+
+With this path:
+- `inject_block` registers the prepared payload into the in-process runtime object
+- acknowledged hashes are still written for transfer bookkeeping
+- `verify_continuation` is forwarded into the live runtime hook after the ack check passes
+- successful verification can append a continuation artifact to `/tmp/permeant-vllm-runtime-probe.json`
+
+Recommended first probe artifact to capture:
+- runtime initialization metadata
+- registered hash
+- verification success
+- continuation text/token IDs from the target runtime

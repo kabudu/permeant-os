@@ -149,7 +149,14 @@ class Receiver(BaseHTTPRequestHandler):
         missing = [item for item in hashes if item not in acknowledged]
         if missing:
             return {"success": False, "missing_hashes": missing}
-        return {"success": True}
+        result = _call_consumer(self.hook, payload)
+        if not isinstance(result, dict):
+            raise AdapterError("consumer verification hook must return a dict or None")
+        if result.get("success", True):
+            normalized = {"success": True}
+            normalized.update(result)
+            return normalized
+        return result
 
 
 def main() -> int:
