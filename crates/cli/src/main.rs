@@ -79,131 +79,128 @@ async fn run_daemon(addr_str: &str) -> Result<()> {
     loop {
         let (mut socket, peer) = listener.accept().await?;
         println!("\n[Daemon] Incoming connection from {:?}", peer);
+        if let Err(err) = handle_migration_connection(
+            &mut socket,
+            &mut orchestrator,
+            &mut injector,
+            &aes_key,
+        )
+        .await
+        {
+            eprintln!(
+                "[Daemon] Connection {:?} ended without commit: {}",
+                peer, err
+            );
+        }
+    }
+}
+
+async fn handle_migration_connection(
+    socket: &mut TcpStream,
+    orchestrator: &mut MigrationOrchestrator,
+    injector: &mut KVConnectorBase_V1,
+    aes_key: &[u8; 32],
+) -> Result<()> {
+    let msg = recv_message(socket).await?;
+    if let MigrationMessage::CapabilityRequest { model_architecture, attention_type, seq_len } = msg {
+        println!("[Daemon] Received migration capability request for: {}, Attn: {}, SeqLen: {}", model_architecture, attention_type, seq_len);
         
-        // Handle the migration process in a state-machine looped protocol
-        let mut state_machine = orchestrator.policy.phase_timeouts.clone();
-        
-        // 1. Recv CapabilityRequest
-        let msg = recv_message(&mut socket).await?;
-        if let MigrationMessage::CapabilityRequest { model_architecture, attention_type, seq_len } = msg {
-            println!("[Daemon] Received migration capability request for: {}, Attn: {}, SeqLen: {}", model_architecture, attention_type, seq_len);
-            
-            // Validate capacity
-            let target_device = describe_runtime_target_device();
-            let response = if seq_len > 131072 {
-                MigrationMessage::CapabilityResponse {
-                    accepted: false,
-                    error_message: Some("Context size exceeds hypervisor hardware memory limits".to_string()),
-                    target_device: target_device.clone(),
-                }
-            } else {
-                MigrationMessage::CapabilityResponse {
-                    accepted: true,
-                    error_message: None,
-                    target_device,
-                }
-            };
-            
-            send_message(&mut socket, &response).await?;
-            if let MigrationMessage::CapabilityResponse { accepted: false, .. } = response {
-                println!("[Daemon] Rejected migration capability (context too large)");
-                continue;
+        let target_device = describe_runtime_target_device();
+        let response = if seq_len > 131072 {
+            MigrationMessage::CapabilityResponse {
+                accepted: false,
+                error_message: Some("Context size exceeds hypervisor hardware memory limits".to_string()),
+                target_device: target_device.clone(),
             }
         } else {
-            bail!("Protocol violation: Expected CapabilityRequest");
-        }
-        
-        // 2. Recv Encrypted Header
-        let msg = recv_message(&mut socket).await?;
-        let header = if let MigrationMessage::HeaderEnvelope(envelope) = msg {
-            println!("[Daemon] Received encrypted USXF header envelope. Verifying signature & decrypting...");
-            let plaintext = open_packet(&envelope, &aes_key).context("Header decryption or signature failed")?;
-            let header: UsxfHeader = serde_json::from_slice(&plaintext).context("Failed to deserialize USXF header")?;
-            
-            // Validate schema constraints
-            validate_header(&header).context("USXF metadata validation failed")?;
-            println!("[Daemon] Header verified. Model Identity: {}. Config Hash: {}", header.model_architecture, header.model_identity.config_hash);
-            
-            send_message(&mut socket, &MigrationMessage::HeaderAck { accepted: true }).await?;
-            header
-        } else {
-            bail!("Protocol violation: Expected HeaderEnvelope");
+            MigrationMessage::CapabilityResponse {
+                accepted: true,
+                error_message: None,
+                target_device,
+            }
         };
         
-        // 3. Recv Tensors layer by layer
-        println!("[Daemon] Streaming payload chunks starting...");
-        let expected_blocks = (header.seq_len + header.block_size - 1) / header.block_size;
+        send_message(socket, &response).await?;
+        if let MigrationMessage::CapabilityResponse { accepted: false, .. } = response {
+            println!("[Daemon] Rejected migration capability (context too large)");
+            return Ok(());
+        }
+    } else {
+        bail!("Protocol violation: Expected CapabilityRequest");
+    }
+    
+    let msg = recv_message(socket).await?;
+    let header = if let MigrationMessage::HeaderEnvelope(envelope) = msg {
+        println!("[Daemon] Received encrypted USXF header envelope. Verifying signature & decrypting...");
+        let plaintext = open_packet(&envelope, aes_key).context("Header decryption or signature failed")?;
+        let header: UsxfHeader = serde_json::from_slice(&plaintext).context("Failed to deserialize USXF header")?;
         
-        // We accumulate block tensors
-        // block_hash -> tensor_name -> Tensor
-        let mut accumulated_blocks: HashMap<String, HashMap<String, Tensor>> = HashMap::new();
+        validate_header(&header).context("USXF metadata validation failed")?;
+        println!("[Daemon] Header verified. Model Identity: {}. Config Hash: {}", header.model_architecture, header.model_identity.config_hash);
         
-        for _ in 0..(header.model_cache_spec.n_layers * 2 * expected_blocks) {
-            let chunk_msg = recv_message(&mut socket).await?;
-            if !verify_chunk_crc32(&chunk_msg)? {
-                bail!("Payload chunk CRC32 checksum mismatch!");
-            }
-            
-            if let MigrationMessage::PayloadChunk { chunk_index, layer_index, tensor_name, data, .. } = chunk_msg {
-                let block_hash = header.block_hashes[chunk_index as usize].clone();
-                
-                // Decrypt data (we simulate it or decrypt if it was sealed. For simulation, the data is sealed)
-                // Let's decrypt it
-                let decrypted_data = if let Some(quant) = &header.transfer_quantization {
-                    // Dequantize FP8
-                    let dequant = dequantize_e4m3_scaled(&data, 0.1); // using a fixed scale 0.1 for sim
-                    dequant
-                } else {
-                    // Dequantize f32 bytes (raw f32 floats)
-                    let mut floats = vec![0.0f32; data.len() / 4];
-                    for (i, chunk) in data.chunks_exact(4).enumerate() {
-                        let bytes: [u8; 4] = chunk.try_into()?;
-                        floats[i] = f32::from_be_bytes(bytes);
-                    }
-                    floats
-                };
-                
-                // Reconstruct the Tensor for this block
-                // vLLM block shapes: Key = [1, num_kv_heads, head_dim, block_size]
-                //                    Value = [1, num_kv_heads, block_size, head_dim]
-                let shape = if tensor_name.ends_with(".key") {
-                    vec![1, header.model_cache_spec.n_kv_heads, header.model_cache_spec.head_dim, header.block_size]
-                } else {
-                    vec![1, header.model_cache_spec.n_kv_heads, header.block_size, header.model_cache_spec.head_dim]
-                };
-                
-                let block_tensor = Tensor::new(decrypted_data, shape);
-                
-                accumulated_blocks
-                    .entry(block_hash.clone())
-                    .or_insert_with(HashMap::new)
-                    .insert(tensor_name, block_tensor);
-                    
-                send_message(&mut socket, &MigrationMessage::ChunkAck { chunk_index }).await?;
+        send_message(socket, &MigrationMessage::HeaderAck { accepted: true }).await?;
+        header
+    } else {
+        bail!("Protocol violation: Expected HeaderEnvelope");
+    };
+    
+    println!("[Daemon] Streaming payload chunks starting...");
+    let expected_blocks = (header.seq_len + header.block_size - 1) / header.block_size;
+    let mut accumulated_blocks: HashMap<String, HashMap<String, Tensor>> = HashMap::new();
+    
+    for _ in 0..(header.model_cache_spec.n_layers * 2 * expected_blocks) {
+        let chunk_msg = recv_message(socket).await?;
+        if !verify_chunk_crc32(&chunk_msg)? {
+            bail!("Payload chunk CRC32 checksum mismatch!");
+        }
+        
+        if let MigrationMessage::PayloadChunk { chunk_index, layer_index: _, tensor_name, data, .. } = chunk_msg {
+            let block_hash = header.block_hashes[chunk_index as usize].clone();
+            let decrypted_data = if let Some(_quant) = &header.transfer_quantization {
+                dequantize_e4m3_scaled(&data, 0.1)
             } else {
-                bail!("Protocol violation: Expected PayloadChunk");
-            }
-        }
-        
-        println!("[Daemon] All layers and blocks streamed. Injecting into KVConnectorBase_V1...");
-        for (hash, tensors) in accumulated_blocks {
-            injector.inject_block_tensors(hash, tensors)?;
-        }
-        
-        // 4. Two-Phase Commit validation
-        let msg = recv_message(&mut socket).await?;
-        if let MigrationMessage::CommitRequest = msg {
-            println!("[Daemon] Commit requested. Running numerical continuation validation...");
-            // Verify all block hashes are in physical cache
-            injector.verify_continuation(&header.block_hashes)?;
+                let mut floats = vec![0.0f32; data.len() / 4];
+                for (i, chunk) in data.chunks_exact(4).enumerate() {
+                    let bytes: [u8; 4] = chunk.try_into()?;
+                    floats[i] = f32::from_be_bytes(bytes);
+                }
+                floats
+            };
             
-            println!("[Daemon] Validation passed. Committing migration state.");
-            send_message(&mut socket, &MigrationMessage::CommitResponse { success: true, error_message: None }).await?;
-            orchestrator.record_success();
-            println!("[Daemon] Migration COMMITTED successfully!");
+            let shape = if tensor_name.ends_with(".key") {
+                vec![1, header.model_cache_spec.n_kv_heads, header.model_cache_spec.head_dim, header.block_size]
+            } else {
+                vec![1, header.model_cache_spec.n_kv_heads, header.block_size, header.model_cache_spec.head_dim]
+            };
+            
+            let block_tensor = Tensor::new(decrypted_data, shape);
+            accumulated_blocks
+                .entry(block_hash.clone())
+                .or_insert_with(HashMap::new)
+                .insert(tensor_name, block_tensor);
+            send_message(socket, &MigrationMessage::ChunkAck { chunk_index }).await?;
         } else {
-            bail!("Protocol violation: Expected CommitRequest");
+            bail!("Protocol violation: Expected PayloadChunk");
         }
+    }
+    
+    println!("[Daemon] All layers and blocks streamed. Injecting into KVConnectorBase_V1...");
+    for (hash, tensors) in accumulated_blocks {
+        injector.inject_block_tensors(hash, tensors)?;
+    }
+    
+    let msg = recv_message(socket).await?;
+    if let MigrationMessage::CommitRequest = msg {
+        println!("[Daemon] Commit requested. Running numerical continuation validation...");
+        injector.verify_continuation(&header.block_hashes)?;
+        
+        println!("[Daemon] Validation passed. Committing migration state.");
+        send_message(socket, &MigrationMessage::CommitResponse { success: true, error_message: None }).await?;
+        orchestrator.record_success();
+        println!("[Daemon] Migration COMMITTED successfully!");
+        Ok(())
+    } else {
+        bail!("Protocol violation: Expected CommitRequest");
     }
 }
 

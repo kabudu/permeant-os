@@ -454,6 +454,56 @@ They are still limited in scope:
 * The current protocol and daemon are still a simulation path rather than a production inference integration.
 
 For a stronger benchmark set, repeat the same matrix at `16k`, `32k`, and `64k`, and capture at least three runs per configuration.
+
+## AWS fallback cross-host result (June 15, 2026)
+
+After a fresh Runpod retry was blocked by Cloudflare `403` / `1010` from the current environment, and after AWS rejected `g4dn.xlarge` launches because the account GPU vCPU quota was `0`, we ran the Amazon fallback path on the cheapest disposable x86 EC2 host that could still exercise the current target daemon flow.
+
+Successful fallback run details:
+
+- Provider: AWS EC2
+- Target instance: `t3.medium`
+- Region: `us-east-1`
+- Source runtime: live `mlx_lm` process on the laptop
+- Transport path: local SSH tunnel to the remote daemon
+- Successful transfer mode: `fp8`
+- Sequence length: `2048`
+- Layers transferred by the current CLI path: `4`
+- Expected blocks: `8`
+- Chunks sent: `64`
+- Transferred bytes: `2097152`
+- Handshake time: `223.81562499999998 ms`
+- Header time: `135.27108299999998 ms`
+- Transfer time: `9837.705375000001 ms`
+- Commit time: `1190.1692500000001 ms`
+- Total time: `23106.294833 ms`
+- Effective bandwidth: about `0.001705 Gbps`
+- Manifest: `migration-20260615-195032-6976-manifest.json`
+
+Target-side evidence captured during the successful run:
+
+- The remote daemon accepted the capability request, verified the encrypted header, streamed all payload chunks, and committed successfully.
+- The staged target payload and ready descriptor were present in `/tmp/permeant-vllm-import`.
+- The staged block hash matched the earlier successful cross-host proof runs: `sha256:752b47177c4c532507d41557f9c2079d59d7ae8c676281199e826a6636c76640`.
+
+Important interpretation:
+
+- This is a successful Amazon cross-host proof run with a live MLX source and a real public-network target.
+- It is not yet the final AWS GPU benchmark because the target was CPU-backed and the account GPU quota blocked `g4dn.xlarge`.
+- The direct SSH-forwarded TCP path performed substantially better than the temporary Runpod HTTP bridge used when raw port forwarding was unavailable.
+
+Cleanup result from the June 15, 2026 AWS fallback run:
+
+- The EC2 instance was terminated immediately after the run.
+- The temporary security group and EC2 key pair were deleted.
+- The local SSH tunnel and local temporary AWS state artifacts were removed.
+- The final AWS leftover check for the tagged instance returned `[]`.
+
+AWS GPU rerun gate:
+
+- Before rerunning this flow on a real GPU-backed Amazon target, the account needs a GPU quota increase.
+- The cheapest practical rerun target remains `g4dn.xlarge`.
+
 ## Runpod cloud-host preflight and cleanup notes
 
 The June 14, 2026 Runpod validation established that the cheapest usable GPU host for this project can be provisioned automatically, but a stock pod is not reachable for bootstrap unless the Runpod account already has an SSH public key configured.

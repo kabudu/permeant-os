@@ -5,6 +5,7 @@ PermeantOS is a prototype for live cross-host KV-cache migration between heterog
 Key docs:
 - `docs/deployment-and-testing-guide.md`: local, cloud-host, manifest, benchmark, and reusable Runpod HTTP-bridge workflow
 - `docs/runpod-e2e-2026-06-14.md`: dated write-up and benchmarks from the successful MLX laptop to Runpod cross-host run on June 14, 2026
+- `docs/aws-fallback-e2e-2026-06-15.md`: dated write-up and cleanup record from the successful MLX laptop to AWS fallback cross-host run on June 15, 2026
 - `docs/runtime-adapter-protocol.md`: command-backed extractor/injector contract
 - `docs/real-runtime-bringup.md`: next milestone plan plus the live target-runtime registration path
 
