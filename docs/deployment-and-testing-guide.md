@@ -504,6 +504,54 @@ AWS GPU rerun gate:
 - Before rerunning this flow on a real GPU-backed Amazon target, the account needs a GPU quota increase.
 - The cheapest practical rerun target remains `g4dn.xlarge`.
 
+## AWS GPU-backed cross-host result (June 15, 2026)
+
+After the `us-east-1` EC2 `Running On-Demand G and VT instances` quota propagated, we reran the same live-source AWS path against a disposable `g4dn.xlarge` target.
+
+Successful GPU-backed run details:
+
+- Provider: AWS EC2
+- Target instance: `g4dn.xlarge`
+- Region: `us-east-1`
+- Availability Zone: `us-east-1d`
+- Source runtime: live `mlx_lm` process on the laptop
+- Transport path: local SSH tunnel to the remote daemon
+- Successful transfer mode: `fp8`
+- Sequence length: `2048`
+- Layers transferred by the current CLI path: `4`
+- Expected blocks: `8`
+- Chunks sent: `64`
+- Transferred bytes: `2097152`
+- Handshake time: `186.936667 ms`
+- Header time: `197.943916 ms`
+- Transfer time: `11665.199417 ms`
+- Commit time: `871.152375 ms`
+- Total time: `25245.342833 ms`
+- Effective bandwidth: about `0.001438 Gbps`
+- Manifest: `migration-20260615-215310-60139-manifest.json`
+
+Comparison against the June 15 AWS CPU fallback and earlier Runpod proofs:
+
+| Run | Target | Transfer time (ms) | Commit time (ms) | Total time (ms) | Effective bandwidth (Gbps) | Result |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| AWS GPU | `g4dn.xlarge` | 11665.199417 | 871.152375 | 25245.342833 | 0.001438227963385703 | `committed` |
+| AWS CPU fallback | `t3.medium` | 9837.705375000001 | 1190.1692500000001 | 23106.294833 | 0.0017053993142176205 | `committed` |
+| Runpod live-source proof | RTX 3090 | 143485.886833 | 690.566042 | 156377.4295 | 0.00011692589682723728 | `committed` |
+| Runpod HTTP bridge proof | RTX 3090 | 40803.50075 | 613.6366250000001 | 54649.212125 | 0.0016446839797195588 | `committed` |
+
+Important interpretation:
+
+- The GPU-backed AWS run is much stronger than the earlier Runpod proofs as a cloud-host benchmark point.
+- The current benchmark still appears transport- and staged-import-bound rather than GPU-compute-bound, because the CPU fallback remained slightly faster on this exact 2048-token slice.
+- The result still meaningfully de-risks the intended target environment shape because the cross-host path now works end to end on a GPU-backed public-cloud instance.
+
+Cleanup result from the June 15, 2026 AWS GPU-backed run:
+
+- The EC2 instance was terminated immediately after the run.
+- The temporary security group and EC2 key pair were deleted.
+- The local SSH tunnel and local temporary AWS state artifacts were removed.
+- Final leftover verification returned `instances=[]` and `security_groups=[]`.
+
 ## Runpod cloud-host preflight and cleanup notes
 
 The June 14, 2026 Runpod validation established that the cheapest usable GPU host for this project can be provisioned automatically, but a stock pod is not reachable for bootstrap unless the Runpod account already has an SSH public key configured.
