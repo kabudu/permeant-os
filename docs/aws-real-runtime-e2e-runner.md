@@ -250,3 +250,23 @@ The real-runtime evidence now separates two concerns:
 - Request/decode attachment: a plain `LLM.generate([prompt])` creates a fresh vLLM request from prompt tokens, so the target records a `migrated_decode_attachment_attempt` event before post-migration generation instead of silently treating that fresh request as migrated decode.
 
 The diagnostic event captures the migrated block-table candidate plus the reachable vLLM scheduler/cache/block-pool surface. A passing real-system milestone requires `migrated_decode_attachment_supported=true`, meaning the generated continuation request was explicitly bound to the migrated KV slots or an equivalent prefix-cache entry before decode.
+
+## 2026-06-16 attachment-diagnostic AWS run
+
+Run ID: `20260616-210902`
+Manifest: `migration-20260616-211806-94440-manifest.json`
+Instance: `g4dn.xlarge` in `us-east-1d`
+Model: `Qwen/Qwen2.5-0.5B-Instruct`
+Cleanup: completed; EC2 instance `i-098a8afce2f6fc415` terminated, security group `sg-0cd8c2a9991022cf8` deleted, and key pair `permeantos-real-e2e-20260616-210902-key` deleted.
+
+Results:
+
+- Migration completed successfully and hash verification passed.
+- 24 vLLM layers were written.
+- Slot probe matched all sampled key/value tensors with `max_key_abs_diff=0.0` and `max_value_abs_diff=0.0`.
+- Decode snapshots were captured before/after baseline and post-migration generation.
+- Post-migration output matched the target baseline exactly, but did not match the source continuation.
+- `migrated_decode_attachment_supported=false`.
+- Diagnostic reason: no safe public vLLM request/block-table attachment API has been identified yet for binding migrated KV slots to `LLM.generate()`.
+
+Verdict: the cache transport and target KV write path are repeatably working on a real AWS GPU runtime, but this run still does not prove full migrated decode fidelity. The remaining milestone is explicit vLLM request/block-table or prefix-cache attachment so post-migration decode consumes the migrated KV span rather than creating a fresh request.
