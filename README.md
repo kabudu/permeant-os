@@ -9,6 +9,7 @@ Key docs:
 - `docs/aws-gpu-e2e-2026-06-15.md`: dated write-up and comparison table from the successful MLX laptop to AWS GPU-backed cross-host run on June 15, 2026
 - `docs/aws-real-runtime-e2e-2026-06-15.md`: dated write-up from the successful MLX laptop to live in-process AWS vLLM runtime run on June 15, 2026
 - `docs/aws-real-runtime-e2e-2026-06-16.md`: dated write-up from the successful MLX laptop to live in-process AWS vLLM runtime run on June 16, 2026, including the first exact source-vs-target continuation comparison
+- `docs/aws-real-runtime-e2e-runner.md`: repeatable AWS real-runtime E2E runner and cleanup/resume runbook
 - `docs/runtime-adapter-protocol.md`: command-backed extractor/injector contract
 - `docs/real-runtime-bringup.md`: next milestone plan plus the live target-runtime registration path
 
