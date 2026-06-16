@@ -188,6 +188,87 @@ def _shape_of_storage(value: Any) -> list[int]:
     return dims
 
 
+def _preview_flat_values(value: Any, limit: int = 8) -> list[float]:
+    if value is None or limit <= 0:
+        return []
+
+    if hasattr(value, "detach") and hasattr(value, "reshape"):
+        try:
+            flat = value.detach().cpu().reshape(-1)
+            count = min(limit, int(flat.numel()))
+            return [float(flat[index].item()) for index in range(count)]
+        except Exception:
+            pass
+
+    preview: list[float] = []
+
+    def walk(node: Any) -> None:
+        if len(preview) >= limit:
+            return
+        if isinstance(node, (list, tuple)):
+            for item in node:
+                walk(item)
+                if len(preview) >= limit:
+                    return
+            return
+        try:
+            preview.append(float(node))
+        except Exception:
+            return
+
+    walk(value)
+    return preview
+
+
+def _prepared_layer_summary(layer: dict[str, Any]) -> dict[str, Any]:
+    key_source, value_source, block_size, kv_heads, head_dim, is_flat = _layer_block_views(layer)
+    source_block_count = _source_block_count(key_source, is_flat)
+    if is_flat:
+        key_preview = [float(item) for item in key_source["data"][:8]]
+        value_preview = [float(item) for item in value_source["data"][:8]]
+    else:
+        key_preview = _preview_flat_values(key_source, 8)
+        value_preview = _preview_flat_values(value_source, 8)
+
+    return {
+        "block_count": source_block_count,
+        "block_size": block_size,
+        "kv_heads": kv_heads,
+        "head_dim": head_dim,
+        "key_preview": key_preview,
+        "value_preview": value_preview,
+    }
+
+
+def _cache_storage_summary(cache: Any) -> dict[str, Any]:
+    if isinstance(cache, dict):
+        key_cache = cache.get("key")
+        value_cache = cache.get("value")
+        return {
+            "kind": "dict",
+            "key_shape": _shape_of_storage(key_cache),
+            "value_shape": _shape_of_storage(value_cache),
+            "key_preview": _preview_flat_values(key_cache, 8),
+            "value_preview": _preview_flat_values(value_cache, 8),
+        }
+
+    if isinstance(cache, (list, tuple)) and len(cache) == 2:
+        key_cache, value_cache = cache
+        return {
+            "kind": "pair",
+            "key_shape": _shape_of_storage(key_cache),
+            "value_shape": _shape_of_storage(value_cache),
+            "key_preview": _preview_flat_values(key_cache, 8),
+            "value_preview": _preview_flat_values(value_cache, 8),
+        }
+
+    return {
+        "kind": "tensor",
+        "shape": _shape_of_storage(cache),
+        "preview": _preview_flat_values(cache, 8),
+    }
+
+
 def _layer_index_from_name(name: str) -> int | None:
     for pattern in _LAYER_PATTERNS:
         match = pattern.search(name)
@@ -412,6 +493,7 @@ def _direct_register_into_kv_caches(runtime: Any, payload: dict[str, Any]) -> di
     kv_caches = _get_kv_caches(runtime)
     layer_map = _get_layer_map(runtime, kv_caches)
     written_layers: list[str] = []
+    written_layer_summaries: list[dict[str, Any]] = []
 
     for layer in payload.get("layers", []):
         layer_index = layer.get("layer_index")
@@ -427,8 +509,20 @@ def _direct_register_into_kv_caches(runtime: Any, payload: dict[str, Any]) -> di
         else:
             _write_separate_cache(cache, layer)
         written_layers.append(layer_name)
+        written_layer_summaries.append(
+            {
+                "layer_index": layer_index,
+                "layer_name": layer_name,
+                "source": _prepared_layer_summary(layer),
+                "target": _cache_storage_summary(cache),
+            }
+        )
 
-    return {"success": True, "written_layers": written_layers}
+    return {
+        "success": True,
+        "written_layers": written_layers,
+        "written_layer_summaries": written_layer_summaries,
+    }
 
 
 def _direct_verify_runtime(runtime: Any, block_hashes: list[str]) -> dict[str, Any] | None:

@@ -97,3 +97,37 @@ The next debugging target is therefore the semantic/layout/runtime boundary rath
 - canonical-to-target KV layout semantics beyond simple shape compatibility
 - block ordering or per-layer placement subtleties in the live `vLLM` cache writer
 - runtime state outside the migrated KV tensors that still affects the next-token decision
+
+## Next run instrumentation
+
+The next real run should compare three continuations side by side:
+
+- the source continuation from the MLX host
+- a target baseline continuation captured before migration
+- the target continuation generated after migration
+
+To support that, the target runtime now:
+
+- captures a baseline continuation during real runtime initialization
+- records richer per-layer cache-write summaries in the probe output
+- exposes a lightweight analyzer script at `adapters/analyze_real_runtime_fidelity.py`
+
+Example usage:
+
+```bash
+python3 adapters/analyze_real_runtime_fidelity.py \
+  --manifest migration-20260616-151833-27980-manifest.json \
+  --probe /tmp/permeant_vllm_probe.json \
+  --pretty
+```
+
+The analyzer reports:
+
+- migration success
+- verification success
+- number of target layers written
+- first mismatch index versus the source continuation
+- first mismatch index versus the target baseline continuation
+- whether post-migration output exactly matches the target baseline
+
+If a future run shows the post-migration continuation remaining close to the target baseline rather than the source, that will strongly suggest we still need to migrate additional runtime state beyond KV cache tensors.

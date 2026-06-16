@@ -27,6 +27,7 @@ class RealVllmRuntime:
         self.last_register_payload: dict[str, Any] | None = None
         self.last_verify_result: dict[str, Any] | None = None
         self.last_continuation: dict[str, Any] | None = None
+        self.baseline_continuation: dict[str, Any] | None = None
 
     def register_permeant_block(self, payload: dict[str, Any], request: dict[str, Any] | None = None) -> dict[str, Any]:
         from vllm_live_runtime_registry import _direct_register_into_kv_caches
@@ -35,6 +36,8 @@ class RealVllmRuntime:
         self.last_register_payload = {
             "hash": payload.get("hash"),
             "layer_count": len(payload.get("layers", [])),
+            "written_layers": result.get("written_layers", []),
+            "written_layer_summaries": result.get("written_layer_summaries", []),
             "request": request or {},
         }
         _append_probe_event(
@@ -43,6 +46,7 @@ class RealVllmRuntime:
                 "hash": payload.get("hash"),
                 "layer_count": len(payload.get("layers", [])),
                 "written_layers": result.get("written_layers", []),
+                "written_layer_summaries": result.get("written_layer_summaries", []),
             }
         )
         return result
@@ -68,6 +72,10 @@ class RealVllmRuntime:
             source_reference = _source_continuation_reference()
             if source_reference is not None:
                 result["source_comparison"] = _compare_continuations(source_reference, continuation)
+            if self.baseline_continuation is not None:
+                result["baseline_comparison"] = _compare_continuations(
+                    self.baseline_continuation, continuation
+                )
 
         self.last_verify_result = result
         _append_probe_event(
@@ -76,12 +84,25 @@ class RealVllmRuntime:
                 "request": request or {},
                 "continuation_generated": "continuation" in result,
                 "source_comparison_available": "source_comparison" in result,
+                "baseline_comparison_available": "baseline_comparison" in result,
                 **{k: v for k, v in result.items() if k != "continuation"},
             }
         )
         return result
 
     def generate_continuation(self, prompt: str, max_tokens: int = 16) -> dict[str, Any]:
+        return self._sample_continuation(
+            prompt=prompt,
+            max_tokens=max_tokens,
+            event_name="generate_continuation",
+        )
+
+    def _sample_continuation(
+        self,
+        prompt: str,
+        max_tokens: int = 16,
+        event_name: str = "generate_continuation",
+    ) -> dict[str, Any]:
         from vllm import SamplingParams
 
         sampling = SamplingParams(max_tokens=max_tokens, temperature=0.0)
@@ -105,7 +126,7 @@ class RealVllmRuntime:
             "text": text,
             "token_ids": token_ids,
         }
-        _append_probe_event({"event": "generate_continuation", **continuation})
+        _append_probe_event({"event": event_name, **continuation})
         return continuation
 
 
@@ -330,4 +351,12 @@ def get_runtime(payload: dict[str, Any] | None = None, request: dict[str, Any] |
         }
         _RUNTIME_SINGLETON = RealVllmRuntime(llm=llm, kv_caches=kv_caches, layer_map=layer_map, metadata=metadata)
         _write_probe({"event": "runtime_initialized", **metadata})
+        baseline_prompt = os.getenv("PERMEANT_VLLM_CONTINUATION_PROMPT")
+        capture_baseline = os.getenv("PERMEANT_VLLM_CAPTURE_BASELINE", "1") != "0"
+        if baseline_prompt and capture_baseline:
+            _RUNTIME_SINGLETON.baseline_continuation = _RUNTIME_SINGLETON._sample_continuation(
+                prompt=baseline_prompt,
+                max_tokens=int(os.getenv("PERMEANT_VLLM_CONTINUATION_MAX_TOKENS", "16")),
+                event_name="baseline_continuation",
+            )
     return _RUNTIME_SINGLETON
