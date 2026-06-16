@@ -309,3 +309,25 @@ Observed result:
 Verdict:
 
 PermeantOS now demonstrates a real-runtime, real-target E2E migration path for this model shape: extraction, transport, target allocation, KV write, hash validation, prefix-cache attachment, and target-side decode reuse all work. The remaining gap is cross-runtime decode fidelity between MLX and vLLM, which should be treated as the next milestone rather than a transport or manifesting failure.
+
+## Cross-runtime decode fidelity run: 2026-06-16/17
+
+Run ID: `20260616-230743`
+Migration manifest: `migration-20260616-231535-66524-manifest.json`
+Source runtime: local MLX, `Qwen/Qwen2.5-0.5B-Instruct`, 2016-token exported prompt/cache
+Target runtime: AWS `g4dn.xlarge`, vLLM `0.23.0`, `Qwen/Qwen2.5-0.5B-Instruct`
+Cleanup: AWS instance `i-0771a38141812d025`, security group `sg-0b8e326c353d44a48`, and key pair `permeantos-real-e2e-20260616-230743-key` were cleaned up by the runner.
+
+Observed result:
+
+- Migration completed successfully.
+- Hash validation succeeded.
+- All 24 layers were written and verified.
+- Slot-probe equality passed for all sampled layers: max key diff `0.0`, max value diff `0.0`.
+- vLLM prefix-cache seeding succeeded for 16 migrated target blocks.
+- Source continuation, post-migration vLLM continuation, and target baseline continuation all matched exactly for 16 generated tokens.
+- The target prompt token count was `2016`, leaving enough room in the 2048-token vLLM context for the full continuation.
+
+Fidelity verdict:
+
+The previous source/target divergence was caused by context-window exhaustion at the target, not by a KV migration or decode-attachment fidelity defect. With the default sequence length reduced to `2016`, PermeantOS demonstrates full 16-token cross-runtime decode fidelity for this MLX-to-vLLM Qwen run.
