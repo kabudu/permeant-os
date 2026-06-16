@@ -174,3 +174,66 @@ The live writer now also records `slot_probe` samples for combined vLLM KV cache
 - absolute deltas and match booleans
 
 If the next run shows every slot sample matching while continuation still equals the target baseline, the strongest remaining hypothesis becomes missing runtime decode state outside the KV tensors. If slot samples fail, the next target is the cache writer's block/token layout.
+
+## Run D: slot-probe validated live migration
+
+Manifest:
+- `migration-20260616-184657-47652-manifest.json`
+
+Target probe:
+- `/tmp/permeant-vllm-runtime-probe-20260616-184657-47652.json`
+
+Key results:
+- `success: true`
+- `layers: 24`
+- `transfer_quantization: none`
+- `chunks_sent: 384`
+- all layers injected and verified
+- analyzer `hash_validation_success: true`
+
+Slot-probe result:
+- `layers: 24`
+- `all_layers_slot_probe_match: true`
+- `slot_probe_failure_count: 0`
+- `max_key_abs_diff: 0.0`
+- `max_value_abs_diff: 0.0`
+
+Continuation comparison:
+- source final token text: `For`
+- target baseline final token text: `A`
+- post-migration final token text: `A`
+- post-migration exactly matched target baseline: `true`
+- first source mismatch: token index `15`
+
+This run proves that the sampled KV values written into the live `vLLM` target slots exactly match the source values after canonical-to-target placement. The remaining fidelity gap is therefore no longer explained by transfer compression or by the sampled slot writer coordinates.
+
+## Updated verdict after Run D
+
+`permeantOS` works for the core cross-host migration mechanics:
+- live source extraction from the MLX host
+- encrypted cross-host transfer
+- real AWS GPU target initialization
+- real `vLLM` target cache registration
+- all-layer injection and hash verification
+- sampled slot-level key/value equality against the source tensors
+
+`permeantOS` still does not yet prove bit-faithful continuation transfer. The target continuation remains identical to the target baseline instead of the MLX source continuation, even when sampled KV slots match exactly.
+
+The fidelity gap is now most likely in runtime decode state outside the sampled KV tensor writes, for example:
+- scheduler/request state used to attach a migrated cache to the next decode step
+- prefix cache metadata or block-table ownership state
+- logits-position, sequence-position, or token-history state not captured by raw KV tensors
+- source/target runtime semantic differences after the same prompt and cache values
+
+## Operational lesson from Run D
+
+Fresh disposable GPU hosts are too slow and noisy for repeated E2E validation because `vLLM`, Torch, CUDA libraries, model weights, and FlashInfer kernels are rebuilt or warmed repeatedly.
+
+Before the next real E2E cycle, create a prewarmed AWS image or container that already contains:
+- Rust build dependencies
+- the built `permeant-cli`
+- Python virtualenv with `vLLM 0.23.0`
+- downloaded `Qwen/Qwen2.5-0.5B-Instruct` weights
+- warmed FlashInfer kernels for the selected GPU architecture
+
+That will make future runs test `permeantOS`, not cloud bootstrap.
