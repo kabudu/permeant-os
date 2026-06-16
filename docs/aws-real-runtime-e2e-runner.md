@@ -37,7 +37,7 @@ The default target configuration matches the validated real-runtime runs:
 - instance type: `g4dn.xlarge`
 - AMI: `ami-01011b868ec560823`
 - model: `Qwen/Qwen2.5-0.5B-Instruct`
-- sequence length: `2048`
+- sequence length: `2016`
 - local MLX exporter URL: `http://127.0.0.1:29101`
 - source continuation file: `/tmp/permeant-source-continuation.json`
 - local tunnel port: `39099`
@@ -49,7 +49,7 @@ AWS_REGION=us-east-1 \
 AWS_AZ=us-east-1d \
 AWS_INSTANCE_TYPE=g4dn.xlarge \
 PERMEANT_MODEL=Qwen/Qwen2.5-0.5B-Instruct \
-PERMEANT_SEQ_LEN=2048 \
+PERMEANT_SEQ_LEN=2016 \
 scripts/aws-real-runtime-e2e.sh run
 ```
 
@@ -113,7 +113,7 @@ AWS may still show terminated instances in the EC2 console for a while. That is 
 
 ## Fidelity interpretation
 
-A successful run is not enough by itself. The analyzer and slot-probe summary should be read together.
+A successful run is not enough by itself. The analyzer and slot-probe summary should be read together. The default sequence length is intentionally `2016`, not the full `2048`, so the vLLM target has enough remaining context window to generate the full 16-token continuation after its tokenizer-specific prompt expansion.
 
 The current expected state after Run D is:
 

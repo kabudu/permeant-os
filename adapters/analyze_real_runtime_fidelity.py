@@ -38,6 +38,12 @@ def _first_mismatch(comparison: dict[str, Any] | None) -> int | None:
     return comparison.get("first_token_mismatch_index")
 
 
+def _comparison_field(comparison: dict[str, Any] | None, field: str) -> Any:
+    if not isinstance(comparison, dict):
+        return None
+    return comparison.get(field)
+
+
 def _summarize(manifest: dict[str, Any], probe: dict[str, Any]) -> dict[str, Any]:
     events = probe.get("events")
     events = events if isinstance(events, list) else []
@@ -83,7 +89,14 @@ def _summarize(manifest: dict[str, Any], probe: dict[str, Any]) -> dict[str, Any
         "hash_validation_success": verify.get("success"),
         "written_layers": len(register_event.get("written_layers", [])),
         "source_first_mismatch_index": _first_mismatch(source_comparison),
+        "source_shared_prefix_token_count": _comparison_field(source_comparison, "shared_prefix_token_count"),
+        "source_expected_token_count": _comparison_field(source_comparison, "expected_token_count"),
+        "source_actual_token_count": _comparison_field(source_comparison, "actual_token_count"),
+        "source_actual_ended_before_reference": bool(
+            _comparison_field(source_comparison, "actual_ended_before_reference")
+        ),
         "baseline_first_mismatch_index": _first_mismatch(baseline_comparison),
+        "baseline_shared_prefix_token_count": _comparison_field(baseline_comparison, "shared_prefix_token_count"),
         "matches_source_exactly": bool(
             isinstance(source_comparison, dict) and source_comparison.get("matches")
         ),

@@ -14,7 +14,7 @@ Environment overrides:
   AWS_INSTANCE_TYPE                  default: g4dn.xlarge
   AWS_AMI_ID                         default: ami-01011b868ec560823
   PERMEANT_MODEL                     default: Qwen/Qwen2.5-0.5B-Instruct
-  PERMEANT_SEQ_LEN                   default: 2048
+  PERMEANT_SEQ_LEN                   default: 2016
   PERMEANT_SOURCE_URL                default: http://127.0.0.1:29101
   PERMEANT_SOURCE_CONTINUATION_FILE  default: /tmp/permeant-source-continuation.json
   PERMEANT_LOCAL_TUNNEL_PORT         default: 39099
@@ -33,7 +33,7 @@ AWS_AZ="${AWS_AZ:-us-east-1d}"
 AWS_INSTANCE_TYPE="${AWS_INSTANCE_TYPE:-g4dn.xlarge}"
 AWS_AMI_ID="${AWS_AMI_ID:-ami-01011b868ec560823}"
 PERMEANT_MODEL="${PERMEANT_MODEL:-Qwen/Qwen2.5-0.5B-Instruct}"
-PERMEANT_SEQ_LEN="${PERMEANT_SEQ_LEN:-2048}"
+PERMEANT_SEQ_LEN="${PERMEANT_SEQ_LEN:-2016}"
 PERMEANT_SOURCE_URL="${PERMEANT_SOURCE_URL:-http://127.0.0.1:29101}"
 PERMEANT_SOURCE_CONTINUATION_FILE="${PERMEANT_SOURCE_CONTINUATION_FILE:-/tmp/permeant-source-continuation.json}"
 PERMEANT_LOCAL_TUNNEL_PORT="${PERMEANT_LOCAL_TUNNEL_PORT:-39099}"

@@ -158,11 +158,16 @@ def _maybe_write_source_continuation(runtime: LiveRuntime) -> None:
     )
     generated_text = _extract_first_output_text(response, prompt)
     token_ids = _extract_first_output_token_ids(response, runtime.tokenizer, generated_text)
+    prompt_token_ids = _encode_prompt(runtime.tokenizer, prompt)
     payload = {
         "prompt": prompt,
+        "prompt_token_ids": prompt_token_ids,
+        "prompt_token_count": len(prompt_token_ids),
         "text": generated_text,
         "token_ids": token_ids,
+        "token_count": len(token_ids),
         "model_id": _model_id(),
+        "max_tokens": _continuation_max_tokens(),
     }
     Path(output_path).write_text(__import__("json").dumps(payload, indent=2), encoding="utf-8")
 

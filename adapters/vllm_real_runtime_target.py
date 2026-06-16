@@ -229,20 +229,32 @@ def _compare_continuations(reference: dict[str, Any], actual: dict[str, Any]) ->
     token_ids_match = isinstance(expected_token_ids, list) and expected_token_ids == actual_token_ids
 
     first_token_mismatch_index = None
+    shared_prefix_token_count = None
+    actual_ended_before_reference = False
+    reference_ended_before_actual = False
     if isinstance(expected_token_ids, list) and isinstance(actual_token_ids, list):
         max_len = min(len(expected_token_ids), len(actual_token_ids))
+        shared_prefix_token_count = max_len
         for index in range(max_len):
             if expected_token_ids[index] != actual_token_ids[index]:
                 first_token_mismatch_index = index
+                shared_prefix_token_count = index
                 break
         if first_token_mismatch_index is None and len(expected_token_ids) != len(actual_token_ids):
             first_token_mismatch_index = max_len
+            actual_ended_before_reference = len(actual_token_ids) < len(expected_token_ids)
+            reference_ended_before_actual = len(expected_token_ids) < len(actual_token_ids)
 
     return {
         "reference_available": True,
         "prompt_matches": reference.get("prompt") == actual.get("prompt"),
         "text_matches": text_matches,
         "token_ids_match": token_ids_match,
+        "shared_prefix_token_count": shared_prefix_token_count,
+        "expected_token_count": len(expected_token_ids) if isinstance(expected_token_ids, list) else None,
+        "actual_token_count": len(actual_token_ids) if isinstance(actual_token_ids, list) else None,
+        "actual_ended_before_reference": actual_ended_before_reference,
+        "reference_ended_before_actual": reference_ended_before_actual,
         "matches": text_matches and token_ids_match,
         "expected_text": expected_text,
         "actual_text": actual_text,
