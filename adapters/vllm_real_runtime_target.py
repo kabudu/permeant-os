@@ -29,14 +29,30 @@ class RealVllmRuntime:
         self.last_continuation: dict[str, Any] | None = None
         self.baseline_continuation: dict[str, Any] | None = None
         self.last_decode_attachment_snapshot: dict[str, Any] | None = None
+        self.last_migrated_decode_attachment_attempt: dict[str, Any] | None = None
 
     def register_permeant_block(self, payload: dict[str, Any], request: dict[str, Any] | None = None) -> dict[str, Any]:
         from vllm_live_runtime_registry import _direct_register_into_kv_caches
 
         result = dict(_direct_register_into_kv_caches(self, payload))
+        layer_shapes: list[dict[str, Any]] = []
+        for layer in payload.get("layers", []):
+            if not isinstance(layer, dict):
+                continue
+            key = layer.get("key") if isinstance(layer.get("key"), dict) else {}
+            value = layer.get("value") if isinstance(layer.get("value"), dict) else {}
+            layer_shapes.append(
+                {
+                    "layer_index": layer.get("layer_index"),
+                    "key_shape": key.get("shape"),
+                    "value_shape": value.get("shape"),
+                }
+            )
         self.last_register_payload = {
             "hash": payload.get("hash"),
+            "block_size": payload.get("block_size"),
             "layer_count": len(payload.get("layers", [])),
+            "layer_shapes": layer_shapes,
             "written_layers": result.get("written_layers", []),
             "written_layer_summaries": result.get("written_layer_summaries", []),
             "request": request or {},
@@ -107,6 +123,9 @@ class RealVllmRuntime:
         from vllm import SamplingParams
 
         sampling = SamplingParams(max_tokens=max_tokens, temperature=0.0)
+        attachment_attempt = None
+        if event_name == "generate_continuation":
+            attachment_attempt = _migrated_decode_attachment_attempt(self)
         before_snapshot = _decode_attachment_snapshot(
             runtime=self,
             prompt=prompt,
@@ -138,6 +157,7 @@ class RealVllmRuntime:
             "text": text,
             "token_ids": token_ids,
             "decode_attachment": {
+                "attachment_attempt": attachment_attempt,
                 "before": before_snapshot,
                 "after": after_snapshot,
             },
@@ -442,6 +462,108 @@ def _output_summary(outputs: Any) -> dict[str, Any]:
     return summary
 
 
+def _migration_block_table_candidate(runtime: RealVllmRuntime) -> dict[str, Any]:
+    payload = runtime.last_register_payload or {}
+    source_block_size = payload.get("block_size")
+    layer_shapes = payload.get("layer_shapes")
+    layer_shapes = layer_shapes if isinstance(layer_shapes, list) else []
+    source_block_count = None
+    if layer_shapes:
+        key_shape = layer_shapes[0].get("key_shape") if isinstance(layer_shapes[0], dict) else None
+        if isinstance(key_shape, list) and key_shape:
+            source_block_count = key_shape[0]
+
+    target_block_size = None
+    try:
+        cache_config = runtime.llm.llm_engine.input_processor.cache_config
+        target_block_size = getattr(cache_config, "block_size", None)
+    except Exception:
+        target_block_size = None
+
+    target_blocks_per_source_block = None
+    target_block_count = None
+    if isinstance(source_block_size, int) and isinstance(target_block_size, int) and target_block_size > 0:
+        target_blocks_per_source_block = (source_block_size + target_block_size - 1) // target_block_size
+        if isinstance(source_block_count, int):
+            target_block_count = source_block_count * target_blocks_per_source_block
+
+    return {
+        "hash": payload.get("hash"),
+        "layer_count": payload.get("layer_count"),
+        "source_block_size": source_block_size,
+        "source_block_count": source_block_count,
+        "target_block_size": target_block_size,
+        "target_blocks_per_source_block": target_blocks_per_source_block,
+        "target_block_count": target_block_count,
+        "attachment_requirement": "The generated vLLM request must bind this migrated KV span through a request block table or equivalent prefix-cache entry before decode.",
+    }
+
+
+def _method_names_matching(obj: Any, terms: tuple[str, ...], limit: int = 48) -> list[str]:
+    names: list[str] = []
+    try:
+        raw_names = dir(obj)
+    except Exception:
+        return names
+    for name in raw_names:
+        lower = name.lower()
+        if name.startswith("__") or not any(term in lower for term in terms):
+            continue
+        try:
+            value = getattr(obj, name)
+        except Exception:
+            continue
+        if callable(value):
+            names.append(name)
+        if len(names) >= limit:
+            break
+    return names
+
+
+def _migrated_decode_attachment_attempt(runtime: RealVllmRuntime) -> dict[str, Any]:
+    terms = ("block", "cache", "prefix", "request", "hash", "alloc", "touch", "free")
+    objects: dict[str, Any] = {}
+    try:
+        engine_core_client = runtime.llm.llm_engine.engine_core
+        objects["engine_core_client"] = engine_core_client
+        engine_core = getattr(engine_core_client, "engine_core", None)
+        if engine_core is not None:
+            objects["engine_core"] = engine_core
+            scheduler = getattr(engine_core, "scheduler", None)
+            if scheduler is not None:
+                objects["scheduler"] = scheduler
+                kv_cache_manager = getattr(scheduler, "kv_cache_manager", None)
+                if kv_cache_manager is not None:
+                    objects["kv_cache_manager"] = kv_cache_manager
+                    block_pool = getattr(kv_cache_manager, "block_pool", None)
+                    if block_pool is not None:
+                        objects["block_pool"] = block_pool
+    except Exception as exc:
+        objects["inspection_error"] = exc
+
+    surface: dict[str, Any] = {}
+    for name, obj in objects.items():
+        if isinstance(obj, BaseException):
+            surface[name] = {"error": repr(obj)}
+            continue
+        surface[name] = {
+            "type": _safe_type_name(obj),
+            "interesting_attrs": _object_interesting_attrs(obj),
+            "candidate_methods": _method_names_matching(obj, terms),
+        }
+
+    attempt = {
+        "attempted": True,
+        "supported": False,
+        "reason": "No safe public vLLM request/block-table attachment API has been identified for binding migrated KV slots to LLM.generate().",
+        "migration_block_table_candidate": _migration_block_table_candidate(runtime),
+        "runtime_attachment_surface": surface,
+    }
+    runtime.last_migrated_decode_attachment_attempt = attempt
+    _append_probe_event({"event": "migrated_decode_attachment_attempt", "attempt": attempt})
+    return attempt
+
+
 def _decode_attachment_snapshot(
     runtime: RealVllmRuntime,
     prompt: str,
@@ -459,6 +581,7 @@ def _decode_attachment_snapshot(
         "layer_map_count": len(runtime.permeant_layer_map),
         "runtime_metadata": runtime.metadata,
         "candidate_runtime_objects": _walk_interesting_runtime_objects(runtime.llm),
+        "migrated_decode_attachment_attempt": runtime.last_migrated_decode_attachment_attempt,
     }
     if outputs is not None:
         snapshot["outputs"] = _output_summary(outputs)

@@ -49,6 +49,7 @@ def _summarize(manifest: dict[str, Any], probe: dict[str, Any]) -> dict[str, Any
     generated_event = _find_event(events, "generate_continuation") or {}
     source_reference = verify.get("source_continuation") or {}
     decode_snapshots = _find_events(events, "decode_attachment_snapshot")
+    attachment_attempts = _find_events(events, "migrated_decode_attachment_attempt")
     post_decode_snapshots = [
         event
         for event in decode_snapshots
@@ -64,6 +65,12 @@ def _summarize(manifest: dict[str, Any], probe: dict[str, Any]) -> dict[str, Any
     )
     prompt_tokenization = post_decode_after.get("prompt_tokenization")
     outputs = post_decode_after.get("outputs")
+    last_attachment_attempt = attachment_attempts[-1].get("attempt", {}) if attachment_attempts else {}
+    block_table_candidate = (
+        last_attachment_attempt.get("migration_block_table_candidate", {})
+        if isinstance(last_attachment_attempt, dict)
+        else {}
+    )
 
     return {
         "migration_id": manifest.get("migration_id") or manifest.get("run_id"),
@@ -103,6 +110,19 @@ def _summarize(manifest: dict[str, Any], probe: dict[str, Any]) -> dict[str, Any
         )
         if isinstance(post_decode_after, dict)
         else 0,
+        "migrated_decode_attachment_attempt_count": len(attachment_attempts),
+        "migrated_decode_attachment_supported": bool(last_attachment_attempt.get("supported"))
+        if last_attachment_attempt
+        else False,
+        "migrated_decode_attachment_reason": last_attachment_attempt.get("reason")
+        if last_attachment_attempt
+        else None,
+        "migration_target_block_count": block_table_candidate.get("target_block_count")
+        if isinstance(block_table_candidate, dict)
+        else None,
+        "migration_target_block_size": block_table_candidate.get("target_block_size")
+        if isinstance(block_table_candidate, dict)
+        else None,
     }
 
 

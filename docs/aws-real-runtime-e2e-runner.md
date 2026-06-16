@@ -241,3 +241,12 @@ Interpretation:
 The migrated block hash and exact slot writes are present in the Permeant runtime wrapper, but the post-migration `LLM.generate()` path is still creating a normal fresh vLLM request from the prompt token ids. The captured request/output metadata does not show an attachment from the generated request to the migrated block hash.
 
 The next fix should therefore stop treating `LLM.generate([prompt])` as the post-migration decode path. Instead, the target runtime needs an explicit migrated-request attachment path that constructs or mutates the vLLM request/block-table/prefix-cache state so the next decode step selects the migrated KV block.
+
+## Decode attachment diagnostic milestone
+
+The real-runtime evidence now separates two concerns:
+
+- KV transport and slot writes: the AWS target receives the migrated block, writes all expected layers into vLLM KV memory, and the slot probe can confirm sampled key/value tensors match.
+- Request/decode attachment: a plain `LLM.generate([prompt])` creates a fresh vLLM request from prompt tokens, so the target records a `migrated_decode_attachment_attempt` event before post-migration generation instead of silently treating that fresh request as migrated decode.
+
+The diagnostic event captures the migrated block-table candidate plus the reachable vLLM scheduler/cache/block-pool surface. A passing real-system milestone requires `migrated_decode_attachment_supported=true`, meaning the generated continuation request was explicitly bound to the migrated KV slots or an equivalent prefix-cache entry before decode.
