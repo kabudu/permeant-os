@@ -55,3 +55,6 @@ coverage/
 htmlcov/
 *.profraw
 *.profdata
+
+# Local MLX source runtime venv
+.mlx-source-venv/
