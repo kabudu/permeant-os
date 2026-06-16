@@ -288,3 +288,24 @@ export PERMEANT_SOURCE_CONTINUATION_USE_PREFILL_PROMPT=1
 ```
 
 The AWS runner now sets `PERMEANT_VLLM_CONTINUATION_PROMPT_FROM_SOURCE=1` on the target, so the copied source reference prompt becomes the target continuation prompt. A fully working run should report both `migrated_decode_attachment_supported=true` and `vllm_prefix_cache_seed_success=true`; if the prompt has fewer than one full vLLM target block, seeding will fail by design.
+
+## Latest real-runtime E2E result: 2026-06-16 AWS g4dn.xlarge
+
+Run ID: `20260616-223959`
+Migration manifest: `migration-20260616-224810-41431-manifest.json`
+Source runtime: local MLX, `Qwen/Qwen2.5-0.5B-Instruct`, 2032-token exported prompt/cache
+Target runtime: AWS `g4dn.xlarge`, vLLM `0.23.0`, `Qwen/Qwen2.5-0.5B-Instruct`
+Cleanup: AWS instance, security group, and key pair were deleted by the runner cleanup path.
+
+Observed result:
+
+- The real cross-host transport completed successfully from the local MLX source to the AWS vLLM target.
+- The target registered all 24 layers and verified all migrated KV hashes.
+- The direct slot probe matched exactly across all written layers: max key diff `0.0`, max value diff `0.0`.
+- vLLM prefix-cache seeding succeeded for 16 migrated target blocks.
+- Post-migration decode attached to the seeded vLLM prefix path and exactly matched the target baseline output.
+- Source-vs-target decode fidelity still diverged after the first 11 generated tokens, so this run proves structural migration and target reuse, not bit-identical MLX-to-vLLM generation parity.
+
+Verdict:
+
+PermeantOS now demonstrates a real-runtime, real-target E2E migration path for this model shape: extraction, transport, target allocation, KV write, hash validation, prefix-cache attachment, and target-side decode reuse all work. The remaining gap is cross-runtime decode fidelity between MLX and vLLM, which should be treated as the next milestone rather than a transport or manifesting failure.
