@@ -552,6 +552,37 @@ Cleanup result from the June 15, 2026 AWS GPU-backed run:
 - The local SSH tunnel and local temporary AWS state artifacts were removed.
 - Final leftover verification returned `instances=[]` and `security_groups=[]`.
 
+After the June 16, 2026 rerun against the live in-process `vLLM` target path, we also captured the first exact source-versus-target continuation comparison.
+
+Successful live-runtime comparison run details:
+
+- Provider: AWS EC2
+- Target instance: `g4dn.xlarge`
+- Region: `us-east-1`
+- Availability Zone: `us-east-1d`
+- Source runtime: live `mlx_lm` process on the laptop
+- Transport path: local SSH tunnel to the remote daemon
+- Successful transfer mode: `fp8`
+- Sequence length: `2048`
+- Manifest: `migration-20260616-120353-7158-manifest.json`
+- Transfer time: `10966.254541 ms`
+- Commit time: `200688.12758300002 ms`
+- Total time: `222650.506042 ms`
+- Effective bandwidth: `0.001529894818442734 Gbps`
+
+Verdict after the June 16, 2026 live-runtime comparison run:
+
+- PermeantOS works end to end on the intended live-source to live-target runtime path.
+- The system successfully completed extraction, cross-host transfer, target-side live cache registration, post-migration generation, and committed migration state.
+- The new comparison harness shows that continuation fidelity is close but not yet exact: the first `15` generated tokens matched and the first divergence happened at token index `15`.
+- This moves the project out of the “prototype might work” category and into “real system works, with a measurable remaining fidelity gap.”
+
+Interpretation of the long total runtime:
+
+- The transfer path stayed in-family with earlier successful AWS runs.
+- The much larger total time came from a cold target-runtime bring-up cost inside commit: first-time `vLLM` initialization, model load, KV-cache sizing, and FlashInfer warmup on a fresh cloud host.
+- That means this run is the strongest functional proof so far, but not yet the best steady-state latency benchmark.
+
 ## Runpod cloud-host preflight and cleanup notes
 
 The June 14, 2026 Runpod validation established that the cheapest usable GPU host for this project can be provisioned automatically, but a stock pod is not reachable for bootstrap unless the Runpod account already has an SSH public key configured.
