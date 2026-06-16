@@ -65,6 +65,9 @@ class RealVllmRuntime:
             )
             self.last_continuation = continuation
             result["continuation"] = continuation
+            source_reference = _source_continuation_reference()
+            if source_reference is not None:
+                result["source_comparison"] = _compare_continuations(source_reference, continuation)
 
         self.last_verify_result = result
         _append_probe_event(
@@ -72,6 +75,7 @@ class RealVllmRuntime:
                 "event": "verify_permeant_hashes",
                 "request": request or {},
                 "continuation_generated": "continuation" in result,
+                "source_comparison_available": "source_comparison" in result,
                 **{k: v for k, v in result.items() if k != "continuation"},
             }
         )
@@ -139,6 +143,53 @@ def _append_probe_event(payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(existing, indent=2))
 
 
+def _source_continuation_reference() -> dict[str, Any] | None:
+    value = os.getenv("PERMEANT_SOURCE_CONTINUATION_FILE")
+    if not value:
+        return None
+    path = Path(value).expanduser()
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text())
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _compare_continuations(reference: dict[str, Any], actual: dict[str, Any]) -> dict[str, Any]:
+    expected_text = reference.get("text")
+    expected_token_ids = reference.get("token_ids")
+    actual_text = actual.get("text")
+    actual_token_ids = actual.get("token_ids")
+
+    text_matches = isinstance(expected_text, str) and expected_text == actual_text
+    token_ids_match = isinstance(expected_token_ids, list) and expected_token_ids == actual_token_ids
+
+    first_token_mismatch_index = None
+    if isinstance(expected_token_ids, list) and isinstance(actual_token_ids, list):
+        max_len = min(len(expected_token_ids), len(actual_token_ids))
+        for index in range(max_len):
+            if expected_token_ids[index] != actual_token_ids[index]:
+                first_token_mismatch_index = index
+                break
+        if first_token_mismatch_index is None and len(expected_token_ids) != len(actual_token_ids):
+            first_token_mismatch_index = max_len
+
+    return {
+        "reference_available": True,
+        "prompt_matches": reference.get("prompt") == actual.get("prompt"),
+        "text_matches": text_matches,
+        "token_ids_match": token_ids_match,
+        "matches": text_matches and token_ids_match,
+        "expected_text": expected_text,
+        "actual_text": actual_text,
+        "expected_token_ids": expected_token_ids,
+        "actual_token_ids": actual_token_ids,
+        "first_token_mismatch_index": first_token_mismatch_index,
+    }
+
+
 def _looks_like_cache_storage(value: Any) -> bool:
     shape = getattr(value, "shape", None)
     if shape is not None:
@@ -202,7 +253,8 @@ def _find_kv_caches(root: Any) -> tuple[dict[str, Any], dict[int, str]]:
             if cache is None:
                 continue
             if _looks_like_cache_storage(cache):
-                kv_caches.setdefault(path, cache)
+                attr_path = f"{path}.{attr_name}" if path else attr_name
+                kv_caches.setdefault(attr_path, cache)
             if _merge_cache_mapping(kv_caches, cache):
                 return
 
@@ -222,7 +274,10 @@ def _find_kv_caches(root: Any) -> tuple[dict[str, Any], dict[int, str]]:
     walk(root, "runtime", 0)
 
     layer_map: dict[int, str] = {}
-    for path in sorted(kv_caches):
+    preferred_paths = [
+        path for path in sorted(kv_caches) if ".layers." in path and ".kv_cache" in path
+    ]
+    for path in preferred_paths + sorted(kv_caches):
         if ".layers." in path:
             try:
                 after = path.split(".layers.", 1)[1]
@@ -265,10 +320,13 @@ def get_runtime(payload: dict[str, Any] | None = None, request: dict[str, Any] |
     if _RUNTIME_SINGLETON is None:
         llm = _create_llm()
         kv_caches, layer_map = _find_kv_caches(llm)
+        preferred_keys = [
+            key for key in sorted(kv_caches.keys()) if ".layers." in key and ".kv_cache" in key
+        ]
         metadata = {
             "model": os.getenv("PERMEANT_VLLM_MODEL"),
             "layer_count": len(layer_map),
-            "kv_cache_keys": list(sorted(kv_caches.keys()))[:16],
+            "kv_cache_keys": (preferred_keys or list(sorted(kv_caches.keys())))[:16],
         }
         _RUNTIME_SINGLETON = RealVllmRuntime(llm=llm, kv_caches=kv_caches, layer_map=layer_map, metadata=metadata)
         _write_probe({"event": "runtime_initialized", **metadata})

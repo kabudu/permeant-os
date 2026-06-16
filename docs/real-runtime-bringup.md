@@ -196,6 +196,8 @@ Environment:
 export PERMEANT_VLLM_RUNTIME_HOOK="/ABS/PATH/TO/adapters/vllm_live_runtime_registry.py:runtime_hook"
 export PERMEANT_VLLM_RUNTIME_TARGET="/ABS/PATH/TO/my_vllm_runtime.py:get_runtime"
 export VLLM_ENABLE_V1_MULTIPROCESSING=0
+export PERMEANT_MODEL_ARCHITECTURE="Qwen/Qwen2.5-0.5B-Instruct"
+export PERMEANT_MODEL_IDENTITY="Qwen/Qwen2.5-0.5B-Instruct"
 ```
 
 Optional method-name overrides:
@@ -205,6 +207,7 @@ export PERMEANT_VLLM_RUNTIME_REGISTER_METHOD=register_permeant_block
 export PERMEANT_VLLM_RUNTIME_VERIFY_METHOD=verify_permeant_hashes
 export PERMEANT_VLLM_RUNTIME_STATE_FILE=/tmp/permeant-vllm-runtime-state.json
 export PERMEANT_VLLM_RUNTIME_PROBE_FILE=/tmp/permeant-vllm-runtime-probe.json
+export PERMEANT_SOURCE_CONTINUATION_FILE=/tmp/permeant-source-continuation.json
 ```
 
 For `vLLM 0.23.0`, the successful AWS real-runtime run required
@@ -245,9 +248,11 @@ With this path:
 - acknowledged hashes are still written for transfer bookkeeping
 - `verify_continuation` is forwarded into the live runtime hook after the ack check passes
 - successful verification can append a continuation artifact to `/tmp/permeant-vllm-runtime-probe.json`
+- if `PERMEANT_SOURCE_CONTINUATION_FILE` points at a JSON reference with `prompt`, `text`, and `token_ids`, the target probe also records exact text and token-by-token comparison against that source reference
 
 Recommended first probe artifact to capture:
 - runtime initialization metadata
 - registered hash
 - verification success
 - continuation text/token IDs from the target runtime
+- source-vs-target continuation comparison results when a source reference file is available

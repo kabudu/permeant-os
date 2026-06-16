@@ -309,10 +309,44 @@ fn write_migration_manifest(manifest: &MigrationManifest) -> Result<String> {
     Ok(filename)
 }
 
+fn configured_model_architecture() -> String {
+    std::env::var("PERMEANT_MODEL_ARCHITECTURE")
+        .or_else(|_| std::env::var("PERMEANT_MLX_MODEL_ID"))
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "live-runtime-unknown".to_string())
+}
+
+fn configured_model_identity() -> String {
+    std::env::var("PERMEANT_MODEL_IDENTITY")
+        .or_else(|_| std::env::var("PERMEANT_MLX_MODEL_ID"))
+        .or_else(|_| std::env::var("PERMEANT_MODEL_ARCHITECTURE"))
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "live-runtime-unknown".to_string())
+}
+
+fn configured_model_config_hash(model_architecture: &str, model_identity: &str) -> String {
+    std::env::var("PERMEANT_MODEL_CONFIG_HASH")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| compute_sha256(format!("{}|{}", model_architecture, model_identity).as_bytes()))
+}
+
+fn configured_extractor_id() -> String {
+    std::env::var("PERMEANT_EXTRACTOR_ID")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "permeant-os-live-extractor".to_string())
+}
+
 async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) -> Result<()> {
     let total_start = std::time::Instant::now();
     let run_id = format!("migration-{}-{}", Utc::now().format("%Y%m%d-%H%M%S"), std::process::id());
     let source_environment = collect_environment_snapshot();
+    let model_architecture = configured_model_architecture();
+    let model_identity = configured_model_identity();
+    let model_config_hash = configured_model_config_hash(&model_architecture, &model_identity);
 
     // 1. Model Configuration
     let n_layers = 4; // keep it small for quick local simulation, but fully functional
@@ -332,7 +366,7 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) 
     println!("Step 2: Performing Capability Exchange...");
     let handshake_start = std::time::Instant::now();
     send_message(&mut socket, &MigrationMessage::CapabilityRequest {
-        model_architecture: "Llama-3.1-8B-Mock".to_string(),
+        model_architecture: model_architecture.clone(),
         attention_type: "gqa".to_string(),
         seq_len,
     }).await?;
@@ -371,10 +405,10 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) 
     
     let header = UsxfHeader {
         usxf_version: "1.1".to_string(),
-        model_architecture: "Llama-3.1-8B-Mock".to_string(),
+        model_architecture: model_architecture.clone(),
         model_identity: ModelIdentity {
-            config_hash: "sha256:7f8e9a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f".to_string(),
-            weights_revision: "hf:mock/Llama-3.1-8B-Mock".to_string(),
+            config_hash: model_config_hash.clone(),
+            weights_revision: model_identity.clone(),
         },
         attention_type: AttentionType::Gqa,
         model_cache_spec: ModelCacheSpec {
@@ -400,7 +434,7 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) 
         position_ids: None,
         extra: HashMap::new(),
         created_at: Utc::now(),
-        extractor_id: "permeant-os-mock-extractor".to_string(),
+        extractor_id: configured_extractor_id(),
         checksum,
         signature: "".to_string(), // will be updated/signed
     };
@@ -548,8 +582,8 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) 
                 source_environment,
                 target_addr: target_addr_str.to_string(),
                 target_device: target_device_name,
-                model_architecture: "Llama-3.1-8B-Mock".to_string(),
-                model_identity: "hf:mock/Llama-3.1-8B-Mock".to_string(),
+                model_architecture: model_architecture.clone(),
+                model_identity: model_identity.clone(),
                 usxf_version: "1.1".to_string(),
                 attention_type: "gqa".to_string(),
                 sequence_length: seq_len,
@@ -591,8 +625,8 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) 
                 source_environment,
                 target_addr: target_addr_str.to_string(),
                 target_device: target_device_name,
-                model_architecture: "Llama-3.1-8B-Mock".to_string(),
-                model_identity: "hf:mock/Llama-3.1-8B-Mock".to_string(),
+                model_architecture: model_architecture.clone(),
+                model_identity: model_identity.clone(),
                 usxf_version: "1.1".to_string(),
                 attention_type: "gqa".to_string(),
                 sequence_length: seq_len,

@@ -39,6 +39,13 @@ class LiveRuntime:
 _RUNTIME: LiveRuntime | None = None
 
 
+def _source_continuation_file() -> str | None:
+    value = os.getenv("PERMEANT_SOURCE_CONTINUATION_FILE")
+    if not value:
+        return None
+    return value
+
+
 def _target_seq_len() -> int:
     return int(os.getenv("PERMEANT_MLX_TARGET_SEQ_LEN", "2048"))
 
@@ -49,6 +56,18 @@ def _base_prompt() -> str:
 
 def _model_id() -> str:
     return os.getenv("PERMEANT_MLX_MODEL_ID", DEFAULT_MODEL)
+
+
+def _continuation_prompt() -> str | None:
+    return os.getenv("PERMEANT_SOURCE_CONTINUATION_PROMPT") or os.getenv("PERMEANT_VLLM_CONTINUATION_PROMPT")
+
+
+def _continuation_max_tokens() -> int:
+    return int(
+        os.getenv("PERMEANT_SOURCE_CONTINUATION_MAX_TOKENS")
+        or os.getenv("PERMEANT_VLLM_CONTINUATION_MAX_TOKENS")
+        or "16"
+    )
 
 
 def _encode_prompt(tokenizer: Any, prompt_text: str) -> list[int]:
@@ -80,6 +99,74 @@ def _prefill_prompt(model: Any, tokenizer: Any, prompt_tokens: list[int]) -> lis
     return response.caches[0]
 
 
+def _extract_first_output_text(response: Any, prompt: str) -> str:
+    candidates = []
+    for attr_name in ("text", "texts", "outputs", "generations", "responses"):
+        value = getattr(response, attr_name, None)
+        if value is not None:
+            candidates.append(value)
+
+    for candidate_group in candidates:
+        if isinstance(candidate_group, str):
+            text = candidate_group
+            return text[len(prompt) :] if text.startswith(prompt) else text
+        if isinstance(candidate_group, list) and candidate_group:
+            candidate = candidate_group[0]
+            if isinstance(candidate, str):
+                return candidate[len(prompt) :] if candidate.startswith(prompt) else candidate
+            for attr_name in ("text", "output_text", "generated_text"):
+                value = getattr(candidate, attr_name, None)
+                if isinstance(value, str):
+                    return value[len(prompt) :] if value.startswith(prompt) else value
+    return ""
+
+
+def _extract_first_output_token_ids(response: Any, tokenizer: Any, generated_text: str) -> list[int]:
+    candidates = []
+    for attr_name in ("token_ids", "output_ids", "generated_ids", "outputs", "generations", "responses"):
+        value = getattr(response, attr_name, None)
+        if value is not None:
+            candidates.append(value)
+
+    for candidate_group in candidates:
+        if isinstance(candidate_group, list) and candidate_group:
+            first = candidate_group[0]
+            if isinstance(first, list) and all(isinstance(item, int) for item in first):
+                return [int(item) for item in first]
+            for attr_name in ("token_ids", "output_ids", "generated_ids"):
+                value = getattr(first, attr_name, None)
+                if isinstance(value, list) and all(isinstance(item, int) for item in value):
+                    return [int(item) for item in value]
+
+    if not generated_text:
+        return []
+    return _encode_prompt(tokenizer, generated_text)
+
+
+def _maybe_write_source_continuation(runtime: LiveRuntime) -> None:
+    output_path = _source_continuation_file()
+    prompt = _continuation_prompt()
+    if not output_path or not prompt:
+        return
+
+    response = batch_generate(
+        runtime.model,
+        runtime.tokenizer,
+        prompts=[_encode_prompt(runtime.tokenizer, prompt)],
+        max_tokens=_continuation_max_tokens(),
+        verbose=False,
+    )
+    generated_text = _extract_first_output_text(response, prompt)
+    token_ids = _extract_first_output_token_ids(response, runtime.tokenizer, generated_text)
+    payload = {
+        "prompt": prompt,
+        "text": generated_text,
+        "token_ids": token_ids,
+        "model_id": _model_id(),
+    }
+    Path(output_path).write_text(__import__("json").dumps(payload, indent=2), encoding="utf-8")
+
+
 def _ensure_runtime(minimum_tokens: int) -> LiveRuntime:
     global _RUNTIME
 
@@ -94,6 +181,7 @@ def _ensure_runtime(minimum_tokens: int) -> LiveRuntime:
             prompt_tokens=prompt_tokens,
             caches=caches,
         )
+        _maybe_write_source_continuation(_RUNTIME)
         return _RUNTIME
 
     if len(_RUNTIME.prompt_tokens) < minimum_tokens:
@@ -106,6 +194,7 @@ def _ensure_runtime(minimum_tokens: int) -> LiveRuntime:
             prompt_tokens=prompt_tokens,
             caches=caches,
         )
+        _maybe_write_source_continuation(_RUNTIME)
     return _RUNTIME
 
 
