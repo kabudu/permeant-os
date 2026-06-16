@@ -341,6 +341,7 @@ def _combined_target_indices(
     token_index: int,
     head_index: int,
     dim_index: int,
+    target_block_ids: list[int] | None = None,
 ) -> tuple[tuple[int, ...], tuple[int, ...]]:
     kind = layout.get("kind")
     tokens_per_target_block = int(layout.get("tokens_per_target_block") or 1)
@@ -352,6 +353,7 @@ def _combined_target_indices(
     else:
         target_block_index = block_index
         target_token_index = token_index
+    target_block_index = _target_block_id(target_block_index, target_block_ids)
 
     if kind in {"combined_token_head_dim", "combined_split_token_head_dim"}:
         return (
@@ -373,7 +375,7 @@ def _value_at(value: Any, indices: tuple[int, ...]) -> float:
     return _scalar(cursor)
 
 
-def _combined_slot_samples(cache: Any, layer: dict[str, Any]) -> dict[str, Any]:
+def _combined_slot_samples(cache: Any, layer: dict[str, Any], target_block_ids: list[int] | None = None) -> dict[str, Any]:
     shape = _shape_of_storage(cache)
     key_source, value_source, block_size, kv_heads, head_dim, is_flat = _layer_block_views(layer)
     source_block_count = _source_block_count(key_source, is_flat)
@@ -399,6 +401,7 @@ def _combined_slot_samples(cache: Any, layer: dict[str, Any]) -> dict[str, Any]:
             token_index,
             head_index,
             dim_index,
+            target_block_ids,
         )
         target_key = _value_at(cache, key_indices)
         target_value = _value_at(cache, value_indices)
@@ -550,7 +553,42 @@ def _source_block_count(key_source: Any, is_flat: bool) -> int:
     return len(key_source)
 
 
-def _write_combined_cache(cache: Any, layer: dict[str, Any]) -> None:
+def _target_block_id(logical_block_index: int, target_block_ids: list[int] | None) -> int:
+    if target_block_ids is None:
+        return logical_block_index
+    return int(target_block_ids[logical_block_index])
+
+
+def _combined_target_block_count(cache: Any, layer: dict[str, Any]) -> int:
+    shape = _shape_of_storage(cache)
+    key_source, _value_source, block_size, kv_heads, head_dim, is_flat = _layer_block_views(layer)
+    source_block_count = _source_block_count(key_source, is_flat)
+    layout = _combined_layout(shape, block_size, kv_heads, head_dim)
+    return source_block_count * int(layout.get("target_blocks_per_source_block") or 1)
+
+
+def _allocate_target_block_ids(runtime: Any, target_block_count: int) -> tuple[list[int] | None, dict[str, Any]]:
+    if os.getenv("PERMEANT_VLLM_ALLOCATE_BLOCK_POOL", "1") == "0":
+        return None, {"mode": "sequential_disabled"}
+    try:
+        scheduler = runtime.llm.llm_engine.engine_core.engine_core.scheduler
+        block_pool = scheduler.kv_cache_manager.block_pool
+        blocks = block_pool.get_new_blocks(target_block_count)
+        block_ids = [int(block.block_id) for block in blocks]
+        return block_ids, {
+            "mode": "vllm_block_pool",
+            "target_block_count": target_block_count,
+            "target_block_ids": block_ids,
+        }
+    except Exception as exc:
+        return None, {
+            "mode": "sequential_fallback",
+            "target_block_count": target_block_count,
+            "error": repr(exc),
+        }
+
+
+def _write_combined_cache(cache: Any, layer: dict[str, Any], target_block_ids: list[int] | None = None) -> None:
     shape = _shape_of_storage(cache)
     key_source, value_source, block_size, kv_heads, head_dim, is_flat = _layer_block_views(layer)
     source_block_count = _source_block_count(key_source, is_flat)
@@ -568,8 +606,9 @@ def _write_combined_cache(cache: Any, layer: dict[str, Any]) -> None:
                         else:
                             key_value = key_source[block_index][head_index][dim_index][token_index]
                             value_value = value_source[block_index][head_index][token_index][dim_index]
-                        cache[block_index][0][token_index][head_index][dim_index] = key_value
-                        cache[block_index][1][token_index][head_index][dim_index] = value_value
+                        target_block_index = _target_block_id(block_index, target_block_ids)
+                        cache[target_block_index][0][token_index][head_index][dim_index] = key_value
+                        cache[target_block_index][1][token_index][head_index][dim_index] = value_value
         return
 
     if shape[2] == kv_heads and shape[3] == block_size and shape[4] == head_dim:
@@ -582,8 +621,9 @@ def _write_combined_cache(cache: Any, layer: dict[str, Any]) -> None:
                         else:
                             key_value = key_source[block_index][head_index][dim_index][token_index]
                             value_value = value_source[block_index][head_index][token_index][dim_index]
-                        cache[block_index][0][head_index][token_index][dim_index] = key_value
-                        cache[block_index][1][head_index][token_index][dim_index] = value_value
+                        target_block_index = _target_block_id(block_index, target_block_ids)
+                        cache[target_block_index][0][head_index][token_index][dim_index] = key_value
+                        cache[target_block_index][1][head_index][token_index][dim_index] = value_value
         return
 
     if shape[3] == kv_heads and shape[4] == head_dim and block_size % shape[2] == 0:
@@ -591,7 +631,8 @@ def _write_combined_cache(cache: Any, layer: dict[str, Any]) -> None:
         blocks_per_source_block = block_size // tokens_per_target_block
         for block_index in range(source_block_count):
             for token_index in range(block_size):
-                target_block_index = block_index * blocks_per_source_block + (token_index // tokens_per_target_block)
+                logical_target_block_index = block_index * blocks_per_source_block + (token_index // tokens_per_target_block)
+                target_block_index = _target_block_id(logical_target_block_index, target_block_ids)
                 target_token_index = token_index % tokens_per_target_block
                 for head_index in range(kv_heads):
                     for dim_index in range(head_dim):
@@ -609,7 +650,8 @@ def _write_combined_cache(cache: Any, layer: dict[str, Any]) -> None:
         blocks_per_source_block = block_size // tokens_per_target_block
         for block_index in range(source_block_count):
             for token_index in range(block_size):
-                target_block_index = block_index * blocks_per_source_block + (token_index // tokens_per_target_block)
+                logical_target_block_index = block_index * blocks_per_source_block + (token_index // tokens_per_target_block)
+                target_block_index = _target_block_id(logical_target_block_index, target_block_ids)
                 target_token_index = token_index % tokens_per_target_block
                 for head_index in range(kv_heads):
                     for dim_index in range(head_dim):
@@ -682,8 +724,20 @@ def _direct_register_into_kv_caches(runtime: Any, payload: dict[str, Any]) -> di
     layer_map = _get_layer_map(runtime, kv_caches)
     written_layers: list[str] = []
     written_layer_summaries: list[dict[str, Any]] = []
+    target_block_ids: list[int] | None = None
+    target_block_allocation: dict[str, Any] = {"mode": "not_allocated"}
 
-    for layer in payload.get("layers", []):
+    layers = payload.get("layers", [])
+    if layers:
+        first_layer = layers[0]
+        first_layer_index = first_layer.get("layer_index") if isinstance(first_layer, dict) else None
+        if isinstance(first_layer_index, int) and first_layer_index in layer_map:
+            first_cache = kv_caches[layer_map[first_layer_index]]
+            if len(_shape_of_storage(first_cache)) == 5:
+                target_block_count = _combined_target_block_count(first_cache, first_layer)
+                target_block_ids, target_block_allocation = _allocate_target_block_ids(runtime, target_block_count)
+
+    for layer in layers:
         layer_index = layer.get("layer_index")
         if not isinstance(layer_index, int):
             raise RuntimeError("prepared payload layer_index must be an int")
@@ -693,8 +747,8 @@ def _direct_register_into_kv_caches(runtime: Any, payload: dict[str, Any]) -> di
         cache = kv_caches[layer_name]
         shape = _shape_of_storage(cache)
         if len(shape) == 5:
-            _write_combined_cache(cache, layer)
-            slot_probe = _combined_slot_samples(cache, layer)
+            _write_combined_cache(cache, layer, target_block_ids)
+            slot_probe = _combined_slot_samples(cache, layer, target_block_ids)
         else:
             _write_separate_cache(cache, layer)
             slot_probe = {"layout": {"kind": "separate"}, "samples": [], "all_samples_match": None}
@@ -713,6 +767,7 @@ def _direct_register_into_kv_caches(runtime: Any, payload: dict[str, Any]) -> di
         "success": True,
         "written_layers": written_layers,
         "written_layer_summaries": written_layer_summaries,
+        "target_block_allocation": target_block_allocation,
     }
 
 

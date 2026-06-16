@@ -145,7 +145,7 @@ def _extract_first_output_token_ids(response: Any, tokenizer: Any, generated_tex
 
 def _maybe_write_source_continuation(runtime: LiveRuntime) -> None:
     output_path = _source_continuation_file()
-    prompt = _continuation_prompt()
+    prompt = runtime.prompt_text if os.getenv("PERMEANT_SOURCE_CONTINUATION_USE_PREFILL_PROMPT", "0") == "1" else _continuation_prompt()
     if not output_path or not prompt:
         return
 

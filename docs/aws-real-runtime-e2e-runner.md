@@ -270,3 +270,21 @@ Results:
 - Diagnostic reason: no safe public vLLM request/block-table attachment API has been identified yet for binding migrated KV slots to `LLM.generate()`.
 
 Verdict: the cache transport and target KV write path are repeatably working on a real AWS GPU runtime, but this run still does not prove full migrated decode fidelity. The remaining milestone is explicit vLLM request/block-table or prefix-cache attachment so post-migration decode consumes the migrated KV span rather than creating a fresh request.
+
+## Migrated decode attachment implementation path
+
+The target runtime now attempts the first real vLLM attachment path:
+
+- allocate physical vLLM KV blocks through `BlockPool.get_new_blocks()` instead of writing migrated bytes into slot `0` onward;
+- write every migrated layer into those allocated block IDs;
+- build a temporary vLLM `Request` for the continuation prompt;
+- compute normal vLLM prefix block hashes for that prompt;
+- seed `BlockPool.cache_full_blocks()` with the allocated migrated block IDs so the following `LLM.generate()` can discover the migrated blocks through vLLM's standard prefix-cache lookup.
+
+For this to be meaningful, the source reference prompt must be the same full prompt that produced the migrated KV cache. Start the MLX source runtime with:
+
+```bash
+export PERMEANT_SOURCE_CONTINUATION_USE_PREFILL_PROMPT=1
+```
+
+The AWS runner now sets `PERMEANT_VLLM_CONTINUATION_PROMPT_FROM_SOURCE=1` on the target, so the copied source reference prompt becomes the target continuation prompt. A fully working run should report both `migrated_decode_attachment_supported=true` and `vllm_prefix_cache_seed_success=true`; if the prompt has fewer than one full vLLM target block, seeding will fail by design.

@@ -326,6 +326,7 @@ export PERMEANT_VLLM_CONSUMER_HOOK=/home/ubuntu/permeant-os/adapters/vllm_real_r
 export PERMEANT_VLLM_RUNTIME_TARGET=/home/ubuntu/permeant-os/adapters/vllm_real_runtime_target.py:get_runtime
 export PERMEANT_VLLM_MODEL='$PERMEANT_MODEL'
 export PERMEANT_VLLM_CONTINUATION_PROMPT='PermeantOS continuation probe'
+export PERMEANT_VLLM_CONTINUATION_PROMPT_FROM_SOURCE=1
 export PERMEANT_VLLM_CONTINUATION_MAX_TOKENS=16
 export PERMEANT_VLLM_CAPTURE_BASELINE=1
 export PERMEANT_SOURCE_CONTINUATION_FILE=/home/ubuntu/permeant-source-continuation.json

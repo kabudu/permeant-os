@@ -36,16 +36,17 @@ class RealVllmRuntime:
 
         result = dict(_direct_register_into_kv_caches(self, payload))
         layer_shapes: list[dict[str, Any]] = []
-        for layer in payload.get("layers", []):
-            if not isinstance(layer, dict):
+        for summary in result.get("written_layer_summaries", []):
+            if not isinstance(summary, dict):
                 continue
-            key = layer.get("key") if isinstance(layer.get("key"), dict) else {}
-            value = layer.get("value") if isinstance(layer.get("value"), dict) else {}
+            source = summary.get("source") if isinstance(summary.get("source"), dict) else {}
             layer_shapes.append(
                 {
-                    "layer_index": layer.get("layer_index"),
-                    "key_shape": key.get("shape"),
-                    "value_shape": value.get("shape"),
+                    "layer_index": summary.get("layer_index"),
+                    "key_shape": source.get("key_shape"),
+                    "value_shape": source.get("value_shape"),
+                    "block_count": source.get("block_count"),
+                    "block_size": source.get("block_size"),
                 }
             )
         self.last_register_payload = {
@@ -53,6 +54,7 @@ class RealVllmRuntime:
             "block_size": payload.get("block_size"),
             "layer_count": len(payload.get("layers", [])),
             "layer_shapes": layer_shapes,
+            "target_block_allocation": result.get("target_block_allocation", {}),
             "written_layers": result.get("written_layers", []),
             "written_layer_summaries": result.get("written_layer_summaries", []),
             "request": request or {},
@@ -78,7 +80,10 @@ class RealVllmRuntime:
             return result
 
         result: dict[str, Any] = {"success": True, "verified_hashes": list(block_hashes)}
+        source_reference = _source_continuation_reference()
         prompt = os.getenv("PERMEANT_VLLM_CONTINUATION_PROMPT")
+        if os.getenv("PERMEANT_VLLM_CONTINUATION_PROMPT_FROM_SOURCE", "0") == "1":
+            prompt = (source_reference or {}).get("prompt") or prompt
         if prompt:
             continuation = self.generate_continuation(
                 prompt=prompt,
@@ -86,7 +91,6 @@ class RealVllmRuntime:
             )
             self.last_continuation = continuation
             result["continuation"] = continuation
-            source_reference = _source_continuation_reference()
             if source_reference is not None:
                 result["source_comparison"] = _compare_continuations(source_reference, continuation)
             if self.baseline_continuation is not None:
@@ -125,7 +129,7 @@ class RealVllmRuntime:
         sampling = SamplingParams(max_tokens=max_tokens, temperature=0.0)
         attachment_attempt = None
         if event_name == "generate_continuation":
-            attachment_attempt = _migrated_decode_attachment_attempt(self)
+            attachment_attempt = _migrated_decode_attachment_attempt(self, prompt)
         before_snapshot = _decode_attachment_snapshot(
             runtime=self,
             prompt=prompt,
@@ -469,8 +473,10 @@ def _migration_block_table_candidate(runtime: RealVllmRuntime) -> dict[str, Any]
     layer_shapes = layer_shapes if isinstance(layer_shapes, list) else []
     source_block_count = None
     if layer_shapes:
-        key_shape = layer_shapes[0].get("key_shape") if isinstance(layer_shapes[0], dict) else None
-        if isinstance(key_shape, list) and key_shape:
+        first_shape = layer_shapes[0] if isinstance(layer_shapes[0], dict) else {}
+        source_block_count = first_shape.get("block_count")
+        key_shape = first_shape.get("key_shape")
+        if source_block_count is None and isinstance(key_shape, list) and key_shape:
             source_block_count = key_shape[0]
 
     target_block_size = None
@@ -486,6 +492,10 @@ def _migration_block_table_candidate(runtime: RealVllmRuntime) -> dict[str, Any]
         target_blocks_per_source_block = (source_block_size + target_block_size - 1) // target_block_size
         if isinstance(source_block_count, int):
             target_block_count = source_block_count * target_blocks_per_source_block
+    allocation = payload.get("target_block_allocation")
+    allocation = allocation if isinstance(allocation, dict) else {}
+    allocated_ids = allocation.get("target_block_ids")
+    allocated_ids = allocated_ids if isinstance(allocated_ids, list) else []
 
     return {
         "hash": payload.get("hash"),
@@ -494,7 +504,10 @@ def _migration_block_table_candidate(runtime: RealVllmRuntime) -> dict[str, Any]
         "source_block_count": source_block_count,
         "target_block_size": target_block_size,
         "target_blocks_per_source_block": target_blocks_per_source_block,
-        "target_block_count": target_block_count,
+        "target_block_count": target_block_count or allocation.get("target_block_count"),
+        "allocated_target_block_count": len(allocated_ids),
+        "allocated_target_block_ids_sample": [int(item) for item in allocated_ids[:16]],
+        "target_block_allocation_mode": allocation.get("mode"),
         "attachment_requirement": "The generated vLLM request must bind this migrated KV span through a request block table or equivalent prefix-cache entry before decode.",
     }
 
@@ -520,7 +533,82 @@ def _method_names_matching(obj: Any, terms: tuple[str, ...], limit: int = 48) ->
     return names
 
 
-def _migrated_decode_attachment_attempt(runtime: RealVllmRuntime) -> dict[str, Any]:
+def _seed_vllm_prefix_cache(runtime: RealVllmRuntime, prompt: str) -> dict[str, Any]:
+    payload = runtime.last_register_payload or {}
+    allocation = payload.get("target_block_allocation")
+    allocation = allocation if isinstance(allocation, dict) else {}
+    target_block_ids = allocation.get("target_block_ids")
+    if not isinstance(target_block_ids, list) or not target_block_ids:
+        return {
+            "success": False,
+            "reason": "No allocated vLLM target block IDs were recorded for the migrated KV payload.",
+        }
+
+    tokenization = _tokenize_prompt(runtime.llm, prompt)
+    prompt_token_ids = tokenization.get("token_ids") if isinstance(tokenization, dict) else None
+    if not isinstance(prompt_token_ids, list):
+        return {"success": False, "reason": "Continuation prompt could not be tokenized by the target vLLM runtime."}
+
+    try:
+        from vllm import SamplingParams
+        from vllm.v1.request import Request
+    except Exception as exc:
+        return {"success": False, "reason": f"Could not import vLLM Request/SamplingParams for prefix-cache seeding: {exc!r}"}
+
+    try:
+        engine_core = runtime.llm.llm_engine.engine_core.engine_core
+        scheduler = engine_core.scheduler
+        kv_cache_manager = scheduler.kv_cache_manager
+        block_pool = kv_cache_manager.block_pool
+        target_block_size = int(getattr(scheduler, "block_size", 0) or getattr(block_pool, "hash_block_size", 0))
+        if target_block_size <= 0:
+            return {"success": False, "reason": "Could not determine vLLM target block size for prefix-cache seeding."}
+
+        request = Request(
+            request_id="permeant-prefix-cache-seed",
+            prompt_token_ids=[int(item) for item in prompt_token_ids],
+            sampling_params=SamplingParams(max_tokens=1, temperature=0.0),
+            pooling_params=None,
+            block_hasher=getattr(engine_core, "request_block_hasher", None),
+        )
+        full_prompt_block_count = len(request.block_hashes)
+        seed_block_count = min(full_prompt_block_count, len(target_block_ids))
+        if seed_block_count <= 0:
+            return {
+                "success": False,
+                "reason": "Continuation prompt has no full vLLM hash blocks; use the source prefill prompt or another prompt at least one target block long.",
+                "prompt_token_count": len(prompt_token_ids),
+                "target_block_size": target_block_size,
+                "request_block_hash_count": full_prompt_block_count,
+            }
+
+        blocks = [block_pool.blocks[int(block_id)] for block_id in target_block_ids[:seed_block_count]]
+        block_pool.cache_full_blocks(
+            request=request,
+            blocks=blocks,
+            num_cached_blocks=0,
+            num_full_blocks=seed_block_count,
+            block_size=target_block_size,
+            kv_cache_group_id=0,
+        )
+        return {
+            "success": True,
+            "method": "block_pool.cache_full_blocks",
+            "prompt_token_count": len(prompt_token_ids),
+            "target_block_size": target_block_size,
+            "request_block_hash_count": full_prompt_block_count,
+            "seeded_block_count": seed_block_count,
+            "seeded_block_ids_sample": [int(item) for item in target_block_ids[:16]],
+        }
+    except Exception as exc:
+        return {
+            "success": False,
+            "reason": f"Failed to seed vLLM prefix cache with migrated blocks: {exc!r}",
+            "prompt_token_count": len(prompt_token_ids),
+        }
+
+
+def _migrated_decode_attachment_attempt(runtime: RealVllmRuntime, prompt: str) -> dict[str, Any]:
     terms = ("block", "cache", "prefix", "request", "hash", "alloc", "touch", "free")
     objects: dict[str, Any] = {}
     try:
@@ -552,11 +640,22 @@ def _migrated_decode_attachment_attempt(runtime: RealVllmRuntime) -> dict[str, A
             "candidate_methods": _method_names_matching(obj, terms),
         }
 
+    candidate = _migration_block_table_candidate(runtime)
+    seed_result = _seed_vllm_prefix_cache(runtime, prompt)
+    supported = bool(seed_result.get("success"))
+    reason = (
+        "Migrated blocks were seeded into vLLM prefix cache for the continuation prompt."
+        if supported
+        else seed_result.get("reason")
+        or "No safe public vLLM request/block-table attachment API has been identified for binding migrated KV slots to LLM.generate()."
+    )
+
     attempt = {
         "attempted": True,
-        "supported": False,
-        "reason": "No safe public vLLM request/block-table attachment API has been identified for binding migrated KV slots to LLM.generate().",
-        "migration_block_table_candidate": _migration_block_table_candidate(runtime),
+        "supported": supported,
+        "reason": reason,
+        "migration_block_table_candidate": candidate,
+        "prefix_cache_seed": seed_result,
         "runtime_attachment_surface": surface,
     }
     runtime.last_migrated_decode_attachment_attempt = attempt
@@ -730,6 +829,8 @@ def get_runtime(payload: dict[str, Any] | None = None, request: dict[str, Any] |
         _RUNTIME_SINGLETON = RealVllmRuntime(llm=llm, kv_caches=kv_caches, layer_map=layer_map, metadata=metadata)
         _write_probe({"event": "runtime_initialized", **metadata})
         baseline_prompt = os.getenv("PERMEANT_VLLM_CONTINUATION_PROMPT")
+        if os.getenv("PERMEANT_VLLM_CONTINUATION_PROMPT_FROM_SOURCE", "0") == "1":
+            baseline_prompt = (_source_continuation_reference() or {}).get("prompt") or baseline_prompt
         capture_baseline = os.getenv("PERMEANT_VLLM_CAPTURE_BASELINE", "1") != "0"
         if baseline_prompt and capture_baseline:
             _RUNTIME_SINGLETON.baseline_continuation = _RUNTIME_SINGLETON._sample_continuation(

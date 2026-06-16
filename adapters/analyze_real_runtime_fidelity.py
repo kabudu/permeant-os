@@ -71,6 +71,11 @@ def _summarize(manifest: dict[str, Any], probe: dict[str, Any]) -> dict[str, Any
         if isinstance(last_attachment_attempt, dict)
         else {}
     )
+    prefix_cache_seed = (
+        last_attachment_attempt.get("prefix_cache_seed", {})
+        if isinstance(last_attachment_attempt, dict)
+        else {}
+    )
 
     return {
         "migration_id": manifest.get("migration_id") or manifest.get("run_id"),
@@ -122,6 +127,12 @@ def _summarize(manifest: dict[str, Any], probe: dict[str, Any]) -> dict[str, Any
         else None,
         "migration_target_block_size": block_table_candidate.get("target_block_size")
         if isinstance(block_table_candidate, dict)
+        else None,
+        "vllm_prefix_cache_seed_success": bool(prefix_cache_seed.get("success"))
+        if isinstance(prefix_cache_seed, dict)
+        else False,
+        "vllm_prefix_cache_seeded_block_count": prefix_cache_seed.get("seeded_block_count")
+        if isinstance(prefix_cache_seed, dict)
         else None,
     }
 
