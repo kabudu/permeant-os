@@ -34,7 +34,7 @@ def _post_json(path: str, payload: dict[str, Any]) -> dict[str, Any]:
         headers=_headers(),
         method="POST",
     )
-    timeout_seconds = float(os.getenv("PERMEANT_VLLM_RUNTIME_TIMEOUT", "30"))
+    timeout_seconds = float(os.getenv("PERMEANT_VLLM_RUNTIME_TIMEOUT", "900"))
     try:
         with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             raw = response.read().decode("utf-8")

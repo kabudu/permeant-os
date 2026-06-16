@@ -340,6 +340,106 @@ fn configured_extractor_id() -> String {
         .unwrap_or_else(|| "permeant-os-live-extractor".to_string())
 }
 
+fn configured_model_layer_count(model_architecture: &str, model_identity: &str) -> usize {
+    std::env::var("PERMEANT_MODEL_LAYER_COUNT")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or_else(|| {
+            if model_architecture == "Qwen/Qwen2.5-0.5B-Instruct"
+                || model_identity == "Qwen/Qwen2.5-0.5B-Instruct"
+            {
+                24
+            } else {
+                4
+            }
+        })
+}
+
+fn configured_model_q_heads(model_architecture: &str, model_identity: &str) -> usize {
+    std::env::var("PERMEANT_MODEL_Q_HEADS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or_else(|| {
+            if model_architecture == "Qwen/Qwen2.5-0.5B-Instruct"
+                || model_identity == "Qwen/Qwen2.5-0.5B-Instruct"
+            {
+                14
+            } else {
+                8
+            }
+        })
+}
+
+fn configured_model_kv_heads(model_architecture: &str, model_identity: &str) -> usize {
+    std::env::var("PERMEANT_MODEL_KV_HEADS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or_else(|| {
+            if model_architecture == "Qwen/Qwen2.5-0.5B-Instruct"
+                || model_identity == "Qwen/Qwen2.5-0.5B-Instruct"
+            {
+                2
+            } else {
+                2
+            }
+        })
+}
+
+fn configured_model_head_dim(model_architecture: &str, model_identity: &str) -> usize {
+    std::env::var("PERMEANT_MODEL_HEAD_DIM")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or_else(|| {
+            if model_architecture == "Qwen/Qwen2.5-0.5B-Instruct"
+                || model_identity == "Qwen/Qwen2.5-0.5B-Instruct"
+            {
+                64
+            } else {
+                64
+            }
+        })
+}
+
+fn configured_model_hidden_size(model_architecture: &str, model_identity: &str) -> usize {
+    std::env::var("PERMEANT_MODEL_HIDDEN_SIZE")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or_else(|| {
+            if model_architecture == "Qwen/Qwen2.5-0.5B-Instruct"
+                || model_identity == "Qwen/Qwen2.5-0.5B-Instruct"
+            {
+                896
+            } else {
+                1024
+            }
+        })
+}
+
+fn configured_model_block_size() -> usize {
+    std::env::var("PERMEANT_MODEL_BLOCK_SIZE")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(256)
+}
+
+fn normalize_canonical_kv_tensor(tensor_name: &str, tensor: &Tensor) -> Result<Tensor> {
+    match tensor.shape.as_slice() {
+        [seq_len, num_kv_heads, head_dim] => Ok(Tensor::new(
+            tensor.data.clone(),
+            vec![*seq_len, *num_kv_heads, *head_dim],
+        )),
+        [1, num_kv_heads, seq_len, head_dim] => Ok(Tensor::new(
+            tensor.data.clone(),
+            vec![*seq_len, *num_kv_heads, *head_dim],
+        )),
+        _ => bail!(
+            "Unsupported canonical KV tensor shape for {}: {:?}",
+            tensor_name,
+            tensor.shape
+        ),
+    }
+}
+
 async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) -> Result<()> {
     let total_start = std::time::Instant::now();
     let run_id = format!("migration-{}-{}", Utc::now().format("%Y%m%d-%H%M%S"), std::process::id());
@@ -349,10 +449,12 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) 
     let model_config_hash = configured_model_config_hash(&model_architecture, &model_identity);
 
     // 1. Model Configuration
-    let n_layers = 4; // keep it small for quick local simulation, but fully functional
-    let n_kv_heads = 2;
-    let head_dim = 64;
-    let block_size = 256;
+    let n_layers = configured_model_layer_count(&model_architecture, &model_identity);
+    let n_q_heads = configured_model_q_heads(&model_architecture, &model_identity);
+    let n_kv_heads = configured_model_kv_heads(&model_architecture, &model_identity);
+    let head_dim = configured_model_head_dim(&model_architecture, &model_identity);
+    let hidden_size = configured_model_hidden_size(&model_architecture, &model_identity);
+    let block_size = configured_model_block_size();
     
     println!("Step 1: Extracting local agent KV cache state...");
     let extracted_cache = extract_kv_cache(seq_len, n_layers, n_kv_heads, head_dim)?;
@@ -413,10 +515,10 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) 
         attention_type: AttentionType::Gqa,
         model_cache_spec: ModelCacheSpec {
             n_layers,
-            n_q_heads: 8,
+            n_q_heads,
             n_kv_heads,
             head_dim,
-            hidden_size: 1024,
+            hidden_size,
             max_position_embeddings: Some(131072),
             rope_theta: Some(500000.0),
             sliding_window: None,
@@ -470,12 +572,14 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) 
     let transfer_start = std::time::Instant::now();
     
     for layer_idx in 0..n_layers {
-        let key_tensor = extracted_cache.get(&format!("layer.{}.key", layer_idx)).unwrap();
-        let value_tensor = extracted_cache.get(&format!("layer.{}.value", layer_idx)).unwrap();
+        let key_name = format!("layer.{}.key", layer_idx);
+        let value_name = format!("layer.{}.value", layer_idx);
+        let key_tensor = normalize_canonical_kv_tensor(&key_name, extracted_cache.get(&key_name).unwrap())?;
+        let value_tensor = normalize_canonical_kv_tensor(&value_name, extracted_cache.get(&value_name).unwrap())?;
         
         // Transpile to vLLM blocks
-        let vllm_key = canonical_to_vllm_block_key(key_tensor, block_size)?;
-        let vllm_value = canonical_to_vllm_block_value(value_tensor, block_size)?;
+        let vllm_key = canonical_to_vllm_block_key(&key_tensor, block_size)?;
+        let vllm_value = canonical_to_vllm_block_value(&value_tensor, block_size)?;
         
         // Stream each block
         for block_idx in 0..expected_blocks {
@@ -589,7 +693,7 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) 
                 sequence_length: seq_len,
                 batch_size: 1,
                 layers: n_layers,
-                n_q_heads: 8,
+                n_q_heads,
                 n_kv_heads,
                 head_dim,
                 block_size,
@@ -632,7 +736,7 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) 
                 sequence_length: seq_len,
                 batch_size: 1,
                 layers: n_layers,
-                n_q_heads: 8,
+                n_q_heads,
                 n_kv_heads,
                 head_dim,
                 block_size,

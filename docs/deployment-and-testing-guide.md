@@ -841,3 +841,20 @@ After a successful or failed run:
 - stop the local bridge client
 - terminate the Runpod pod
 - verify the Runpod pod list is empty or contains no active billable pod for the test
+
+## Addendum: real-runtime fidelity follow-up (2026-06-16)
+
+A corrected 24-layer live migration was rerun against a real AWS `vLLM` target both with FP8 transfer quantization and with no transfer quantization.
+
+Observed result:
+- both runs completed successfully end to end
+- both runs populated all `24` layers into the live target KV caches
+- both runs generated the same target continuation mismatch at token index `15`
+- removing FP8 transfer quantization did not change the mismatch
+
+Conclusion:
+- the remaining fidelity gap is not primarily a transfer-compression artifact
+- the next debugging focus should be live `vLLM` cache semantics and any non-KV runtime state required for exact next-token parity
+
+Reference:
+- `docs/aws-real-runtime-fidelity-followup-2026-06-16.md`
