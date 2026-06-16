@@ -139,6 +139,17 @@ The next implementation step is to instrument the target runtime state used to a
 
 The goal for the next run is to explain why post-migration generation follows the target baseline even when sampled written KV slots match the source exactly.
 
+The target runtime now emits `decode_attachment_snapshot` probe events before and after each baseline or post-migration generation call. These snapshots record:
+
+- prompt tokenization as seen by the target runtime
+- registered Permeant block hashes visible to the runtime object
+- the last registered block hash and layer count
+- known KV cache key and layer-map counts
+- bounded summaries of vLLM objects whose names suggest scheduler, block, prefix, cache, request, token, logits, sequence, or decode state
+- post-generation request/output metadata when vLLM exposes it
+
+These events are intentionally introspective rather than prescriptive: they provide evidence about what the current `LLM.generate()` path is actually using. If the snapshots show no request/block-table/prefix state connected to the migrated hash, the next fix should move from raw KV writes to explicit decode-request attachment.
+
 ## Runner validation run
 
 The runner was validated end to end on June 16, 2026.

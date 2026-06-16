@@ -28,6 +28,7 @@ class RealVllmRuntime:
         self.last_verify_result: dict[str, Any] | None = None
         self.last_continuation: dict[str, Any] | None = None
         self.baseline_continuation: dict[str, Any] | None = None
+        self.last_decode_attachment_snapshot: dict[str, Any] | None = None
 
     def register_permeant_block(self, payload: dict[str, Any], request: dict[str, Any] | None = None) -> dict[str, Any]:
         from vllm_live_runtime_registry import _direct_register_into_kv_caches
@@ -106,7 +107,18 @@ class RealVllmRuntime:
         from vllm import SamplingParams
 
         sampling = SamplingParams(max_tokens=max_tokens, temperature=0.0)
+        before_snapshot = _decode_attachment_snapshot(
+            runtime=self,
+            prompt=prompt,
+            stage=f"{event_name}:before_generate",
+        )
         outputs = self.llm.generate([prompt], sampling)
+        after_snapshot = _decode_attachment_snapshot(
+            runtime=self,
+            prompt=prompt,
+            stage=f"{event_name}:after_generate",
+            outputs=outputs,
+        )
         text = ""
         token_ids: list[int] = []
 
@@ -125,7 +137,12 @@ class RealVllmRuntime:
             "max_tokens": max_tokens,
             "text": text,
             "token_ids": token_ids,
+            "decode_attachment": {
+                "before": before_snapshot,
+                "after": after_snapshot,
+            },
         }
+        self.last_decode_attachment_snapshot = after_snapshot
         _append_probe_event({"event": event_name, **continuation})
         return continuation
 
@@ -209,6 +226,244 @@ def _compare_continuations(reference: dict[str, Any], actual: dict[str, Any]) ->
         "actual_token_ids": actual_token_ids,
         "first_token_mismatch_index": first_token_mismatch_index,
     }
+
+
+def _safe_type_name(value: Any) -> str:
+    try:
+        return f"{type(value).__module__}.{type(value).__qualname__}"
+    except Exception:
+        return type(value).__name__
+
+
+def _safe_len(value: Any) -> int | None:
+    try:
+        return len(value)
+    except Exception:
+        return None
+
+
+def _json_safe_scalar(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if hasattr(value, "item"):
+        try:
+            scalar = value.item()
+            if isinstance(scalar, (str, int, float, bool)):
+                return scalar
+        except Exception:
+            pass
+    return None
+
+
+def _summarize_value(value: Any, depth: int = 0) -> Any:
+    scalar = _json_safe_scalar(value)
+    if scalar is not None or value is None:
+        return scalar
+
+    shape = getattr(value, "shape", None)
+    if shape is not None:
+        try:
+            return {"type": _safe_type_name(value), "shape": [int(item) for item in shape]}
+        except Exception:
+            return {"type": _safe_type_name(value), "shape": str(shape)}
+
+    if isinstance(value, dict):
+        if depth >= 1:
+            return {"type": "dict", "len": len(value), "keys": [str(key) for key in list(value.keys())[:8]]}
+        return {
+            str(key): _summarize_value(item, depth + 1)
+            for key, item in list(value.items())[:12]
+            if isinstance(key, (str, int, float, bool))
+        }
+
+    if isinstance(value, (list, tuple)):
+        if depth >= 1:
+            return {"type": type(value).__name__, "len": len(value)}
+        return [_summarize_value(item, depth + 1) for item in list(value)[:8]]
+
+    length = _safe_len(value)
+    summary: dict[str, Any] = {"type": _safe_type_name(value)}
+    if length is not None:
+        summary["len"] = length
+    return summary
+
+
+def _interesting_attr_name(name: str) -> bool:
+    lowered = name.lower()
+    needles = (
+        "block",
+        "cache",
+        "decode",
+        "engine",
+        "input",
+        "kv",
+        "logit",
+        "prefix",
+        "request",
+        "scheduler",
+        "seq",
+        "token",
+    )
+    return any(needle in lowered for needle in needles)
+
+
+def _object_interesting_attrs(obj: Any, limit: int = 24) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    names: list[str] = []
+
+    if hasattr(obj, "__dict__"):
+        try:
+            names.extend(str(name) for name in vars(obj).keys())
+        except Exception:
+            pass
+    try:
+        names.extend(str(name) for name in dir(obj))
+    except Exception:
+        pass
+
+    seen: set[str] = set()
+    for name in names:
+        if name in seen or name.startswith("__") or not _interesting_attr_name(name):
+            continue
+        seen.add(name)
+        try:
+            value = getattr(obj, name)
+        except Exception as exc:
+            result[name] = {"error": f"{type(exc).__name__}: {exc}"}
+            continue
+        if callable(value):
+            continue
+        result[name] = _summarize_value(value)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _walk_interesting_runtime_objects(root: Any, max_depth: int = 5, max_objects: int = 32) -> list[dict[str, Any]]:
+    seen: set[int] = set()
+    found: list[dict[str, Any]] = []
+
+    def walk(obj: Any, path: str, depth: int) -> None:
+        if obj is None or depth > max_depth or len(found) >= max_objects:
+            return
+        obj_id = id(obj)
+        if obj_id in seen:
+            return
+        seen.add(obj_id)
+
+        if _interesting_attr_name(path):
+            attrs = _object_interesting_attrs(obj, limit=16)
+            found.append(
+                {
+                    "path": path,
+                    "type": _safe_type_name(obj),
+                    "len": _safe_len(obj),
+                    "attrs": attrs,
+                }
+            )
+
+        if isinstance(obj, dict):
+            for key, value in list(obj.items())[:24]:
+                if isinstance(key, str) and _interesting_attr_name(key):
+                    walk(value, f"{path}.{key}" if path else key, depth + 1)
+            return
+
+        if isinstance(obj, (list, tuple)):
+            for index, value in enumerate(list(obj)[:12]):
+                walk(value, f"{path}.{index}", depth + 1)
+            return
+
+        if hasattr(obj, "__dict__"):
+            try:
+                items = list(vars(obj).items())
+            except Exception:
+                items = []
+            for name, value in items:
+                if _interesting_attr_name(name):
+                    walk(value, f"{path}.{name}" if path else name, depth + 1)
+
+    walk(root, "llm", 0)
+    return found
+
+
+def _tokenize_prompt(llm: Any, prompt: str) -> dict[str, Any]:
+    tokenizer = getattr(llm, "tokenizer", None) or getattr(llm, "llm_engine", None)
+    candidates = [tokenizer]
+    if tokenizer is not None:
+        for attr_name in ("tokenizer", "_tokenizer", "hf_tokenizer"):
+            try:
+                candidates.append(getattr(tokenizer, attr_name))
+            except Exception:
+                pass
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        encode = getattr(candidate, "encode", None)
+        if callable(encode):
+            try:
+                token_ids = encode(prompt)
+                if isinstance(token_ids, list):
+                    return {
+                        "available": True,
+                        "token_count": len(token_ids),
+                        "token_ids": [int(item) for item in token_ids],
+                        "tokenizer_type": _safe_type_name(candidate),
+                    }
+            except Exception:
+                pass
+    return {"available": False}
+
+
+def _output_summary(outputs: Any) -> dict[str, Any]:
+    items = list(outputs or [])
+    summary: dict[str, Any] = {"count": len(items), "items": []}
+    for item in items[:4]:
+        entry = {
+            "type": _safe_type_name(item),
+            "request_id": getattr(item, "request_id", None),
+            "prompt_token_ids": getattr(item, "prompt_token_ids", None),
+            "finished": getattr(item, "finished", None),
+        }
+        candidates = getattr(item, "outputs", None) or []
+        entry["output_count"] = len(candidates)
+        output_entries = []
+        for candidate in list(candidates)[:2]:
+            output_entries.append(
+                {
+                    "type": _safe_type_name(candidate),
+                    "index": getattr(candidate, "index", None),
+                    "token_ids": getattr(candidate, "token_ids", None),
+                    "finish_reason": getattr(candidate, "finish_reason", None),
+                    "stop_reason": getattr(candidate, "stop_reason", None),
+                }
+            )
+        entry["outputs"] = output_entries
+        summary["items"].append(entry)
+    return summary
+
+
+def _decode_attachment_snapshot(
+    runtime: RealVllmRuntime,
+    prompt: str,
+    stage: str,
+    outputs: Any | None = None,
+) -> dict[str, Any]:
+    snapshot: dict[str, Any] = {
+        "stage": stage,
+        "prompt": prompt,
+        "prompt_tokenization": _tokenize_prompt(runtime.llm, prompt),
+        "registered_hashes": sorted(runtime.registered_hashes),
+        "last_registered_hash": (runtime.last_register_payload or {}).get("hash"),
+        "last_registered_layer_count": (runtime.last_register_payload or {}).get("layer_count"),
+        "kv_cache_key_count": len(runtime.kv_caches),
+        "layer_map_count": len(runtime.permeant_layer_map),
+        "runtime_metadata": runtime.metadata,
+        "candidate_runtime_objects": _walk_interesting_runtime_objects(runtime.llm),
+    }
+    if outputs is not None:
+        snapshot["outputs"] = _output_summary(outputs)
+    _append_probe_event({"event": "decode_attachment_snapshot", **snapshot})
+    return snapshot
 
 
 def _looks_like_cache_storage(value: Any) -> bool:

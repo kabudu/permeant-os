@@ -18,6 +18,10 @@ def _find_event(events: list[dict[str, Any]], name: str) -> dict[str, Any] | Non
     return None
 
 
+def _find_events(events: list[dict[str, Any]], name: str) -> list[dict[str, Any]]:
+    return [event for event in events if event.get("event") == name]
+
+
 def _verification(manifest: dict[str, Any]) -> dict[str, Any]:
     payload = manifest.get("verification")
     return payload if isinstance(payload, dict) else {}
@@ -44,6 +48,22 @@ def _summarize(manifest: dict[str, Any], probe: dict[str, Any]) -> dict[str, Any
     baseline_event = _find_event(events, "baseline_continuation") or {}
     generated_event = _find_event(events, "generate_continuation") or {}
     source_reference = verify.get("source_continuation") or {}
+    decode_snapshots = _find_events(events, "decode_attachment_snapshot")
+    post_decode_snapshots = [
+        event
+        for event in decode_snapshots
+        if str(event.get("stage", "")).startswith("generate_continuation:")
+    ]
+    post_decode_after = next(
+        (
+            event
+            for event in reversed(post_decode_snapshots)
+            if str(event.get("stage", "")).endswith(":after_generate")
+        ),
+        {},
+    )
+    prompt_tokenization = post_decode_after.get("prompt_tokenization")
+    outputs = post_decode_after.get("outputs")
 
     return {
         "migration_id": manifest.get("migration_id") or manifest.get("run_id"),
@@ -66,6 +86,23 @@ def _summarize(manifest: dict[str, Any], probe: dict[str, Any]) -> dict[str, Any
         "baseline_output_text": baseline_event.get("text"),
         "post_migration_token_count": len(generated_event.get("token_ids", [])),
         "baseline_token_count": len(baseline_event.get("token_ids", [])),
+        "decode_attachment_snapshot_count": len(decode_snapshots),
+        "post_migration_decode_snapshot_available": bool(post_decode_after),
+        "post_migration_prompt_token_count": (
+            prompt_tokenization or {}
+        ).get("token_count")
+        if isinstance(prompt_tokenization, dict)
+        else None,
+        "post_migration_output_request_id": (
+            ((outputs or {}).get("items") or [{}])[0].get("request_id")
+            if isinstance(outputs, dict)
+            else None
+        ),
+        "post_migration_runtime_object_count": len(
+            post_decode_after.get("candidate_runtime_objects", [])
+        )
+        if isinstance(post_decode_after, dict)
+        else 0,
     }
 
 
