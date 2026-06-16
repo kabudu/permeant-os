@@ -187,3 +187,57 @@ Fidelity result:
 - post-migration continuation still diverged from the source at token index `15`
 
 This validates the operational process. The remaining work is product/runtime fidelity work, not E2E setup reliability.
+
+## Decode-attachment instrumentation run
+
+The decode-attachment instrumentation was validated on June 16, 2026.
+
+Run state:
+
+- run id: `20260616-201851`
+- state directory: `.permeant-e2e/aws/20260616-201851/`
+- instance id: `i-0bed64a610c85e578`
+- security group: `sg-0e53b2a1a9eca95a6`
+- key pair: `permeantos-real-e2e-20260616-201851-key`
+- manifest: `migration-20260616-202612-19318-manifest.json`
+
+Cleanup result:
+
+- instance termination requested and completed
+- security group deleted and verified gone
+- key pair deleted and verified gone
+- local PEM removed by the runner
+
+Fidelity result:
+
+- migration success: `true`
+- hash validation: `true`
+- written layers: `24`
+- all sampled slot probes matched: `true`
+- max key absolute delta: `0.0`
+- max value absolute delta: `0.0`
+- post-migration continuation still matched the target baseline
+- post-migration continuation still diverged from the source at token index `15`
+
+Decode-attachment evidence:
+
+- `decode_attachment_snapshot_count: 4`
+- stages captured:
+  - `baseline_continuation:before_generate`
+  - `baseline_continuation:after_generate`
+  - `generate_continuation:before_generate`
+  - `generate_continuation:after_generate`
+- post-migration vLLM request id: `2`
+- post-migration prompt token count: `6`
+- post-migration prompt token ids: `[3889, 2660, 517, 3126, 41171, 21730]`
+- post-migration output token ids ended with target-baseline token `32` (`A`)
+- source output token ids ended with source token `2461` (`For`)
+- registered Permeant block hash was visible to the runtime object: `sha256:752b47177c4c532507d41557f9c2079d59d7ae8c676281199e826a6636c76640`
+- last registered layer count was `24`
+- `32` candidate runtime objects were summarized, including `llm_engine`, `input_processor`, `cache_config`, `scheduler_config`, and `engine_core`
+
+Interpretation:
+
+The migrated block hash and exact slot writes are present in the Permeant runtime wrapper, but the post-migration `LLM.generate()` path is still creating a normal fresh vLLM request from the prompt token ids. The captured request/output metadata does not show an attachment from the generated request to the migrated block hash.
+
+The next fix should therefore stop treating `LLM.generate([prompt])` as the post-migration decode path. Instead, the target runtime needs an explicit migrated-request attachment path that constructs or mutates the vLLM request/block-table/prefix-cache state so the next decode step selects the migrated KV block.
