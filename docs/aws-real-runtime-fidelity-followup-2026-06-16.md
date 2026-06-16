@@ -83,6 +83,39 @@ Source vs target continuation:
 - The first mismatch still occurs at token index `15`.
 - That means the remaining fidelity gap is not explained by FP8 transfer compression.
 
+## Run C: baseline-instrumented live migration
+
+Manifest:
+- `migration-20260616-163727-84653-manifest.json`
+
+Key results:
+- `success: true`
+- `layers: 24`
+- `n_q_heads: 14`
+- `transfer_quantization: none`
+- `chunks_sent: 384`
+- `transferred_bytes: 50331648`
+- `total_time_ms: 344617.339375`
+
+Target runtime probe result:
+- target captured a baseline continuation before migration
+- all `24` layers were written into live KV caches
+- verification succeeded
+- source comparison was available
+- baseline comparison was available
+
+Source vs target continuation:
+- expected final token text: `For`
+- actual final token text: `A`
+- first mismatch: token index `15`
+
+Target baseline vs post-migration continuation:
+- baseline final token text: `A`
+- post-migration final token text: `A`
+- exact token match: `true`
+
+This is the clearest fidelity signal so far: the post-migration target continuation exactly matches the target's own pre-migration baseline. That means the migrated cache is being accepted and written, but the target decode path is still behaving like the target baseline for this probe.
+
 ## Verdict
 
 `permeantOS` now demonstrates:
@@ -90,6 +123,7 @@ Source vs target continuation:
 - successful real target runtime initialization
 - successful registration of all 24 migrated layers into live `vLLM` KV caches
 - successful post-migration continuation generation on the real target
+- successful baseline/source/post-migration comparison capture
 
 But it still does **not** demonstrate bit-faithful continuation fidelity.
 
@@ -130,4 +164,13 @@ The analyzer reports:
 - first mismatch index versus the target baseline continuation
 - whether post-migration output exactly matches the target baseline
 
-If a future run shows the post-migration continuation remaining close to the target baseline rather than the source, that will strongly suggest we still need to migrate additional runtime state beyond KV cache tensors.
+The analyzer now falls back to the target probe's `verify_permeant_hashes` event when a manifest does not embed a `verification` object. That matches Run C, where the decisive source and baseline comparisons lived in the probe artifact rather than the manifest.
+
+The live writer now also records `slot_probe` samples for combined vLLM KV caches. Each sample records:
+
+- source block/token/head/dim coordinates
+- target tensor indices used for the key and value writes
+- source and target scalar values
+- absolute deltas and match booleans
+
+If the next run shows every slot sample matching while continuation still equals the target baseline, the strongest remaining hypothesis becomes missing runtime decode state outside the KV tensors. If slot samples fail, the next target is the cache writer's block/token layout.

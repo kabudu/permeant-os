@@ -23,6 +23,11 @@ def _verification(manifest: dict[str, Any]) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _verification_from_probe(events: list[dict[str, Any]]) -> dict[str, Any]:
+    payload = _find_event(events, "verify_permeant_hashes")
+    return payload if isinstance(payload, dict) else {}
+
+
 def _first_mismatch(comparison: dict[str, Any] | None) -> int | None:
     if not isinstance(comparison, dict):
         return None
@@ -32,15 +37,16 @@ def _first_mismatch(comparison: dict[str, Any] | None) -> int | None:
 def _summarize(manifest: dict[str, Any], probe: dict[str, Any]) -> dict[str, Any]:
     events = probe.get("events")
     events = events if isinstance(events, list) else []
-    verify = _verification(manifest)
+    verify = _verification(manifest) or _verification_from_probe(events)
     source_comparison = verify.get("source_comparison")
     baseline_comparison = verify.get("baseline_comparison")
     register_event = _find_event(events, "register_permeant_block") or {}
     baseline_event = _find_event(events, "baseline_continuation") or {}
     generated_event = _find_event(events, "generate_continuation") or {}
+    source_reference = verify.get("source_continuation") or {}
 
     return {
-        "migration_id": manifest.get("migration_id"),
+        "migration_id": manifest.get("migration_id") or manifest.get("run_id"),
         "success": manifest.get("success"),
         "hash_validation_success": verify.get("success"),
         "written_layers": len(register_event.get("written_layers", [])),
@@ -52,8 +58,11 @@ def _summarize(manifest: dict[str, Any], probe: dict[str, Any]) -> dict[str, Any
         "matches_target_baseline_exactly": bool(
             isinstance(baseline_comparison, dict) and baseline_comparison.get("matches")
         ),
-        "source_output_text": (verify.get("source_continuation") or {}).get("text"),
-        "post_migration_output_text": (verify.get("continuation") or {}).get("text"),
+        "source_output_text": source_reference.get("text")
+        or (source_comparison or {}).get("expected_text"),
+        "post_migration_output_text": (verify.get("continuation") or {}).get("text")
+        or generated_event.get("text")
+        or (source_comparison or {}).get("actual_text"),
         "baseline_output_text": baseline_event.get("text"),
         "post_migration_token_count": len(generated_event.get("token_ids", [])),
         "baseline_token_count": len(baseline_event.get("token_ids", [])),
