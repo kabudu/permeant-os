@@ -138,3 +138,41 @@ The next implementation step is to instrument the target runtime state used to a
 - whether the migrated block hash is selected for the next decode step
 
 The goal for the next run is to explain why post-migration generation follows the target baseline even when sampled written KV slots match the source exactly.
+
+## Runner validation run
+
+The runner was validated end to end on June 16, 2026.
+
+Run state:
+
+- run id: `20260616-193913`
+- state directory: `.permeant-e2e/aws/20260616-193913/`
+- instance id: `i-093765a58f9c7e965`
+- security group: `sg-0cf3161555f8894c6`
+- key pair: `permeantos-real-e2e-20260616-193913-key`
+- manifest: `migration-20260616-194743-84959-manifest.json`
+
+Process result:
+
+- provisioning succeeded using the state-file metadata path
+- SSH readiness succeeded without manual IP correction
+- repository copy used `git archive`
+- remote setup used the generated setup script
+- target receiver/daemon startup used the generated startup script
+- local SSH tunnel opened from state-file metadata
+- migration completed successfully
+- target probe, receiver log, daemon log, fidelity analysis, and slot-probe summary were collected
+- cleanup terminated the instance, deleted the security group, deleted the key pair, removed the local PEM, and verified cleanup
+
+Fidelity result:
+
+- migration success: `true`
+- hash validation: `true`
+- written layers: `24`
+- all sampled slot probes matched: `true`
+- max key absolute delta: `0.0`
+- max value absolute delta: `0.0`
+- post-migration continuation matched the target baseline
+- post-migration continuation still diverged from the source at token index `15`
+
+This validates the operational process. The remaining work is product/runtime fidelity work, not E2E setup reliability.
