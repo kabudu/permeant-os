@@ -4,13 +4,13 @@
 *K. Budu* (Project Lead, PermeantOS)  
 *Antigravity AI* (Advanced Agentic Coding Research Group, Google DeepMind)  
 
-**Date:** June 13, 2026  
-**Status:** Preprint (Draft v1.1)
+**Date:** June 17, 2026  
+**Status:** Preprint (Draft v1.2)
 
 ---
 
 ## Abstract
-Long-running autonomous AI agents require the ability to migrate dynamically across heterogeneous cloud clusters and local edge environments. However, live state migration—specifically the transmission of large Key-Value (KV) caches—is currently bottlenecked by framework-specific layouts, vendor-locked hardware runtimes (NVIDIA CUDA vs. Apple Metal), and high context-reprefill latencies. In this paper, we present **PermeantOS**, a state-fluid hypervisor, and **USXF (Unified State Exchange Format) v1.1**, an open interchange format that decouples KV cache state from underlying runtimes. USXF defines a versioned metadata schema alongside a cryptographic, compressed payload envelope. We detail the mathematical layout transformations between canonical sequential representations and blocked execution formats, evaluate the numerical stability of FP8 quantization schemes for cross-hardware transfer, and define a warm-start decision boundary logic comparing prefill complexity to network transmission capacity. Empirical evaluations demonstrate that USXF-based migration achieves up to an 8x reduction in resume latency compared to re-prefill for contexts larger than 32k tokens over 25 Gbps connections.
+Long-running autonomous AI agents require the ability to migrate dynamically across heterogeneous cloud clusters and local edge environments. However, live state migration--specifically the transmission of large Key-Value (KV) caches--is currently bottlenecked by framework-specific layouts, vendor-locked hardware runtimes (NVIDIA CUDA vs. Apple Metal), and high context-reprefill latencies. In this paper, we present **PermeantOS**, a state-fluid hypervisor, and **USXF (Unified State Exchange Format) v1.1**, an open interchange format that decouples KV cache state from underlying runtimes. USXF defines a versioned metadata schema alongside a cryptographic, compressed payload envelope. We detail the mathematical layout transformations between canonical sequential representations and blocked execution formats, evaluate FP8 transfer quantization schemes, and define a warm-start decision boundary comparing prefill complexity to network transmission capacity. In addition to analytical break-even estimates showing up to an 8x resume-latency reduction for contexts larger than 32k tokens over 25 Gbps links, we report a real cross-runtime validation: a local Apple Silicon MLX source migrated a Qwen2.5 KV cache to an AWS NVIDIA `g4dn.xlarge` vLLM target, where all 24 layers passed hash and slot-probe validation and post-migration decode matched the source continuation exactly for the 16-token validation horizon.
 
 ---
 
@@ -43,7 +43,7 @@ graph TD
     F --> G[Encrypt-then-Sign Wrapping]
     G --> H[TCP Frame Streaming with CRC32]
     H --> I[Target Decryption & Layout Reshaping]
-    I --> J[vLLM KVConnectorBase_V1 Injection]
+    I --> J[Target KV Allocation and Prefix-Cache Attachment]
     J --> K[Two-Phase Commit Validation]
 ```
 
@@ -53,7 +53,7 @@ graph TD
 4. **Transpilation & Quantization:** Tensors are reshaped from vendor-specific memory layouts to the USXF canonical layout. Tensors are optionally quantized to FP8 (E4M3) to compress the payload.
 5. **Security Wrapping:** The JSON header and payload chunks are sealed using an **Encrypt-then-Sign** scheme.
 6. **Streaming:** Data is streamed in chunks over a length-prefixed TCP socket. Each frame includes a CRC32 checksum for corruption detection.
-7. **Injection:** The target decrypts, reshapes the tensors to vLLM blocked configurations, and registers them via the `KVConnectorBase_V1` plugin.
+7. **Injection:** The target decrypts and reshapes tensors to the target runtime's blocked configuration. In the current vLLM validation path, PermeantOS allocates target KV blocks, writes migrated key/value tensors directly into those physical slots, and seeds vLLM prefix-cache metadata so the next decode request attaches to the migrated prefix.
 8. **Two-Phase Commit:** A final validation check verifies cache state continuity before switching the active inference engine to the target node.
 
 ---
@@ -206,7 +206,44 @@ At sequence lengths $\ge 32k$ tokens and network bandwidths $\ge 25\text{ Gbps}$
 
 ---
 
-## 7. Related Work
+## 7. Real-Runtime End-to-End Validation
+
+To test whether USXF migration works beyond synthetic fixtures and analytical modeling, we ran a disposable cross-host validation using an Apple Silicon laptop as the source runtime and an AWS GPU VM as the target runtime.
+
+### 7.1 Experimental Setup
+
+The source host ran MLX with `Qwen/Qwen2.5-0.5B-Instruct`. The target host was an AWS `g4dn.xlarge` instance running vLLM `0.23.0` with the same model. PermeantOS exported a 2016-token source prompt/cache, streamed the encrypted migration over an SSH-tunneled daemon connection, registered the target-side KV blocks, seeded vLLM prefix-cache metadata, and generated a post-migration continuation from the migrated prefix.
+
+The target context length was kept below the 2048-token model window to leave room for a 16-token validation continuation. An earlier run using a 2032-token source prefix produced an apparent source/target mismatch after 11 tokens; analysis showed that the target had reached its context limit and stopped early. Reducing the migrated prefix to 2016 tokens removed this confounder.
+
+### 7.2 Validation Results
+
+| Metric | Result |
+|---|---|
+| Run ID | `20260616-230743` |
+| Migration manifest | `migration-20260616-231535-66524-manifest.json` |
+| Source runtime | MLX, Apple Silicon laptop |
+| Target runtime | vLLM `0.23.0`, AWS `g4dn.xlarge` |
+| Model | `Qwen/Qwen2.5-0.5B-Instruct` |
+| Migrated prefix length | 2016 tokens |
+| Layer count | 24 |
+| Hash validation | Passed |
+| Slot-probe max key diff | `0.0` |
+| Slot-probe max value diff | `0.0` |
+| vLLM prefix-cache seeded blocks | 16 |
+| Source vs. post-migration decode | Exact match for 16 generated tokens |
+| Target baseline vs. post-migration decode | Exact match for 16 generated tokens |
+| Cleanup | AWS instance, security group, and key pair deleted |
+
+These results validate the core live migration chain: MLX extraction, USXF transport, target allocation, target KV write, hash validation, prefix-cache attachment, and post-migration decode reuse. The result is intentionally scoped: it demonstrates exact fidelity for one model family and a 16-token continuation horizon. Longer continuation horizons, additional model architectures, quantized transfer variants, and high-concurrency multi-tenant runs remain future evaluation work.
+
+### 7.3 Engineering Finding: Context Window Accounting
+
+The strongest negative finding from the validation cycle was not a tensor-layout error but a context-window accounting issue. vLLM tokenization and request construction can consume a few more target-side prompt tokens than a source-side text-length intuition suggests. If a migrated prefix is too close to the model's maximum context length, the target can truncate or stop generation before the source validation horizon completes. This produced a false fidelity gap in the 2032-token run. The harness now defaults to a 2016-token prefix for 2048-token target contexts, ensuring that continuation fidelity tests measure migration behavior rather than context exhaustion.
+
+---
+
+## 8. Related Work
 This research builds upon several disaggregated caching and optimization frameworks:
 * **LMCache:** Introduces a tiered distributed cache layer for KV caches. PermeantOS complements LMCache by defining an open, versioned format (USXF) that bridges Apple Silicon (Metal) and NVIDIA (CUDA) environments.
 * **PegaFlow:** Uses a Rust sidecar and custom vLLM connectors to slide cache blocks. USXF generalizes these layout transfers into a framework-agnostic format, adding security envelopes and conversation turn-boundary metadata.
@@ -214,10 +251,11 @@ This research builds upon several disaggregated caching and optimization framewo
 
 ---
 
-## 8. Conclusion & Future Work
-We have presented USXF v1.1 and the PermeantOS hypervisor stack. By decoupling the KV cache from vendor-locked runtimes and wrapping it in a secure, layout-agnostic structure, we enable seamless, cross-hardware agent migrations.
+## 9. Conclusion & Future Work
+We have presented USXF v1.1 and the PermeantOS hypervisor stack. By decoupling the KV cache from vendor-locked runtimes and wrapping it in a secure, layout-agnostic structure, PermeantOS enables cross-hardware agent migration. The latest end-to-end validation demonstrates that this is not only a wire-format proposal: a real MLX source cache can be migrated to a real vLLM target, registered into target KV storage, attached through prefix-cache metadata, and decoded with exact short-horizon source fidelity.
 
 Future research directions include:
 1. **Speculative Migration:** Initiating network streaming of prefix blocks before the active reasoning loop completes.
 2. **Multi-Hop Provenance:** Embedding signing chains within the metadata header to allow verified routing across multiple intermediate nodes.
 3. **Agent Memory Graph Integration:** Moving beyond simple linear KV token histories to support multi-agent state trees and memory graphs.
+4. **Broader Fidelity Evaluation:** Repeating the MLX-to-vLLM validation across longer continuation horizons, larger contexts, additional model families, FP8 transfer quantization, and prewarmed cloud images to separate steady-state migration cost from cold infrastructure setup.
