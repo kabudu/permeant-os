@@ -41,6 +41,8 @@ What is still experimental:
 
 - `ROADMAP.md`: full roadmap, including Agent Memory Graph migration phases.
 - `docs/usxf-arxiv-paper.md`: paper draft covering USXF, PermeantOS, and real-runtime E2E findings.
+- `paper/arxiv/`: arXiv-oriented LaTeX submission bundle.
+- `docs/website/white-paper.md`: website-friendly technical white paper.
 - `docs/deployment-and-testing-guide.md`: local, cloud-host, manifest, benchmark, and Runpod workflow guide.
 - `docs/aws-real-runtime-e2e-runner.md`: repeatable AWS real-runtime E2E runner and cleanup/resume runbook.
 - `docs/runtime-adapter-protocol.md`: command-backed extractor/injector contract.

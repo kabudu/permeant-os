@@ -1,0 +1,39 @@
+\begin{thebibliography}{1}
+
+\bibitem{mlx2023}
+{Apple Machine Learning Research}.
+\newblock Mlx: An array framework for apple silicon.
+\newblock \url{https://github.com/ml-explore/mlx}, 2023.
+
+\bibitem{kwon2023pagedattention}
+Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody~Hao Yu,
+  Joseph~E. Gonzalez, Hao Zhang, and Ion Stoica.
+\newblock Efficient memory management for large language model serving with
+  pagedattention.
+\newblock In {\em Proceedings of the ACM Symposium on Operating Systems
+  Principles}, 2023.
+
+\bibitem{liu2024cachegen}
+Yuhan Liu et~al.
+\newblock Cachegen: Kv cache compression and streaming for fast large language
+  model serving, 2024.
+\newblock Preprint.
+
+\bibitem{lmcache2024}
+{LMCache Project}.
+\newblock Lmcache: Efficient kv cache management for large language model
+  serving.
+\newblock \url{https://github.com/LMCache/LMCache}, 2024.
+
+\bibitem{vllm2023}
+{vLLM Project}.
+\newblock vllm: Easy, fast, and cheap llm serving with pagedattention.
+\newblock \url{https://github.com/vllm-project/vllm}, 2023.
+
+\bibitem{zheng2024lmsys}
+Lianmin Zheng et~al.
+\newblock Lmsys chatbot arena and large language model serving infrastructure,
+  2024.
+\newblock Project and systems documentation.
+
+\end{thebibliography}

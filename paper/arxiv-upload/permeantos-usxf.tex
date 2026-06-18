@@ -1,0 +1,264 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{enumitem}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue,
+  urlcolor=blue
+}
+
+\title{USXF: A Unified State Exchange Format and Fluid Hypervisor for Cross-Hardware AI Agent Migration}
+\author{K. Budu\\PermeantOS Project Lead}
+\date{June 17, 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Long-running autonomous AI agents require the ability to migrate dynamically across heterogeneous cloud clusters and local edge environments. However, live state migration, specifically the transmission of large Key-Value (KV) caches, is bottlenecked by framework-specific layouts, vendor-locked hardware runtimes, and high context-reprefill latency. This paper presents PermeantOS, a state-fluid hypervisor, and USXF (Unified State Exchange Format) v1.1, an open interchange format that decouples KV cache state from underlying runtimes. USXF defines a versioned metadata schema alongside a cryptographic, compressed payload envelope. We describe layout transformations between canonical sequential representations and blocked execution formats, discuss FP8 transfer quantization, and define a warm-start decision boundary comparing prefill complexity to network transfer cost. In addition to analytical break-even estimates showing up to an 8x resume-latency reduction for contexts larger than 32k tokens over 25 Gbps links, we report a real cross-runtime validation: a local Apple Silicon MLX source migrated a Qwen2.5 KV cache to an AWS NVIDIA \texttt{g4dn.xlarge} vLLM target, where all 24 layers passed hash and slot-probe validation and post-migration decode matched the source continuation exactly for the 16-token validation horizon.
+\end{abstract}
+
+\section{Introduction}
+
+Autonomous agent architectures increasingly rely on continuous, multi-turn reasoning loops. In these workflows, the model context window becomes a persistent working memory. As conversation histories expand to 32k--128k tokens and beyond, the memory footprint of the KV cache grows into gigabytes.
+
+When an agent migrates because of node eviction, scheduling optimization, cost control, or transition between edge and cloud devices, reconstructing the context normally requires recalculating prompt attention states. This process, known as re-prefilling, incurs substantial computational cost. A simplified model is:
+\begin{equation}
+T_{\text{prefill}} \propto \mathcal{O}(L \cdot S^2 \cdot D),
+\end{equation}
+where $L$ is the number of layers, $S$ is the sequence length, and $D$ is the hidden dimensionality. For long contexts, re-prefilling introduces seconds of latency, interrupting the agent's interactive loop.
+
+Prior systems have explored disaggregated KV caching, paged attention, and cache reuse \cite{kwon2023pagedattention, zheng2024lmsys, liu2024cachegen}. These systems are typically optimized for a specific framework or cluster environment. PermeantOS targets a complementary problem: cross-hardware and cross-runtime migration where an agent may move from Apple Silicon MLX to NVIDIA CUDA vLLM, while preserving verifiable state continuity.
+
+This paper makes four contributions:
+\begin{enumerate}[leftmargin=*]
+  \item We define USXF, a runtime-neutral state exchange format for active KV cache migration.
+  \item We describe a PermeantOS hypervisor sidecar that performs capability exchange, encrypted transfer, tensor layout transformation, and two-phase commit.
+  \item We analyze break-even conditions under which KV migration outperforms local re-prefill.
+  \item We report a real MLX-to-vLLM end-to-end validation with exact short-horizon decode fidelity.
+\end{enumerate}
+
+\section{System Architecture}
+
+PermeantOS operates as a sidecar daemon alongside model inference runtimes. The migration pipeline follows a structured lifecycle:
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Capability exchange}: source and target negotiate model identity, attention mechanics, context length, and target allocation limits.
+  \item \textbf{Warm-start evaluation}: the orchestrator evaluates whether migration should beat local re-prefill.
+  \item \textbf{Extraction}: source adapters extract key-value tensors from active runtime caches.
+  \item \textbf{Transpilation and quantization}: tensors are converted from runtime-specific physical layouts into canonical USXF form and optionally transfer-quantized.
+  \item \textbf{Security wrapping}: the header and tensor chunks are sealed with an encrypt-then-sign envelope.
+  \item \textbf{Streaming}: payloads are sent as length-prefixed frames with CRC checks.
+  \item \textbf{Target injection}: the target decrypts, reshapes, allocates runtime KV blocks, writes migrated tensors, and attaches decode metadata.
+  \item \textbf{Two-phase commit}: validation succeeds or the migration is aborted before target activation.
+\end{enumerate}
+
+In the validated vLLM path, PermeantOS allocates target KV blocks, writes migrated key/value tensors directly into physical cache slots, and seeds vLLM prefix-cache metadata so the next decode request attaches to the migrated prefix.
+
+\section{USXF v1.1 Specification}
+
+USXF separates at-rest archival snapshots from active wire-streaming envelopes. At rest, a USXF state may be serialized as a tensor archive plus JSON metadata. On the wire, USXF is streamed as length-prefixed JSON command frames followed by binary tensor chunks.
+
+\subsection{Metadata Header}
+
+The metadata header describes model identity, attention structure, sequence length, tensor dtype, transfer quantization, block hashes, and security metadata. A representative header is shown below:
+
+\begin{verbatim}
+{
+  "usxf_version": "1.1",
+  "model_architecture": "Qwen2.5-0.5B-Instruct",
+  "attention_type": "gqa",
+  "model_cache_spec": {
+    "n_layers": 24,
+    "n_q_heads": 14,
+    "n_kv_heads": 2,
+    "head_dim": 64,
+    "max_position_embeddings": 32768
+  },
+  "seq_len": 2016,
+  "batch_size": 1,
+  "dtype": "bfloat16",
+  "transfer_quantization": {"scheme": "none"},
+  "block_size": 256,
+  "block_hashes": ["sha256:..."],
+  "checksum": "sha256:...",
+  "signature": "ed25519:..."
+}
+\end{verbatim}
+
+\section{Layout Transformation}
+
+The core mathematical challenge is mapping between a canonical sequential layout and target blocked layouts used by paged attention runtimes.
+
+\subsection{Canonical Sequential Layout}
+
+USXF stores extracted key and value tensors for each layer in sequential representation:
+\begin{equation}
+K_{\text{canon}} \in \mathbb{R}^{S \times H_{\text{kv}} \times D_{\text{head}}},
+\end{equation}
+\begin{equation}
+V_{\text{canon}} \in \mathbb{R}^{S \times H_{\text{kv}} \times D_{\text{head}}},
+\end{equation}
+where $S$ is sequence length, $H_{\text{kv}}$ is the number of KV heads, and $D_{\text{head}}$ is the head dimension.
+
+\subsection{Blocked Target Layout}
+
+For a block size $B$, key states in a vLLM-like blocked layout can be represented as:
+\begin{equation}
+K_{\text{vllm}} \in \mathbb{R}^{M \times H_{\text{kv}} \times D_{\text{head}} \times B},
+\end{equation}
+where $M = \lceil S / B \rceil$. The canonical coordinate $(s,h,d)$ maps to blocked coordinate $(m,h,d,b)$ as:
+\begin{equation}
+m = \lfloor s / B \rfloor, \quad b = s \bmod B.
+\end{equation}
+Thus:
+\begin{equation}
+K_{\text{vllm}}[m,h,d,b] = K_{\text{canon}}[s,h,d].
+\end{equation}
+
+Value states are commonly arranged as:
+\begin{equation}
+V_{\text{vllm}} \in \mathbb{R}^{M \times H_{\text{kv}} \times B \times D_{\text{head}}},
+\end{equation}
+with:
+\begin{equation}
+V_{\text{vllm}}[m,h,b,d] = V_{\text{canon}}[s,h,d].
+\end{equation}
+
+\section{Security Architecture}
+
+AI agent memory may contain user text, tool outputs, private documents, and derived activations. PermeantOS therefore treats migration payloads as sensitive by default.
+
+The transfer envelope follows an encrypt-then-sign construction:
+\begin{enumerate}[leftmargin=*]
+  \item Encrypt the header and payload using AES-256-GCM with a fresh nonce.
+  \item Sign ciphertext and nonce using Ed25519.
+  \item Stream frames with CRC checks for corruption detection.
+  \item Verify signature before decryption on the target.
+\end{enumerate}
+
+The orchestrator also enforces resource policies such as maximum concurrent migrations and target allocation limits.
+
+\section{Performance and Break-Even Analysis}
+
+The warm-start decision evaluates:
+\begin{equation}
+T_{\text{transfer}} \leq \gamma \cdot T_{\text{prefill}},
+\end{equation}
+where $\gamma = 0.7$ is a conservative savings margin.
+
+Network transfer time is modeled as:
+\begin{equation}
+T_{\text{transfer}} = \frac{8 \cdot S_{\text{bytes}}}{B_{\text{network}}} + \delta,
+\end{equation}
+where $S_{\text{bytes}}$ is payload size, $B_{\text{network}}$ is bandwidth in bits per second, and $\delta$ is fixed handshake overhead.
+
+Prefill time is modeled as:
+\begin{equation}
+T_{\text{prefill}} = \alpha S + \beta S^2.
+\end{equation}
+
+\subsection{Transition Analysis}
+
+For a Llama-3.1-8B-style cache with 32 layers, 8 KV heads, 128 head dimension, and BF16 precision, Table~\ref{tab:break-even} gives illustrative transfer and prefill comparisons.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{rrrrrr}
+\toprule
+Context & BF16 cache & FP8 cache & 10 Gbps & 25 Gbps & Prefill \\
+\midrule
+8,192 & 536 MB & 268 MB & 0.364 s & 0.235 s & 0.122 s \\
+16,384 & 1.07 GB & 536 MB & 0.578 s & 0.321 s & 0.324 s \\
+32,768 & 2.14 GB & 1.07 GB & 1.008 s & 0.493 s & 0.972 s \\
+65,536 & 4.29 GB & 2.14 GB & 1.860 s & 0.835 s & 3.220 s \\
+131,072 & 8.58 GB & 4.29 GB & 3.580 s & 1.523 s & 11.610 s \\
+\bottomrule
+\end{tabular}
+\caption{Illustrative break-even analysis for KV migration versus re-prefill.}
+\label{tab:break-even}
+\end{table}
+
+Under these assumptions, migration becomes attractive at contexts of approximately 32k tokens and above on 25 Gbps links with FP8 transfer quantization.
+
+\section{Real-Runtime End-to-End Validation}
+
+We validated PermeantOS against real source and target runtimes using an Apple Silicon laptop as the source host and an AWS GPU VM as the target host.
+
+\subsection{Experimental Setup}
+
+The source host ran MLX with \texttt{Qwen/Qwen2.5-0.5B-Instruct}. The target host was an AWS \texttt{g4dn.xlarge} instance running vLLM \texttt{0.23.0} with the same model. PermeantOS exported a 2016-token source prompt/cache, streamed the encrypted migration over an SSH-tunneled daemon connection, registered target KV blocks, seeded vLLM prefix-cache metadata, and generated a post-migration continuation from the migrated prefix.
+
+The target context length was kept below the 2048-token model window to leave room for a 16-token validation continuation. An earlier run using a 2032-token source prefix produced an apparent mismatch after 11 tokens; analysis showed the target had reached its context limit and stopped early.
+
+\subsection{Results}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{ll}
+\toprule
+Metric & Result \\
+\midrule
+Run ID & \texttt{20260616-230743} \\
+Manifest & \texttt{migration-20260616-231535-66524-manifest.json} \\
+Source runtime & MLX on Apple Silicon \\
+Target runtime & vLLM \texttt{0.23.0} on AWS \texttt{g4dn.xlarge} \\
+Model & \texttt{Qwen/Qwen2.5-0.5B-Instruct} \\
+Migrated prefix length & 2016 tokens \\
+Layer count & 24 \\
+Hash validation & Passed \\
+Slot-probe max key diff & \texttt{0.0} \\
+Slot-probe max value diff & \texttt{0.0} \\
+vLLM prefix-cache seeded blocks & 16 \\
+Source vs. post-migration decode & Exact match for 16 generated tokens \\
+Target baseline vs. post-migration decode & Exact match for 16 generated tokens \\
+Cleanup & AWS instance, security group, and key pair deleted \\
+\bottomrule
+\end{tabular}
+\caption{Real MLX-to-vLLM end-to-end validation result.}
+\label{tab:e2e}
+\end{table}
+
+These results validate the core live migration chain: MLX extraction, USXF transport, target allocation, target KV write, hash validation, prefix-cache attachment, and post-migration decode reuse. The result is intentionally scoped: it demonstrates exact fidelity for one model family and a 16-token continuation horizon.
+
+\section{Agent Memory Graph Roadmap}
+
+KV cache migration is necessary but not sufficient for full agent migration. A complete agent migration system must also preserve conversation turns, tool calls, tool results, files, retrieval memories, pending actions, provenance, and policy. PermeantOS therefore treats KV cache as one artifact within a future Agent Memory Graph.
+
+The planned graph layer will include:
+\begin{itemize}[leftmargin=*]
+  \item message, tool-call, tool-result, artifact, memory, and plan nodes;
+  \item causal, reference, produced, consumed, supersedes, and resumes edges;
+  \item token-span mappings between graph nodes and KV cache ranges;
+  \item idempotency keys and resume policies for pending tool calls;
+  \item per-node hashes, graph-level checksums, and provenance signatures.
+\end{itemize}
+
+This layer will make it possible to migrate not merely model activations, but the structured continuity state of an agent.
+
+\section{Related Work}
+
+PermeantOS is related to paged attention and serving systems such as vLLM \cite{kwon2023pagedattention,vllm2023}, Apple Silicon runtime work such as MLX \cite{mlx2023}, distributed KV cache systems such as LMCache \cite{lmcache2024}, and cache compression systems such as CacheGen \cite{liu2024cachegen}. It is also influenced by broader inference-serving systems work \cite{zheng2024lmsys}. PermeantOS differs by targeting cross-hardware, cross-runtime state exchange with cryptographic manifests and an explicit migration protocol.
+
+\section{Limitations}
+
+The current system is a research preview. The real-runtime validation covers one model family, one source runtime, one target runtime, and a 16-token continuation horizon. The vLLM adapter uses internal implementation details that may change across vLLM versions. Cloud-host validation is currently dominated by cold installation and warmup costs unless prewarmed images are used. Full Agent Memory Graph migration remains future work.
+
+\section{Conclusion}
+
+USXF and PermeantOS provide a concrete path toward portable, verifiable AI agent state. The current prototype demonstrates that a real MLX source cache can be migrated to a real vLLM target, written into target KV storage, attached through prefix-cache metadata, and decoded with exact short-horizon fidelity. This result supports the broader thesis that AI agent state should be treated as migratable infrastructure rather than runtime-local ephemera.
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}
