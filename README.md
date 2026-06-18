@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/permeant-logo-transparent.png" alt="PermeantOS logo" width="440" />
+</p>
+
 # PermeantOS
 
 PermeantOS is an experimental state-fluid hypervisor for live AI agent migration. It currently focuses on cross-host KV-cache migration between heterogeneous runtimes, with a longer-term roadmap toward full agent memory graph migration.
