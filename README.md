@@ -1,2 +1,149 @@
-# permeant-os
-permeant-os
+# PermeantOS
+
+PermeantOS is an experimental state-fluid hypervisor for live AI agent migration. It currently focuses on cross-host KV-cache migration between heterogeneous runtimes, with a longer-term roadmap toward full agent memory graph migration.
+
+The current prototype has demonstrated a real end-to-end migration from a local Apple Silicon MLX source runtime to an AWS NVIDIA vLLM target runtime. In the validated run, PermeantOS migrated a `Qwen/Qwen2.5-0.5B-Instruct` KV cache, wrote it into vLLM target blocks, seeded vLLM prefix-cache metadata, and matched the source continuation exactly for a 16-token validation horizon.
+
+## Status
+
+Research preview. The system is significant enough to study, reproduce, and contribute to, but it is not yet production software.
+
+What works today:
+
+- Rust daemon/client migration protocol.
+- Capability exchange and two-phase commit.
+- Encrypted and signed transfer envelope.
+- CRC-checked streaming payloads.
+- Manifest generation and benchmark capture.
+- MLX live source adapter.
+- vLLM live target adapter with target block allocation, KV writes, prefix-cache seeding, and fidelity probes.
+- Repeatable AWS real-runtime E2E runner with cleanup verification.
+- Exact short-horizon MLX-to-vLLM continuation fidelity for one validated Qwen run.
+
+What is still experimental:
+
+- Runtime adapters rely on Python because MLX and vLLM expose the needed internals through Python APIs.
+- The vLLM attachment path uses implementation details that may change between vLLM versions.
+- Fidelity has been validated for one model family and a 16-token continuation horizon.
+- Cloud validation is expensive and slow on cold hosts unless a prewarmed image is used.
+- Full agent memory graph migration is planned, not implemented.
+
+## Repository layout
+
+- `crates/`: Rust crates for USXF core logic, transport, orchestration, injector, extractor, and CLI.
+- `adapters/`: Python runtime adapters and bridge tools for MLX, vLLM, Runpod, and analysis.
+- `docs/`: runbooks, design notes, validation reports, and paper draft.
+- `sdk/python/`: early Python SDK package.
+- `scripts/`: repeatable cloud validation scripts.
+- `ROADMAP.md`: detailed roadmap toward full agent memory graph migration.
+
+## Key documents
+
+- `ROADMAP.md`: full roadmap, including Agent Memory Graph migration phases.
+- `docs/usxf-arxiv-paper.md`: paper draft covering USXF, PermeantOS, and real-runtime E2E findings.
+- `paper/arxiv/`: arXiv-oriented LaTeX submission bundle.
+- `docs/website/white-paper.md`: website-friendly technical white paper.
+- `docs/deployment-and-testing-guide.md`: local, cloud-host, manifest, benchmark, and Runpod workflow guide.
+- `docs/aws-real-runtime-e2e-runner.md`: repeatable AWS real-runtime E2E runner and cleanup/resume runbook.
+- `docs/runtime-adapter-protocol.md`: command-backed extractor/injector contract.
+- `docs/real-runtime-bringup.md`: live runtime bring-up notes.
+- `docs/aws-real-runtime-fidelity-followup-2026-06-16.md`: fidelity investigation history.
+
+## Validated real-runtime result
+
+Latest successful fidelity run:
+
+| Field | Value |
+| --- | --- |
+| Run ID | `20260616-230743` |
+| Manifest | `migration-20260616-231535-66524-manifest.json` |
+| Source | local MLX on Apple Silicon |
+| Target | AWS `g4dn.xlarge`, vLLM `0.23.0` |
+| Model | `Qwen/Qwen2.5-0.5B-Instruct` |
+| Prefix length | 2016 tokens |
+| Layers | 24 |
+| Hash validation | passed |
+| Slot probe max key diff | `0.0` |
+| Slot probe max value diff | `0.0` |
+| Prefix-cache seeded blocks | 16 |
+| Decode fidelity | exact source/post-migration match for 16 generated tokens |
+| Cleanup | instance, security group, and key pair deleted |
+
+The earlier apparent fidelity gap at a longer prefix was traced to target context-window exhaustion, not a KV migration defect.
+
+## Quick start
+
+Prerequisites:
+
+- Rust toolchain.
+- Python 3.10+ for adapters.
+- Optional: Apple Silicon with MLX for live source tests.
+- Optional: AWS account with GPU quota for real vLLM target tests.
+
+Build the Rust CLI:
+
+```bash
+cargo build
+```
+
+Run a local simulated migration target:
+
+```bash
+./target/debug/permeant-cli daemon --addr 127.0.0.1:9099
+```
+
+In another terminal, run a simulated migration:
+
+```bash
+./target/debug/permeant-cli sim-migrate --target-addr 127.0.0.1:9099 --seq-len 512
+```
+
+For real-runtime MLX-to-vLLM validation, start with:
+
+```bash
+scripts/aws-real-runtime-e2e.sh run
+```
+
+Read `docs/aws-real-runtime-e2e-runner.md` first. The script provisions billable AWS GPU infrastructure and is designed to clean up after itself, but you should understand the state file and cleanup command before running it.
+
+## Benchmark snapshot
+
+| Run | Target | Source mode | Transport | Seq len | Total time (ms) | Effective bandwidth (Gbps) | Manifest |
+| --- | --- | --- | --- | ---: | ---: | ---: | --- |
+| AWS real-runtime fidelity | `g4dn.xlarge` | live MLX | SSH tunnel + vLLM prefix-cache attachment | 2016 | see run doc | see run doc | `migration-20260616-231535-66524-manifest.json` |
+| AWS GPU | `g4dn.xlarge` | live MLX | SSH tunnel to daemon | 2048 | 25245.342833 | 0.001438227963385703 | `migration-20260615-215310-60139-manifest.json` |
+| AWS real runtime | `g4dn.xlarge` | live MLX | SSH tunnel + in-process vLLM hook | 2048 | 49105.921208 | 0.0016397366763484056 | `migration-20260615-232818-54818-manifest.json` |
+| AWS CPU fallback | `t3.medium` | live MLX | SSH tunnel to daemon | 2048 | 23106.294833 | 0.0017053993142176205 | `migration-20260615-195032-6976-manifest.json` |
+| Runpod live-source proof | RTX 3090 | live MLX | SSH tunnel to daemon | 2048 | 156377.4295 | 0.00011692589682723728 | `migration-20260614-154223-70658-manifest.json` |
+| Runpod HTTP-bridge proof | RTX 3090 | live MLX | HTTP bridge | 2048 | 54649.212125 | 0.0016446839797195588 | `migration-20260614-195346-87816-manifest.json` |
+
+## Roadmap
+
+The next major milestone is full agent memory graph migration: conversation turns, tool calls, artifacts, vector memories, pending work, provenance, and KV spans in one transactional migration envelope.
+
+See `ROADMAP.md` for the detailed phased plan.
+
+## Contributing
+
+Contributions are welcome, especially around:
+
+- Runtime adapters.
+- Manifest and analyzer tooling.
+- Agent Memory Graph schema design.
+- Reproducible benchmarks.
+- Security review.
+- Documentation and examples.
+
+Read `CONTRIBUTING.md` before opening a pull request.
+
+## Security
+
+PermeantOS handles sensitive context state. Do not publish real user context, secrets, cloud credentials, private model prompts, or generated migration manifests containing sensitive data.
+
+Report vulnerabilities using the process in `SECURITY.md`.
+
+## License
+
+Licensed under the Apache License, Version 2.0. See `LICENSE`.
+
+Apache-2.0 is used because PermeantOS is infrastructure software where a permissive license plus an explicit patent grant is preferable for broad academic, startup, and commercial adoption.

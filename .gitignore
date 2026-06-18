@@ -12,6 +12,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.hf-cache/
 .venv/
 venv/
 env/
@@ -29,6 +30,7 @@ migration-*-manifest.json
 migration-manifest-*.json
 *.usxf.json
 *.safetensors
+.permeant-e2e/
 
 # Logs and runtime output
 *.log
@@ -54,3 +56,5 @@ htmlcov/
 *.profraw
 *.profdata
 
+# Local MLX source runtime venv
+.mlx-source-venv/

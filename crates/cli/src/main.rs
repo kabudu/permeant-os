@@ -79,130 +79,128 @@ async fn run_daemon(addr_str: &str) -> Result<()> {
     loop {
         let (mut socket, peer) = listener.accept().await?;
         println!("\n[Daemon] Incoming connection from {:?}", peer);
+        if let Err(err) = handle_migration_connection(
+            &mut socket,
+            &mut orchestrator,
+            &mut injector,
+            &aes_key,
+        )
+        .await
+        {
+            eprintln!(
+                "[Daemon] Connection {:?} ended without commit: {}",
+                peer, err
+            );
+        }
+    }
+}
+
+async fn handle_migration_connection(
+    socket: &mut TcpStream,
+    orchestrator: &mut MigrationOrchestrator,
+    injector: &mut KVConnectorBase_V1,
+    aes_key: &[u8; 32],
+) -> Result<()> {
+    let msg = recv_message(socket).await?;
+    if let MigrationMessage::CapabilityRequest { model_architecture, attention_type, seq_len } = msg {
+        println!("[Daemon] Received migration capability request for: {}, Attn: {}, SeqLen: {}", model_architecture, attention_type, seq_len);
         
-        // Handle the migration process in a state-machine looped protocol
-        let mut state_machine = orchestrator.policy.phase_timeouts.clone();
-        
-        // 1. Recv CapabilityRequest
-        let msg = recv_message(&mut socket).await?;
-        if let MigrationMessage::CapabilityRequest { model_architecture, attention_type, seq_len } = msg {
-            println!("[Daemon] Received migration capability request for: {}, Attn: {}, SeqLen: {}", model_architecture, attention_type, seq_len);
-            
-            // Validate capacity
-            let response = if seq_len > 131072 {
-                MigrationMessage::CapabilityResponse {
-                    accepted: false,
-                    error_message: Some("Context size exceeds hypervisor hardware memory limits".to_string()),
-                    target_device: "Metal/Mock".to_string(),
-                }
-            } else {
-                MigrationMessage::CapabilityResponse {
-                    accepted: true,
-                    error_message: None,
-                    target_device: "Metal/Mock".to_string(),
-                }
-            };
-            
-            send_message(&mut socket, &response).await?;
-            if let MigrationMessage::CapabilityResponse { accepted: false, .. } = response {
-                println!("[Daemon] Rejected migration capability (context too large)");
-                continue;
+        let target_device = describe_runtime_target_device();
+        let response = if seq_len > 131072 {
+            MigrationMessage::CapabilityResponse {
+                accepted: false,
+                error_message: Some("Context size exceeds hypervisor hardware memory limits".to_string()),
+                target_device: target_device.clone(),
             }
         } else {
-            bail!("Protocol violation: Expected CapabilityRequest");
-        }
-        
-        // 2. Recv Encrypted Header
-        let msg = recv_message(&mut socket).await?;
-        let header = if let MigrationMessage::HeaderEnvelope(envelope) = msg {
-            println!("[Daemon] Received encrypted USXF header envelope. Verifying signature & decrypting...");
-            let plaintext = open_packet(&envelope, &aes_key).context("Header decryption or signature failed")?;
-            let header: UsxfHeader = serde_json::from_slice(&plaintext).context("Failed to deserialize USXF header")?;
-            
-            // Validate schema constraints
-            validate_header(&header).context("USXF metadata validation failed")?;
-            println!("[Daemon] Header verified. Model Identity: {}. Config Hash: {}", header.model_architecture, header.model_identity.config_hash);
-            
-            send_message(&mut socket, &MigrationMessage::HeaderAck { accepted: true }).await?;
-            header
-        } else {
-            bail!("Protocol violation: Expected HeaderEnvelope");
+            MigrationMessage::CapabilityResponse {
+                accepted: true,
+                error_message: None,
+                target_device,
+            }
         };
         
-        // 3. Recv Tensors layer by layer
-        println!("[Daemon] Streaming payload chunks starting...");
-        let expected_blocks = (header.seq_len + header.block_size - 1) / header.block_size;
+        send_message(socket, &response).await?;
+        if let MigrationMessage::CapabilityResponse { accepted: false, .. } = response {
+            println!("[Daemon] Rejected migration capability (context too large)");
+            return Ok(());
+        }
+    } else {
+        bail!("Protocol violation: Expected CapabilityRequest");
+    }
+    
+    let msg = recv_message(socket).await?;
+    let header = if let MigrationMessage::HeaderEnvelope(envelope) = msg {
+        println!("[Daemon] Received encrypted USXF header envelope. Verifying signature & decrypting...");
+        let plaintext = open_packet(&envelope, aes_key).context("Header decryption or signature failed")?;
+        let header: UsxfHeader = serde_json::from_slice(&plaintext).context("Failed to deserialize USXF header")?;
         
-        // We accumulate block tensors
-        // block_hash -> tensor_name -> Tensor
-        let mut accumulated_blocks: HashMap<String, HashMap<String, Tensor>> = HashMap::new();
+        validate_header(&header).context("USXF metadata validation failed")?;
+        println!("[Daemon] Header verified. Model Identity: {}. Config Hash: {}", header.model_architecture, header.model_identity.config_hash);
         
-        for _ in 0..(header.model_cache_spec.n_layers * 2 * expected_blocks) {
-            let chunk_msg = recv_message(&mut socket).await?;
-            if !verify_chunk_crc32(&chunk_msg)? {
-                bail!("Payload chunk CRC32 checksum mismatch!");
-            }
-            
-            if let MigrationMessage::PayloadChunk { chunk_index, layer_index, tensor_name, data, .. } = chunk_msg {
-                let block_hash = header.block_hashes[chunk_index as usize].clone();
-                
-                // Decrypt data (we simulate it or decrypt if it was sealed. For simulation, the data is sealed)
-                // Let's decrypt it
-                let decrypted_data = if let Some(quant) = &header.transfer_quantization {
-                    // Dequantize FP8
-                    let dequant = dequantize_e4m3_scaled(&data, 0.1); // using a fixed scale 0.1 for sim
-                    dequant
-                } else {
-                    // Dequantize f32 bytes (raw f32 floats)
-                    let mut floats = vec![0.0f32; data.len() / 4];
-                    for (i, chunk) in data.chunks_exact(4).enumerate() {
-                        let bytes: [u8; 4] = chunk.try_into()?;
-                        floats[i] = f32::from_be_bytes(bytes);
-                    }
-                    floats
-                };
-                
-                // Reconstruct the Tensor for this block
-                // vLLM block shapes: Key = [1, num_kv_heads, head_dim, block_size]
-                //                    Value = [1, num_kv_heads, block_size, head_dim]
-                let shape = if tensor_name.ends_with(".key") {
-                    vec![1, header.model_cache_spec.n_kv_heads, header.model_cache_spec.head_dim, header.block_size]
-                } else {
-                    vec![1, header.model_cache_spec.n_kv_heads, header.block_size, header.model_cache_spec.head_dim]
-                };
-                
-                let block_tensor = Tensor::new(decrypted_data, shape);
-                
-                accumulated_blocks
-                    .entry(block_hash.clone())
-                    .or_insert_with(HashMap::new)
-                    .insert(tensor_name, block_tensor);
-                    
-                send_message(&mut socket, &MigrationMessage::ChunkAck { chunk_index }).await?;
+        send_message(socket, &MigrationMessage::HeaderAck { accepted: true }).await?;
+        header
+    } else {
+        bail!("Protocol violation: Expected HeaderEnvelope");
+    };
+    
+    println!("[Daemon] Streaming payload chunks starting...");
+    let expected_blocks = (header.seq_len + header.block_size - 1) / header.block_size;
+    let mut accumulated_blocks: HashMap<String, HashMap<String, Tensor>> = HashMap::new();
+    
+    for _ in 0..(header.model_cache_spec.n_layers * 2 * expected_blocks) {
+        let chunk_msg = recv_message(socket).await?;
+        if !verify_chunk_crc32(&chunk_msg)? {
+            bail!("Payload chunk CRC32 checksum mismatch!");
+        }
+        
+        if let MigrationMessage::PayloadChunk { chunk_index, layer_index: _, tensor_name, data, .. } = chunk_msg {
+            let block_hash = header.block_hashes[chunk_index as usize].clone();
+            let decrypted_data = if let Some(_quant) = &header.transfer_quantization {
+                dequantize_e4m3_scaled(&data, 0.1)
             } else {
-                bail!("Protocol violation: Expected PayloadChunk");
-            }
-        }
-        
-        println!("[Daemon] All layers and blocks streamed. Injecting into KVConnectorBase_V1...");
-        for (hash, tensors) in accumulated_blocks {
-            injector.inject_block_tensors(hash, tensors)?;
-        }
-        
-        // 4. Two-Phase Commit validation
-        let msg = recv_message(&mut socket).await?;
-        if let MigrationMessage::CommitRequest = msg {
-            println!("[Daemon] Commit requested. Running numerical continuation validation...");
-            // Verify all block hashes are in physical cache
-            injector.verify_continuation(&header.block_hashes)?;
+                let mut floats = vec![0.0f32; data.len() / 4];
+                for (i, chunk) in data.chunks_exact(4).enumerate() {
+                    let bytes: [u8; 4] = chunk.try_into()?;
+                    floats[i] = f32::from_be_bytes(bytes);
+                }
+                floats
+            };
             
-            println!("[Daemon] Validation passed. Committing migration state.");
-            send_message(&mut socket, &MigrationMessage::CommitResponse { success: true, error_message: None }).await?;
-            orchestrator.record_success();
-            println!("[Daemon] Migration COMMITTED successfully!");
+            let shape = if tensor_name.ends_with(".key") {
+                vec![1, header.model_cache_spec.n_kv_heads, header.model_cache_spec.head_dim, header.block_size]
+            } else {
+                vec![1, header.model_cache_spec.n_kv_heads, header.block_size, header.model_cache_spec.head_dim]
+            };
+            
+            let block_tensor = Tensor::new(decrypted_data, shape);
+            accumulated_blocks
+                .entry(block_hash.clone())
+                .or_insert_with(HashMap::new)
+                .insert(tensor_name, block_tensor);
+            send_message(socket, &MigrationMessage::ChunkAck { chunk_index }).await?;
         } else {
-            bail!("Protocol violation: Expected CommitRequest");
+            bail!("Protocol violation: Expected PayloadChunk");
         }
+    }
+    
+    println!("[Daemon] All layers and blocks streamed. Injecting into KVConnectorBase_V1...");
+    for (hash, tensors) in accumulated_blocks {
+        injector.inject_block_tensors(hash, tensors)?;
+    }
+    
+    let msg = recv_message(socket).await?;
+    if let MigrationMessage::CommitRequest = msg {
+        println!("[Daemon] Commit requested. Running numerical continuation validation...");
+        injector.verify_continuation(&header.block_hashes)?;
+        
+        println!("[Daemon] Validation passed. Committing migration state.");
+        send_message(socket, &MigrationMessage::CommitResponse { success: true, error_message: None }).await?;
+        orchestrator.record_success();
+        println!("[Daemon] Migration COMMITTED successfully!");
+        Ok(())
+    } else {
+        bail!("Protocol violation: Expected CommitRequest");
     }
 }
 
@@ -299,6 +297,11 @@ fn collect_environment_snapshot() -> EnvironmentSnapshot {
     }
 }
 
+fn describe_runtime_target_device() -> String {
+    let env = collect_environment_snapshot();
+    format!("{}/{}/{}", env.os, env.arch, env.hostname)
+}
+
 fn write_migration_manifest(manifest: &MigrationManifest) -> Result<String> {
     let manifest_str = serde_json::to_string_pretty(manifest)?;
     let filename = format!("{}-manifest.json", manifest.run_id);
@@ -306,16 +309,152 @@ fn write_migration_manifest(manifest: &MigrationManifest) -> Result<String> {
     Ok(filename)
 }
 
+fn configured_model_architecture() -> String {
+    std::env::var("PERMEANT_MODEL_ARCHITECTURE")
+        .or_else(|_| std::env::var("PERMEANT_MLX_MODEL_ID"))
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "live-runtime-unknown".to_string())
+}
+
+fn configured_model_identity() -> String {
+    std::env::var("PERMEANT_MODEL_IDENTITY")
+        .or_else(|_| std::env::var("PERMEANT_MLX_MODEL_ID"))
+        .or_else(|_| std::env::var("PERMEANT_MODEL_ARCHITECTURE"))
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "live-runtime-unknown".to_string())
+}
+
+fn configured_model_config_hash(model_architecture: &str, model_identity: &str) -> String {
+    std::env::var("PERMEANT_MODEL_CONFIG_HASH")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| compute_sha256(format!("{}|{}", model_architecture, model_identity).as_bytes()))
+}
+
+fn configured_extractor_id() -> String {
+    std::env::var("PERMEANT_EXTRACTOR_ID")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "permeant-os-live-extractor".to_string())
+}
+
+fn configured_model_layer_count(model_architecture: &str, model_identity: &str) -> usize {
+    std::env::var("PERMEANT_MODEL_LAYER_COUNT")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or_else(|| {
+            if model_architecture == "Qwen/Qwen2.5-0.5B-Instruct"
+                || model_identity == "Qwen/Qwen2.5-0.5B-Instruct"
+            {
+                24
+            } else {
+                4
+            }
+        })
+}
+
+fn configured_model_q_heads(model_architecture: &str, model_identity: &str) -> usize {
+    std::env::var("PERMEANT_MODEL_Q_HEADS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or_else(|| {
+            if model_architecture == "Qwen/Qwen2.5-0.5B-Instruct"
+                || model_identity == "Qwen/Qwen2.5-0.5B-Instruct"
+            {
+                14
+            } else {
+                8
+            }
+        })
+}
+
+fn configured_model_kv_heads(model_architecture: &str, model_identity: &str) -> usize {
+    std::env::var("PERMEANT_MODEL_KV_HEADS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or_else(|| {
+            if model_architecture == "Qwen/Qwen2.5-0.5B-Instruct"
+                || model_identity == "Qwen/Qwen2.5-0.5B-Instruct"
+            {
+                2
+            } else {
+                2
+            }
+        })
+}
+
+fn configured_model_head_dim(model_architecture: &str, model_identity: &str) -> usize {
+    std::env::var("PERMEANT_MODEL_HEAD_DIM")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or_else(|| {
+            if model_architecture == "Qwen/Qwen2.5-0.5B-Instruct"
+                || model_identity == "Qwen/Qwen2.5-0.5B-Instruct"
+            {
+                64
+            } else {
+                64
+            }
+        })
+}
+
+fn configured_model_hidden_size(model_architecture: &str, model_identity: &str) -> usize {
+    std::env::var("PERMEANT_MODEL_HIDDEN_SIZE")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or_else(|| {
+            if model_architecture == "Qwen/Qwen2.5-0.5B-Instruct"
+                || model_identity == "Qwen/Qwen2.5-0.5B-Instruct"
+            {
+                896
+            } else {
+                1024
+            }
+        })
+}
+
+fn configured_model_block_size() -> usize {
+    std::env::var("PERMEANT_MODEL_BLOCK_SIZE")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(256)
+}
+
+fn normalize_canonical_kv_tensor(tensor_name: &str, tensor: &Tensor) -> Result<Tensor> {
+    match tensor.shape.as_slice() {
+        [seq_len, num_kv_heads, head_dim] => Ok(Tensor::new(
+            tensor.data.clone(),
+            vec![*seq_len, *num_kv_heads, *head_dim],
+        )),
+        [1, num_kv_heads, seq_len, head_dim] => Ok(Tensor::new(
+            tensor.data.clone(),
+            vec![*seq_len, *num_kv_heads, *head_dim],
+        )),
+        _ => bail!(
+            "Unsupported canonical KV tensor shape for {}: {:?}",
+            tensor_name,
+            tensor.shape
+        ),
+    }
+}
+
 async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) -> Result<()> {
     let total_start = std::time::Instant::now();
     let run_id = format!("migration-{}-{}", Utc::now().format("%Y%m%d-%H%M%S"), std::process::id());
     let source_environment = collect_environment_snapshot();
+    let model_architecture = configured_model_architecture();
+    let model_identity = configured_model_identity();
+    let model_config_hash = configured_model_config_hash(&model_architecture, &model_identity);
 
     // 1. Model Configuration
-    let n_layers = 4; // keep it small for quick local simulation, but fully functional
-    let n_kv_heads = 2;
-    let head_dim = 64;
-    let block_size = 256;
+    let n_layers = configured_model_layer_count(&model_architecture, &model_identity);
+    let n_q_heads = configured_model_q_heads(&model_architecture, &model_identity);
+    let n_kv_heads = configured_model_kv_heads(&model_architecture, &model_identity);
+    let head_dim = configured_model_head_dim(&model_architecture, &model_identity);
+    let hidden_size = configured_model_hidden_size(&model_architecture, &model_identity);
+    let block_size = configured_model_block_size();
     
     println!("Step 1: Extracting local agent KV cache state...");
     let extracted_cache = extract_kv_cache(seq_len, n_layers, n_kv_heads, head_dim)?;
@@ -328,23 +467,22 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) 
     // 2. Capability Exchange
     println!("Step 2: Performing Capability Exchange...");
     let handshake_start = std::time::Instant::now();
-    let mut target_device_name = "unknown".to_string();
     send_message(&mut socket, &MigrationMessage::CapabilityRequest {
-        model_architecture: "Llama-3.1-8B-Mock".to_string(),
+        model_architecture: model_architecture.clone(),
         attention_type: "gqa".to_string(),
         seq_len,
     }).await?;
     
     let resp = recv_message(&mut socket).await?;
-    if let MigrationMessage::CapabilityResponse { accepted, error_message, target_device } = resp {
+    let target_device_name = if let MigrationMessage::CapabilityResponse { accepted, error_message, target_device } = resp {
         if !accepted {
             bail!("Target daemon rejected migration capacity: {:?}", error_message);
         }
         println!("Target accepted capability request. Device: {}", target_device);
-        target_device_name = target_device;
+        target_device
     } else {
         bail!("Unexpected handshake response");
-    }
+    };
     let handshake_time = handshake_start.elapsed().as_secs_f64() * 1000.0;
     
     // 3. Build USXF Header
@@ -369,18 +507,18 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) 
     
     let header = UsxfHeader {
         usxf_version: "1.1".to_string(),
-        model_architecture: "Llama-3.1-8B-Mock".to_string(),
+        model_architecture: model_architecture.clone(),
         model_identity: ModelIdentity {
-            config_hash: "sha256:7f8e9a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f".to_string(),
-            weights_revision: "hf:mock/Llama-3.1-8B-Mock".to_string(),
+            config_hash: model_config_hash.clone(),
+            weights_revision: model_identity.clone(),
         },
         attention_type: AttentionType::Gqa,
         model_cache_spec: ModelCacheSpec {
             n_layers,
-            n_q_heads: 8,
+            n_q_heads,
             n_kv_heads,
             head_dim,
-            hidden_size: 1024,
+            hidden_size,
             max_position_embeddings: Some(131072),
             rope_theta: Some(500000.0),
             sliding_window: None,
@@ -398,7 +536,7 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) 
         position_ids: None,
         extra: HashMap::new(),
         created_at: Utc::now(),
-        extractor_id: "permeant-os-mock-extractor".to_string(),
+        extractor_id: configured_extractor_id(),
         checksum,
         signature: "".to_string(), // will be updated/signed
     };
@@ -434,12 +572,14 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) 
     let transfer_start = std::time::Instant::now();
     
     for layer_idx in 0..n_layers {
-        let key_tensor = extracted_cache.get(&format!("layer.{}.key", layer_idx)).unwrap();
-        let value_tensor = extracted_cache.get(&format!("layer.{}.value", layer_idx)).unwrap();
+        let key_name = format!("layer.{}.key", layer_idx);
+        let value_name = format!("layer.{}.value", layer_idx);
+        let key_tensor = normalize_canonical_kv_tensor(&key_name, extracted_cache.get(&key_name).unwrap())?;
+        let value_tensor = normalize_canonical_kv_tensor(&value_name, extracted_cache.get(&value_name).unwrap())?;
         
         // Transpile to vLLM blocks
-        let vllm_key = canonical_to_vllm_block_key(key_tensor, block_size)?;
-        let vllm_value = canonical_to_vllm_block_value(value_tensor, block_size)?;
+        let vllm_key = canonical_to_vllm_block_key(&key_tensor, block_size)?;
+        let vllm_value = canonical_to_vllm_block_value(&value_tensor, block_size)?;
         
         // Stream each block
         for block_idx in 0..expected_blocks {
@@ -546,14 +686,14 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) 
                 source_environment,
                 target_addr: target_addr_str.to_string(),
                 target_device: target_device_name,
-                model_architecture: "Llama-3.1-8B-Mock".to_string(),
-                model_identity: "hf:mock/Llama-3.1-8B-Mock".to_string(),
+                model_architecture: model_architecture.clone(),
+                model_identity: model_identity.clone(),
                 usxf_version: "1.1".to_string(),
                 attention_type: "gqa".to_string(),
                 sequence_length: seq_len,
                 batch_size: 1,
                 layers: n_layers,
-                n_q_heads: 8,
+                n_q_heads,
                 n_kv_heads,
                 head_dim,
                 block_size,
@@ -589,14 +729,14 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) 
                 source_environment,
                 target_addr: target_addr_str.to_string(),
                 target_device: target_device_name,
-                model_architecture: "Llama-3.1-8B-Mock".to_string(),
-                model_identity: "hf:mock/Llama-3.1-8B-Mock".to_string(),
+                model_architecture: model_architecture.clone(),
+                model_identity: model_identity.clone(),
                 usxf_version: "1.1".to_string(),
                 attention_type: "gqa".to_string(),
                 sequence_length: seq_len,
                 batch_size: 1,
                 layers: n_layers,
-                n_q_heads: 8,
+                n_q_heads,
                 n_kv_heads,
                 head_dim,
                 block_size,

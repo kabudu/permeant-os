@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+title: PermeantOS
+type: software
+authors:
+  - family-names: Budu
+    given-names: K.
+abstract: A research-preview state-fluid hypervisor for live cross-host KV-cache and future agent memory graph migration across heterogeneous AI runtimes.
+license: Apache-2.0
+repository-code: https://github.com/kabudu/permeant-os
+keywords:
+  - AI agents
+  - KV cache
+  - live migration
+  - vLLM
+  - MLX
+  - state migration
+message: If you use PermeantOS in academic work, please cite the repository and the accompanying USXF paper draft.
