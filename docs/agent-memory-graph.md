@@ -373,5 +373,5 @@ and KV-span representation.
 - [x] Add machine-readable JSON schema.
 - [x] Add a validation fixture and schema test.
 - [x] Build the minimal local export/import harness.
-- [ ] Add graph hash fields to migration manifests.
+- [x] Add graph hash fields to migration manifests.
 - [ ] Extend the analyzer to report prompt, graph, and KV alignment together.

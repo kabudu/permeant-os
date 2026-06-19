@@ -34,3 +34,16 @@ The exported package layout is:
 
 This validates graph-only migration. Live KV-cache attachment remains a later
 roadmap item.
+
+To include the exported graph hashes in a local migration benchmark manifest,
+pass the generated package manifest to `sim-migrate`:
+
+```bash
+./target/debug/permeant-cli sim-migrate \
+  --target-addr 127.0.0.1:9099 \
+  --seq-len 512 \
+  --agent-graph-manifest /tmp/permeant-agent-graph-demo/manifest.json
+```
+
+The migration manifest will include an `agent_graph` section with graph, prompt,
+artifact, tokenizer, and simulated KV hashes.

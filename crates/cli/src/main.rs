@@ -35,6 +35,8 @@ enum Commands {
         seq_len: usize,
         #[arg(short, long)]
         quant: bool, // Enable FP8 transfer quantization
+        #[arg(long)]
+        agent_graph_manifest: Option<String>,
     },
     /// Inspect a serialized USXF JSON header or package
     Inspect {
@@ -52,9 +54,9 @@ async fn main() -> Result<()> {
             println!("Starting PermeantOS Hypervisor Daemon on {}...", addr);
             run_daemon(&addr).await?;
         }
-        Commands::SimMigrate { target_addr, seq_len, quant } => {
+        Commands::SimMigrate { target_addr, seq_len, quant, agent_graph_manifest } => {
             println!("Starting end-to-end migration simulation to {} (Context: {} tokens, FP8 Quantization: {})...", target_addr, seq_len, quant);
-            run_sim_migrate(&target_addr, seq_len, quant).await?;
+            run_sim_migrate(&target_addr, seq_len, quant, agent_graph_manifest.as_deref()).await?;
         }
         Commands::Inspect { file } => {
             run_inspect(&file)?;
@@ -252,6 +254,55 @@ struct MigrationManifest {
     phase_status: String,
     success: bool,
     error_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent_graph: Option<AgentGraphManifest>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct AgentGraphArtifactHash {
+    path: String,
+    sha256: String,
+    size_bytes: Option<u64>,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+struct AgentGraphManifest {
+    manifest_path: String,
+    graph_path: String,
+    graph_hash: String,
+    prompt_byte_hash: Option<String>,
+    prompt_token_hash: Option<String>,
+    tokenizer_hash: Option<String>,
+    kv_hash: Option<String>,
+    artifacts: Vec<AgentGraphArtifactHash>,
+}
+
+#[derive(serde::Deserialize)]
+struct AgentGraphPackageManifest {
+    graph_path: String,
+    graph_hash: String,
+    prompt: Option<AgentGraphPromptManifest>,
+    kv: Option<AgentGraphKvManifest>,
+    artifacts: Option<Vec<AgentGraphPackageArtifact>>,
+}
+
+#[derive(serde::Deserialize)]
+struct AgentGraphPromptManifest {
+    byte_hash: Option<String>,
+    token_hash: Option<String>,
+    tokenizer_hash: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct AgentGraphKvManifest {
+    kv_hash: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct AgentGraphPackageArtifact {
+    path: String,
+    sha256: String,
+    size_bytes: Option<u64>,
 }
 
 fn collect_environment_snapshot() -> EnvironmentSnapshot {
@@ -307,6 +358,64 @@ fn write_migration_manifest(manifest: &MigrationManifest) -> Result<String> {
     let filename = format!("{}-manifest.json", manifest.run_id);
     std::fs::write(&filename, &manifest_str)?;
     Ok(filename)
+}
+
+fn ensure_sha256_field(field_name: &str, value: &str) -> Result<()> {
+    let digest = value
+        .strip_prefix("sha256:")
+        .with_context(|| format!("{} must start with sha256:", field_name))?;
+    if digest.len() != 64 || !digest.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        bail!("{} must contain a 64-character sha256 digest", field_name);
+    }
+    Ok(())
+}
+
+fn validate_optional_sha256(field_name: &str, value: Option<&String>) -> Result<()> {
+    if let Some(value) = value {
+        ensure_sha256_field(field_name, value)?;
+    }
+    Ok(())
+}
+
+fn load_agent_graph_manifest(path: Option<&str>) -> Result<Option<AgentGraphManifest>> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    let manifest_bytes = std::fs::read(path)
+        .with_context(|| format!("Failed to read Agent Memory Graph manifest at {}", path))?;
+    let package: AgentGraphPackageManifest = serde_json::from_slice(&manifest_bytes)
+        .with_context(|| format!("Failed to parse Agent Memory Graph manifest at {}", path))?;
+
+    ensure_sha256_field("agent_graph.graph_hash", &package.graph_hash)?;
+    if let Some(prompt) = &package.prompt {
+        validate_optional_sha256("agent_graph.prompt.byte_hash", prompt.byte_hash.as_ref())?;
+        validate_optional_sha256("agent_graph.prompt.token_hash", prompt.token_hash.as_ref())?;
+        validate_optional_sha256("agent_graph.prompt.tokenizer_hash", prompt.tokenizer_hash.as_ref())?;
+    }
+    if let Some(kv) = &package.kv {
+        validate_optional_sha256("agent_graph.kv.kv_hash", kv.kv_hash.as_ref())?;
+    }
+
+    let mut artifacts = Vec::new();
+    for artifact in package.artifacts.unwrap_or_default() {
+        ensure_sha256_field("agent_graph.artifacts.sha256", &artifact.sha256)?;
+        artifacts.push(AgentGraphArtifactHash {
+            path: artifact.path,
+            sha256: artifact.sha256,
+            size_bytes: artifact.size_bytes,
+        });
+    }
+
+    Ok(Some(AgentGraphManifest {
+        manifest_path: path.to_string(),
+        graph_path: package.graph_path,
+        graph_hash: package.graph_hash,
+        prompt_byte_hash: package.prompt.as_ref().and_then(|prompt| prompt.byte_hash.clone()),
+        prompt_token_hash: package.prompt.as_ref().and_then(|prompt| prompt.token_hash.clone()),
+        tokenizer_hash: package.prompt.as_ref().and_then(|prompt| prompt.tokenizer_hash.clone()),
+        kv_hash: package.kv.as_ref().and_then(|kv| kv.kv_hash.clone()),
+        artifacts,
+    }))
 }
 
 fn configured_model_architecture() -> String {
@@ -440,13 +549,17 @@ fn normalize_canonical_kv_tensor(tensor_name: &str, tensor: &Tensor) -> Result<T
     }
 }
 
-async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) -> Result<()> {
+async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool, agent_graph_manifest_path: Option<&str>) -> Result<()> {
     let total_start = std::time::Instant::now();
     let run_id = format!("migration-{}-{}", Utc::now().format("%Y%m%d-%H%M%S"), std::process::id());
     let source_environment = collect_environment_snapshot();
     let model_architecture = configured_model_architecture();
     let model_identity = configured_model_identity();
     let model_config_hash = configured_model_config_hash(&model_architecture, &model_identity);
+    let agent_graph_manifest = load_agent_graph_manifest(agent_graph_manifest_path)?;
+    if let Some(agent_graph) = &agent_graph_manifest {
+        println!("Loaded Agent Memory Graph manifest: {}", agent_graph.graph_hash);
+    }
 
     // 1. Model Configuration
     let n_layers = configured_model_layer_count(&model_architecture, &model_identity);
@@ -716,6 +829,7 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) 
                 phase_status: "committed".to_string(),
                 success: true,
                 error_message: None,
+                agent_graph: agent_graph_manifest.clone(),
             };
             
             let filename = write_migration_manifest(&manifest)?;
@@ -759,6 +873,7 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool) 
                 phase_status: "commit_failed".to_string(),
                 success: false,
                 error_message: Some(error_text.clone()),
+                agent_graph: agent_graph_manifest,
             };
             let filename = write_migration_manifest(&manifest)?;
             println!("Saved failed migration benchmark manifest: {}", filename);
@@ -792,4 +907,88 @@ fn run_inspect(file_path: &str) -> Result<()> {
     println!("Checksum:          {}", header.checksum);
     println!("Signature:         {}", header.signature);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn temp_manifest_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "permeant-cli-{}-{}-{}.json",
+            name,
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ))
+    }
+
+    #[test]
+    fn loads_agent_graph_manifest_hash_fields() {
+        let path = temp_manifest_path("agent-graph-manifest");
+        fs::write(
+            &path,
+            r#"{
+  "manifest_version": "0.1",
+  "graph_path": "graph.json",
+  "graph_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "prompt": {
+    "byte_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "token_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "tokenizer_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "kv": {
+    "kv_hash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "artifacts": [
+    {
+      "path": "reports/result.json",
+      "sha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "size_bytes": 42
+    }
+  ]
+}"#,
+        )
+        .unwrap();
+
+        let loaded = load_agent_graph_manifest(Some(path.to_str().unwrap()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            loaded.graph_hash,
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        );
+        assert_eq!(loaded.graph_path, "graph.json");
+        assert_eq!(
+            loaded.prompt_token_hash.as_deref(),
+            Some("sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")
+        );
+        assert_eq!(
+            loaded.kv_hash.as_deref(),
+            Some("sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")
+        );
+        assert_eq!(loaded.artifacts.len(), 1);
+        assert_eq!(loaded.artifacts[0].path, "reports/result.json");
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn rejects_invalid_agent_graph_hash() {
+        let path = temp_manifest_path("bad-agent-graph-manifest");
+        fs::write(
+            &path,
+            r#"{
+  "graph_path": "graph.json",
+  "graph_hash": "not-a-sha256"
+}"#,
+        )
+        .unwrap();
+
+        let error = load_agent_graph_manifest(Some(path.to_str().unwrap()))
+            .expect_err("invalid graph hash should fail");
+        assert!(error.to_string().contains("agent_graph.graph_hash"));
+
+        let _ = fs::remove_file(path);
+    }
 }

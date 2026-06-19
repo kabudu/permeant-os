@@ -89,6 +89,9 @@ You can run a complete, simulated migration process locally using the CLI binary
    * Transfer configuration: dtype, source quantization, transfer quantization, uncompressed bytes, transferred bytes, compression ratio, chunks sent, and average chunk size.
    * Phase timings: handshake, header, transfer, commit, total time, and effective bandwidth.
    * Outcome metadata: phase status, success flag, and optional error message.
+   * Optional Agent Memory Graph metadata when `sim-migrate` is run with
+     `--agent-graph-manifest <path>`: graph hash, prompt byte/token hashes,
+     tokenizer hash, artifact hashes, and simulated KV hash.
 
    Failed target commits also write a manifest with `success: false` and `phase_status: "commit_failed"` before returning the error, so failed benchmark attempts can still be analyzed after the fact.
 
