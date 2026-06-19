@@ -68,7 +68,12 @@ The Agent Memory Graph v0 schema now defines:
 - provenance and signatures;
 - token-span mappings from graph nodes to KV cache ranges.
 
-The next implementation step is a minimal local export/import harness, followed by graph hash fields in migration manifests and graph-attached KV migration. The goal is to migrate not just model activations, but agent continuity.
+The current Agent Memory Graph work includes a minimal local export/import
+harness, optional graph hash metadata in migration manifests, analyzer alignment
+reporting, and graph-attached live KV migration planning notes. The next
+implementation step is graph-attached migration manifest validation and runtime
+protocol integration. The goal is to migrate not just model activations, but
+agent continuity.
 
 ## Status
 
@@ -83,6 +88,7 @@ Current strengths:
 - Minimal local Agent Memory Graph export/import harness.
 - Optional Agent Memory Graph hash metadata in migration manifests.
 - Analyzer reporting for prompt, graph, and KV-cache alignment.
+- Graph-attached live KV migration planning notes and acceptance criteria.
 - Repeatable AWS E2E runner with cleanup verification.
 - Conservative AWS prewarm recipe for reducing E2E bootstrap time without
   always-on infrastructure.
@@ -93,7 +99,8 @@ Current limitations:
 - Fidelity has been validated for one model family and a short continuation horizon.
 - vLLM integration relies on internal runtime behavior that may change.
 - Python adapters are needed for Python-native ML runtimes.
-- Agent Memory Graph export/import and graph-attached KV migration are planned but not yet implemented.
+- Graph-attached KV migration now has documented transaction requirements and
+  acceptance criteria, but the runtime protocol implementation is still planned.
 
 ## Learn more
 
@@ -102,4 +109,5 @@ Current limitations:
 - Roadmap: `ROADMAP.md`
 - Agent Memory Graph schema: `docs/agent-memory-graph.md`
 - Local graph harness: `examples/agent-memory-graph/`
+- Graph-attached KV migration plan: `docs/graph-attached-kv-migration-plan.md`
 - AWS E2E runbook: `docs/aws-real-runtime-e2e-runner.md`
