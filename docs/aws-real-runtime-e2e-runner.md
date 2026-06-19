@@ -44,6 +44,12 @@ The default target configuration matches the validated real-runtime runs:
 - source continuation file: `/tmp/permeant-source-continuation.json`
 - local tunnel port: `39099`
 
+For faster bootstrap, a conservative prewarmed image can be supplied through
+`AWS_AMI_ID`. See `docs/aws-prewarm-image.md` for the recipe, cleanup steps,
+and snapshot-storage cost guardrails. The prewarm image is only a dependency
+accelerator; the runner still copies the current committed repository snapshot
+to the target for each run.
+
 Override with environment variables:
 
 ```bash

@@ -84,6 +84,8 @@ Current strengths:
 - Optional Agent Memory Graph hash metadata in migration manifests.
 - Analyzer reporting for prompt, graph, and KV-cache alignment.
 - Repeatable AWS E2E runner with cleanup verification.
+- Conservative AWS prewarm recipe for reducing E2E bootstrap time without
+  always-on infrastructure.
 - Paper and roadmap.
 
 Current limitations:

@@ -22,6 +22,7 @@ What works today:
 - MLX live source adapter.
 - vLLM live target adapter with target block allocation, KV writes, prefix-cache seeding, and fidelity probes.
 - Repeatable AWS real-runtime E2E runner with cleanup verification.
+- Conservative AWS prewarm image/container recipe for faster E2E bootstrap without always-on infrastructure.
 - Exact short-horizon MLX-to-vLLM continuation fidelity for one validated Qwen run.
 - Agent Memory Graph v0 schema and specification for portable conversation, tool, artifact, memory, checkpoint, provenance, and KV-span state.
 - Minimal local Agent Memory Graph export/import harness with deterministic prompt reconstruction and artifact hash verification.
@@ -33,7 +34,7 @@ What is still experimental:
 - The vLLM attachment path uses implementation details that may change between vLLM versions.
 - Fidelity has been validated for one model family and a 16-token continuation horizon.
 - Cloud validation is expensive and slow on cold hosts unless a prewarmed image is used.
-- Agent Memory Graph export/import and graph-attached KV migration are planned but not yet implemented.
+- Graph-attached KV migration is planned but not yet implemented.
 
 ## Repository layout
 
@@ -55,6 +56,7 @@ What is still experimental:
 - `docs/website/white-paper.md`: website-friendly technical white paper.
 - `docs/deployment-and-testing-guide.md`: local, cloud-host, manifest, benchmark, and Runpod workflow guide.
 - `docs/aws-real-runtime-e2e-runner.md`: repeatable AWS real-runtime E2E runner and cleanup/resume runbook.
+- `docs/aws-prewarm-image.md`: conservative AWS image/container prewarm recipe and cost guardrails.
 - `docs/runtime-adapter-protocol.md`: command-backed extractor/injector contract.
 - `docs/real-runtime-bringup.md`: live runtime bring-up notes.
 - `docs/aws-real-runtime-fidelity-followup-2026-06-16.md`: fidelity investigation history.
@@ -114,7 +116,7 @@ For real-runtime MLX-to-vLLM validation, start with:
 scripts/aws-real-runtime-e2e.sh run
 ```
 
-Read `docs/aws-real-runtime-e2e-runner.md` first. The script provisions billable AWS GPU infrastructure and is designed to clean up after itself, but you should understand the state file and cleanup command before running it.
+Read `docs/aws-real-runtime-e2e-runner.md` first. The script provisions billable AWS GPU infrastructure and is designed to clean up after itself, but you should understand the state file and cleanup command before running it. To reduce cold-start setup time without leaving infrastructure running, see `docs/aws-prewarm-image.md`.
 
 ## Benchmark snapshot
 
