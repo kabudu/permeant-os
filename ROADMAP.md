@@ -254,6 +254,9 @@ Deliverables:
 - Longer-horizon decode-fidelity benchmark suite.
 - Larger context runs beyond 2k tokens.
 - Transfer quantization comparison for real-runtime fidelity.
+- Adaptive KV transfer codec experiments: capability-negotiated raw, FP8,
+  TurboQuant-style, and Quaternion-Augmented TurboQuant candidate codecs, with
+  explicit reversible/lossy semantics and fallback to raw transfer or re-prefill.
 - Failure-injection tests for interrupted graph and KV migration.
 - Structured benchmark output suitable for paper updates.
 
@@ -343,6 +346,10 @@ Scope:
 - How should non-idempotent in-flight tool calls be represented in a way that is both safe and useful?
 - Can prefix-cache migration be generalized across vLLM versions without relying on unstable internals?
 - What is the right boundary between PermeantOS and existing distributed cache systems such as LMCache or Mooncake?
+- Can adaptive KV transfer codecs, including speculative Quaternion-Augmented
+  TurboQuant variants, reduce migration bandwidth without breaking continuation
+  fidelity, and what metadata is required to safely rehydrate compressed cache
+  state onto richer origin hardware profiles?
 
 ## Immediate next steps
 
