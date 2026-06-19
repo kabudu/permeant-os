@@ -357,4 +357,8 @@ Scope:
 - [x] Build a minimal local graph export/import example.
 - [x] Add graph hash fields to migration manifests.
 - [x] Extend the analyzer to report prompt, graph, and KV alignment together.
-- [ ] Prepare a prewarmed AWS image or container to reduce E2E cycle time.
+- [ ] Prepare a conservative prewarmed AWS image or container recipe to reduce
+  E2E bootstrap time without adding always-on infrastructure: document the
+  build steps, cleanup steps, expected snapshot/storage cost, and keep model
+  weights out of the image unless a later cost/latency calculation justifies
+  baking them in.
