@@ -7,6 +7,8 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.3-graph-hash-manifests] - 2026-06-19
+
 ### Added
 
 - Optional Agent Memory Graph hash metadata in migration benchmark manifests,
@@ -48,7 +50,8 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.2-local-agent-graph-harness...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.3-graph-hash-manifests...HEAD
+[0.1.3-graph-hash-manifests]: https://github.com/kabudu/permeant-os/compare/v0.1.2-local-agent-graph-harness...v0.1.3-graph-hash-manifests
 [0.1.2-local-agent-graph-harness]: https://github.com/kabudu/permeant-os/compare/v0.1.1-agent-memory-graph-schema...v0.1.2-local-agent-graph-harness
 [0.1.1-agent-memory-graph-schema]: https://github.com/kabudu/permeant-os/compare/v0.1.0-research-preview...v0.1.1-agent-memory-graph-schema
 [0.1.0-research-preview]: https://github.com/kabudu/permeant-os/releases/tag/v0.1.0-research-preview
