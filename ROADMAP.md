@@ -279,6 +279,9 @@ Deliverables:
 - Python adapter SDK documentation.
 - Example applications.
 - Release checklist.
+- Pull request CI for Rust and Python validation.
+- Tag and release validation workflow once binaries, crates, or GitHub Releases
+  become part of the release process.
 - Compatibility guarantees for manifests and graph schemas.
 
 Exit criteria:
@@ -366,5 +369,8 @@ Scope:
   baking them in.
 - [x] Build graph-attached live KV migration planning notes and acceptance
   criteria before changing the migration protocol.
+- [x] Add pull request CI for Rust and Python validation.
+- [ ] Add tag/release validation workflow once release packaging, binaries, or
+  crate publishing become part of the product flow.
 - [ ] Prototype graph-attached migration manifest extensions and analyzer
   checks behind the existing Agent Memory Graph manifest path.

@@ -7,6 +7,11 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Pull request CI workflow for Rust workspace tests, Python tests, and the
+  Python SDK smoke test.
+
 ## [0.1.6-graph-attached-kv-plan] - 2026-06-19
 
 ### Added
