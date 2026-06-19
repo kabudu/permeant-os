@@ -374,4 +374,4 @@ and KV-span representation.
 - [x] Add a validation fixture and schema test.
 - [x] Build the minimal local export/import harness.
 - [x] Add graph hash fields to migration manifests.
-- [ ] Extend the analyzer to report prompt, graph, and KV alignment together.
+- [x] Extend the analyzer to report prompt, graph, and KV alignment together.

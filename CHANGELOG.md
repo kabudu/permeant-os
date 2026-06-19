@@ -7,6 +7,11 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Analyzer `alignment` summary for prompt, Agent Memory Graph, and KV-cache
+  status in real-runtime fidelity reports.
+
 ## [0.1.3-graph-hash-manifests] - 2026-06-19
 
 ### Added

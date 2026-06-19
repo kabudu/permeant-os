@@ -163,6 +163,9 @@ The analyzer reports:
 - first mismatch index versus the source continuation
 - first mismatch index versus the target baseline continuation
 - whether post-migration output exactly matches the target baseline
+- combined `alignment` status for prompt, Agent Memory Graph, and KV-cache
+  evidence, including graph/prompt/KV hashes when the migration manifest embeds
+  Agent Memory Graph metadata
 
 The analyzer now falls back to the target probe's `verify_permeant_hashes` event when a manifest does not embed a `verification` object. That matches Run C, where the decisive source and baseline comparisons lived in the probe artifact rather than the manifest.
 
