@@ -7,6 +7,8 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.8-artifact-restore-harness] - 2026-06-19
+
 ### Added
 
 - Content-addressed artifact packaging and restored-workspace verification in
@@ -88,7 +90,8 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.7-graph-kv-manifest-spans...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.8-artifact-restore-harness...HEAD
+[0.1.8-artifact-restore-harness]: https://github.com/kabudu/permeant-os/compare/v0.1.7-graph-kv-manifest-spans...v0.1.8-artifact-restore-harness
 [0.1.7-graph-kv-manifest-spans]: https://github.com/kabudu/permeant-os/compare/v0.1.6-graph-attached-kv-plan...v0.1.7-graph-kv-manifest-spans
 [0.1.6-graph-attached-kv-plan]: https://github.com/kabudu/permeant-os/compare/v0.1.5-aws-prewarm-recipe...v0.1.6-graph-attached-kv-plan
 [0.1.5-aws-prewarm-recipe]: https://github.com/kabudu/permeant-os/compare/v0.1.4-analyzer-alignment-report...v0.1.5-aws-prewarm-recipe
