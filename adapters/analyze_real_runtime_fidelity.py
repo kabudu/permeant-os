@@ -3,8 +3,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
+
+
+SHA256_RE = re.compile(r"^sha256:[0-9a-fA-F]{64}$")
 
 
 def _load_json(path: Path) -> Any:
@@ -69,6 +73,79 @@ def _artifact_hashes(agent_graph: dict[str, Any]) -> dict[str, str]:
     return hashes
 
 
+def _kv_span_checks(agent_graph: dict[str, Any]) -> dict[str, Any]:
+    spans = agent_graph.get("kv_spans")
+    if not isinstance(spans, list):
+        return {
+            "available": False,
+            "span_count": 0,
+            "invalid_span_count": 0,
+            "token_coverage": None,
+            "cache_refs": [],
+            "failure_classes": ["missing_kv_spans"],
+        }
+    if not spans:
+        return {
+            "available": True,
+            "span_count": 0,
+            "invalid_span_count": 0,
+            "token_coverage": 0,
+            "cache_refs": [],
+            "failure_classes": ["missing_kv_spans"],
+        }
+
+    invalid = 0
+    token_coverage = 0
+    cache_refs: list[str] = []
+    failure_classes: list[str] = []
+
+    for span in spans:
+        if not isinstance(span, dict):
+            invalid += 1
+            failure_classes.append("invalid_kv_span")
+            continue
+
+        node_id = span.get("node_id")
+        cache_ref = span.get("cache_ref")
+        token_start = span.get("token_start")
+        token_end = span.get("token_end")
+        tokenizer_hash = span.get("tokenizer_hash")
+        block_hashes = span.get("block_hashes", [])
+
+        valid = True
+        if not isinstance(node_id, str) or not node_id:
+            valid = False
+        if not isinstance(cache_ref, str) or not cache_ref:
+            valid = False
+        else:
+            cache_refs.append(cache_ref)
+        if not isinstance(token_start, int) or not isinstance(token_end, int) or token_end <= token_start:
+            valid = False
+        else:
+            token_coverage += token_end - token_start
+        if tokenizer_hash is not None and (
+            not isinstance(tokenizer_hash, str) or SHA256_RE.match(tokenizer_hash) is None
+        ):
+            valid = False
+        if not isinstance(block_hashes, list) or any(
+            not isinstance(item, str) or SHA256_RE.match(item) is None for item in block_hashes
+        ):
+            valid = False
+
+        if not valid:
+            invalid += 1
+            failure_classes.append("invalid_kv_span")
+
+    return {
+        "available": True,
+        "span_count": len(spans),
+        "invalid_span_count": invalid,
+        "token_coverage": token_coverage,
+        "cache_refs": sorted(set(cache_refs)),
+        "failure_classes": sorted(set(failure_classes)),
+    }
+
+
 def _alignment_summary(
     manifest: dict[str, Any],
     verify: dict[str, Any],
@@ -91,6 +168,14 @@ def _alignment_summary(
         else None
     )
     graph_available = bool(agent_graph)
+    kv_span_checks = _kv_span_checks(agent_graph) if graph_available else {
+        "available": False,
+        "span_count": 0,
+        "invalid_span_count": 0,
+        "token_coverage": None,
+        "cache_refs": [],
+        "failure_classes": ["missing_graph_package"],
+    }
     kv_validation = verify.get("success")
     prefix_cache_success = (
         prefix_cache_seed.get("success")
@@ -121,12 +206,27 @@ def _alignment_summary(
         "tokenizer_hash": agent_graph.get("tokenizer_hash"),
     }
 
+    if not graph_available:
+        graph_status = "unavailable"
+    elif kv_span_checks["invalid_span_count"] > 0:
+        graph_status = "diverged"
+    elif not kv_span_checks["available"] or kv_span_checks["span_count"] == 0:
+        graph_status = "partial"
+    else:
+        graph_status = "aligned"
+
     graph = {
-        "status": _status(True if graph_available else None, graph_available),
+        "status": graph_status,
         "graph_hash": agent_graph.get("graph_hash"),
         "graph_path": agent_graph.get("graph_path"),
         "manifest_path": agent_graph.get("manifest_path"),
         "artifact_hashes": _artifact_hashes(agent_graph),
+        "kv_spans_available": kv_span_checks["available"],
+        "kv_span_count": kv_span_checks["span_count"],
+        "invalid_kv_span_count": kv_span_checks["invalid_span_count"],
+        "kv_span_token_coverage": kv_span_checks["token_coverage"],
+        "kv_span_cache_refs": kv_span_checks["cache_refs"],
+        "failure_classes": kv_span_checks["failure_classes"],
     }
 
     kv = {
@@ -136,6 +236,8 @@ def _alignment_summary(
         ),
         "hash_validation_success": kv_validation,
         "graph_kv_hash": agent_graph.get("kv_hash"),
+        "graph_kv_span_count": kv_span_checks["span_count"],
+        "graph_kv_span_token_coverage": kv_span_checks["token_coverage"],
         "written_layer_count": written_layer_count,
         "vllm_prefix_cache_seed_success": prefix_cache_success,
         "vllm_prefix_cache_seeded_block_count": prefix_cache_seed.get("seeded_block_count")
@@ -148,7 +250,7 @@ def _alignment_summary(
         overall_status = "diverged"
     elif all(status == "aligned" for status in statuses):
         overall_status = "aligned"
-    elif any(status == "aligned" for status in statuses):
+    elif any(status in {"aligned", "partial"} for status in statuses):
         overall_status = "partial"
     else:
         overall_status = "unknown"

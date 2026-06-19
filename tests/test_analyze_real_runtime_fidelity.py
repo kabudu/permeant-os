@@ -31,6 +31,16 @@ def _agent_graph() -> dict:
         "prompt_token_hash": "sha256:" + "c" * 64,
         "tokenizer_hash": "sha256:" + "d" * 64,
         "kv_hash": "sha256:" + "e" * 64,
+        "kv_spans": [
+            {
+                "node_id": "checkpoint:prompt",
+                "token_start": 0,
+                "token_end": 3,
+                "cache_ref": "kv:simulated:prompt",
+                "tokenizer_hash": "sha256:" + "d" * 64,
+                "block_hashes": ["sha256:" + "e" * 64],
+            }
+        ],
         "artifacts": [
             {
                 "path": "reports/result.json",
@@ -91,9 +101,15 @@ def test_alignment_reports_prompt_graph_and_kv_together():
     assert alignment["graph"]["artifact_hashes"] == {
         "reports/result.json": "sha256:" + "f" * 64
     }
+    assert alignment["graph"]["kv_spans_available"] is True
+    assert alignment["graph"]["kv_span_count"] == 1
+    assert alignment["graph"]["invalid_kv_span_count"] == 0
+    assert alignment["graph"]["kv_span_token_coverage"] == 3
+    assert alignment["graph"]["failure_classes"] == []
     assert alignment["kv"]["status"] == "aligned"
     assert alignment["kv"]["hash_validation_success"] is True
     assert alignment["kv"]["graph_kv_hash"] == "sha256:" + "e" * 64
+    assert alignment["kv"]["graph_kv_span_count"] == 1
     assert alignment["kv"]["written_layer_count"] == 4
 
 
@@ -117,3 +133,43 @@ def test_alignment_marks_divergence_when_prompt_or_kv_mismatch():
     assert alignment["overall_status"] == "diverged"
     assert alignment["prompt"]["status"] == "diverged"
     assert alignment["kv"]["status"] == "diverged"
+
+
+def test_alignment_marks_graph_partial_without_kv_spans():
+    agent_graph = _agent_graph()
+    agent_graph.pop("kv_spans")
+
+    summary = analyzer._summarize(_manifest(agent_graph), _probe())
+    alignment = summary["alignment"]
+
+    assert alignment["overall_status"] == "partial"
+    assert alignment["graph"]["status"] == "partial"
+    assert alignment["graph"]["kv_spans_available"] is False
+    assert alignment["graph"]["failure_classes"] == ["missing_kv_spans"]
+
+
+def test_alignment_marks_graph_partial_with_empty_kv_spans():
+    agent_graph = _agent_graph()
+    agent_graph["kv_spans"] = []
+
+    summary = analyzer._summarize(_manifest(agent_graph), _probe())
+    alignment = summary["alignment"]
+
+    assert alignment["overall_status"] == "partial"
+    assert alignment["graph"]["status"] == "partial"
+    assert alignment["graph"]["kv_spans_available"] is True
+    assert alignment["graph"]["kv_span_count"] == 0
+    assert alignment["graph"]["failure_classes"] == ["missing_kv_spans"]
+
+
+def test_alignment_marks_graph_diverged_for_invalid_kv_span():
+    agent_graph = _agent_graph()
+    agent_graph["kv_spans"][0]["token_end"] = 0
+
+    summary = analyzer._summarize(_manifest(agent_graph), _probe())
+    alignment = summary["alignment"]
+
+    assert alignment["overall_status"] == "diverged"
+    assert alignment["graph"]["status"] == "diverged"
+    assert alignment["graph"]["invalid_kv_span_count"] == 1
+    assert alignment["graph"]["failure_classes"] == ["invalid_kv_span"]

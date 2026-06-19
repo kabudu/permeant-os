@@ -274,6 +274,7 @@ struct AgentGraphManifest {
     prompt_token_hash: Option<String>,
     tokenizer_hash: Option<String>,
     kv_hash: Option<String>,
+    kv_spans: Vec<AgentGraphKvSpan>,
     artifacts: Vec<AgentGraphArtifactHash>,
 }
 
@@ -283,6 +284,7 @@ struct AgentGraphPackageManifest {
     graph_hash: String,
     prompt: Option<AgentGraphPromptManifest>,
     kv: Option<AgentGraphKvManifest>,
+    kv_spans: Option<Vec<AgentGraphPackageKvSpan>>,
     artifacts: Option<Vec<AgentGraphPackageArtifact>>,
 }
 
@@ -296,6 +298,26 @@ struct AgentGraphPromptManifest {
 #[derive(serde::Deserialize)]
 struct AgentGraphKvManifest {
     kv_hash: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct AgentGraphKvSpan {
+    node_id: String,
+    token_start: usize,
+    token_end: usize,
+    cache_ref: String,
+    tokenizer_hash: Option<String>,
+    block_hashes: Vec<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct AgentGraphPackageKvSpan {
+    node_id: String,
+    token_start: usize,
+    token_end: usize,
+    cache_ref: String,
+    tokenizer_hash: Option<String>,
+    block_hashes: Option<Vec<String>>,
 }
 
 #[derive(serde::Deserialize)]
@@ -377,6 +399,42 @@ fn validate_optional_sha256(field_name: &str, value: Option<&String>) -> Result<
     Ok(())
 }
 
+fn validate_agent_graph_kv_span(span: AgentGraphPackageKvSpan, index: usize) -> Result<AgentGraphKvSpan> {
+    if span.node_id.trim().is_empty() {
+        bail!("agent_graph.kv_spans[{}].node_id must not be empty", index);
+    }
+    if span.cache_ref.trim().is_empty() {
+        bail!("agent_graph.kv_spans[{}].cache_ref must not be empty", index);
+    }
+    if span.token_end <= span.token_start {
+        bail!(
+            "agent_graph.kv_spans[{}].token_end must be greater than token_start",
+            index
+        );
+    }
+    validate_optional_sha256(
+        &format!("agent_graph.kv_spans[{}].tokenizer_hash", index),
+        span.tokenizer_hash.as_ref(),
+    )?;
+
+    let block_hashes = span.block_hashes.unwrap_or_default();
+    for block_hash in &block_hashes {
+        ensure_sha256_field(
+            &format!("agent_graph.kv_spans[{}].block_hashes", index),
+            block_hash,
+        )?;
+    }
+
+    Ok(AgentGraphKvSpan {
+        node_id: span.node_id,
+        token_start: span.token_start,
+        token_end: span.token_end,
+        cache_ref: span.cache_ref,
+        tokenizer_hash: span.tokenizer_hash,
+        block_hashes,
+    })
+}
+
 fn load_agent_graph_manifest(path: Option<&str>) -> Result<Option<AgentGraphManifest>> {
     let Some(path) = path else {
         return Ok(None);
@@ -394,6 +452,11 @@ fn load_agent_graph_manifest(path: Option<&str>) -> Result<Option<AgentGraphMani
     }
     if let Some(kv) = &package.kv {
         validate_optional_sha256("agent_graph.kv.kv_hash", kv.kv_hash.as_ref())?;
+    }
+
+    let mut kv_spans = Vec::new();
+    for (index, span) in package.kv_spans.unwrap_or_default().into_iter().enumerate() {
+        kv_spans.push(validate_agent_graph_kv_span(span, index)?);
     }
 
     let mut artifacts = Vec::new();
@@ -414,6 +477,7 @@ fn load_agent_graph_manifest(path: Option<&str>) -> Result<Option<AgentGraphMani
         prompt_token_hash: package.prompt.as_ref().and_then(|prompt| prompt.token_hash.clone()),
         tokenizer_hash: package.prompt.as_ref().and_then(|prompt| prompt.tokenizer_hash.clone()),
         kv_hash: package.kv.as_ref().and_then(|kv| kv.kv_hash.clone()),
+        kv_spans,
         artifacts,
     }))
 }
@@ -940,6 +1004,18 @@ mod tests {
   "kv": {
     "kv_hash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
+  "kv_spans": [
+    {
+      "node_id": "checkpoint:prompt",
+      "token_start": 0,
+      "token_end": 8,
+      "cache_ref": "kv:simulated:prompt",
+      "tokenizer_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "block_hashes": [
+        "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      ]
+    }
+  ],
   "artifacts": [
     {
       "path": "reports/result.json",
@@ -969,6 +1045,11 @@ mod tests {
         );
         assert_eq!(loaded.artifacts.len(), 1);
         assert_eq!(loaded.artifacts[0].path, "reports/result.json");
+        assert_eq!(loaded.kv_spans.len(), 1);
+        assert_eq!(loaded.kv_spans[0].node_id, "checkpoint:prompt");
+        assert_eq!(loaded.kv_spans[0].token_start, 0);
+        assert_eq!(loaded.kv_spans[0].token_end, 8);
+        assert_eq!(loaded.kv_spans[0].cache_ref, "kv:simulated:prompt");
 
         let _ = fs::remove_file(path);
     }
@@ -988,6 +1069,33 @@ mod tests {
         let error = load_agent_graph_manifest(Some(path.to_str().unwrap()))
             .expect_err("invalid graph hash should fail");
         assert!(error.to_string().contains("agent_graph.graph_hash"));
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn rejects_invalid_agent_graph_kv_span() {
+        let path = temp_manifest_path("bad-agent-graph-kv-span");
+        fs::write(
+            &path,
+            r#"{
+  "graph_path": "graph.json",
+  "graph_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "kv_spans": [
+    {
+      "node_id": "checkpoint:prompt",
+      "token_start": 12,
+      "token_end": 8,
+      "cache_ref": "kv:simulated:prompt"
+    }
+  ]
+}"#,
+        )
+        .unwrap();
+
+        let error = load_agent_graph_manifest(Some(path.to_str().unwrap()))
+            .expect_err("invalid KV span range should fail");
+        assert!(error.to_string().contains("agent_graph.kv_spans[0].token_end"));
 
         let _ = fs::remove_file(path);
     }

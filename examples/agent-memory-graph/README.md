@@ -46,4 +46,4 @@ pass the generated package manifest to `sim-migrate`:
 ```
 
 The migration manifest will include an `agent_graph` section with graph, prompt,
-artifact, tokenizer, and simulated KV hashes.
+artifact, tokenizer, simulated KV hashes, and graph-to-KV span metadata.

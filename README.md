@@ -142,12 +142,13 @@ Completed:
 - Published schema identifier: `https://www.permeantos.org/schemas/agent-memory-graph-v0.schema.json`.
 - Minimal local graph export/import harness with deterministic prompt reconstruction, artifact hash verification, prompt token hash capture, and simulated KV hash validation.
 - Optional graph hash, artifact hash, prompt hash, and simulated KV hash fields in migration manifests.
-- Analyzer reporting for prompt, graph, and KV alignment in fidelity summaries.
+- Optional graph-to-KV span metadata in migration manifests when an Agent Memory Graph package is supplied.
+- Analyzer reporting for prompt, graph, graph/KV span, and KV alignment in fidelity summaries.
 - Graph-attached live KV migration planning notes and acceptance criteria.
 
 Remaining:
 
-- Graph-attached live KV migration manifest extensions and real-runtime protocol implementation.
+- Live MLX/vLLM graph-attached span production, target validation, and real-runtime protocol implementation.
 
 See `ROADMAP.md` for the detailed phased plan.
 

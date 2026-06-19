@@ -11,6 +11,9 @@ and this project uses release tags compatible with semantic versioning.
 
 - Pull request CI workflow for Rust workspace tests, Python tests, and the
   Python SDK smoke test.
+- Graph-attached migration manifest prototype with `kv_spans` metadata,
+  CLI validation, local harness export support, and analyzer reporting for
+  missing or invalid graph/KV span evidence.
 
 ## [0.1.6-graph-attached-kv-plan] - 2026-06-19
 

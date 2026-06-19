@@ -70,8 +70,9 @@ The Agent Memory Graph v0 schema now defines:
 
 The current Agent Memory Graph work includes a minimal local export/import
 harness, optional graph hash metadata in migration manifests, analyzer alignment
-reporting, and graph-attached live KV migration planning notes. The next
-implementation step is graph-attached migration manifest validation and runtime
+reporting, graph-attached live KV migration planning notes, and prototype
+graph-to-KV span metadata in migration manifests. The next implementation step
+is live-runtime graph-attached span production, target validation, and runtime
 protocol integration. The goal is to migrate not just model activations, but
 agent continuity.
 
@@ -88,6 +89,8 @@ Current strengths:
 - Minimal local Agent Memory Graph export/import harness.
 - Optional Agent Memory Graph hash metadata in migration manifests.
 - Analyzer reporting for prompt, graph, and KV-cache alignment.
+- Prototype graph-to-KV span metadata in migration manifests and analyzer
+  reports.
 - Graph-attached live KV migration planning notes and acceptance criteria.
 - Repeatable AWS E2E runner with cleanup verification.
 - Conservative AWS prewarm recipe for reducing E2E bootstrap time without
@@ -100,7 +103,8 @@ Current limitations:
 - vLLM integration relies on internal runtime behavior that may change.
 - Python adapters are needed for Python-native ML runtimes.
 - Graph-attached KV migration now has documented transaction requirements and
-  acceptance criteria, but the runtime protocol implementation is still planned.
+  acceptance criteria plus prototype manifest/analyzer span evidence, but live
+  runtime protocol integration is still planned.
 
 ## Learn more
 

@@ -418,6 +418,7 @@ def build_manifest(graph: dict[str, Any], session: LocalSession, prompt: str) ->
             "cache_ref": "kv:simulated:prompt",
             "kv_hash": simulated_kv_hash(prompt_tokens),
         },
+        "kv_spans": graph["kv_spans"],
         "artifacts": [
             {
                 "path": session.artifact_path,
