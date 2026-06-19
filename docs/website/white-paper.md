@@ -82,6 +82,7 @@ Current strengths:
 - Agent Memory Graph v0 schema and specification.
 - Minimal local Agent Memory Graph export/import harness.
 - Optional Agent Memory Graph hash metadata in migration manifests.
+- Analyzer reporting for prompt, graph, and KV-cache alignment.
 - Repeatable AWS E2E runner with cleanup verification.
 - Paper and roadmap.
 

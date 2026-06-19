@@ -21,7 +21,9 @@ The state directory contains:
 - `state.json`: AWS IDs, connection metadata, model, source URL, artifact paths
 - `migration.log`: local migration output
 - `vllm-runtime-probe.json`: copied target probe artifact
-- `fidelity-analysis.json`: analyzer output
+- `fidelity-analysis.json`: analyzer output, including prompt, graph, and
+  KV-cache alignment status when graph metadata is present in the migration
+  manifest
 - `slot-probe-summary.json`: sampled target slot equality summary
 - `target-logs/receiver.log`
 - `target-logs/daemon.log`
