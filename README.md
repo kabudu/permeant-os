@@ -144,13 +144,13 @@ Completed:
 - Optional graph hash, artifact hash, prompt hash, and simulated KV hash fields in migration manifests.
 - Optional graph-to-KV span metadata in migration manifests when an Agent Memory Graph package is supplied.
 - Content-addressed artifact packaging and restored-workspace verification in the local graph harness.
-- Adapter-side graph span metadata emitted by the MLX live runtime and validated by the vLLM import worker before target ingest.
+- Adapter-side graph span metadata emitted by the MLX live runtime and validated against the vLLM target tokenizer view before target ingest.
 - Analyzer reporting for prompt, graph, graph/KV span, and KV alignment in fidelity summaries.
 - Graph-attached live KV migration planning notes and acceptance criteria.
 
 Remaining:
 
-- End-to-end real-runtime protocol binding for graph-attached KV state.
+- End-to-end graph package binding to the daemon transaction.
 
 See `ROADMAP.md` for the detailed phased plan.
 

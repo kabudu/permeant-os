@@ -94,6 +94,8 @@ def validate_prompt_span_metadata(
     *,
     expected_prompt: str | None = None,
     expected_token_count: int | None = None,
+    expected_token_ids: list[int] | None = None,
+    expected_tokenizer_hash: str | None = None,
 ) -> dict[str, Any]:
     """Validate graph span metadata and optional target prompt compatibility."""
     if not isinstance(metadata, dict):
@@ -119,6 +121,17 @@ def validate_prompt_span_metadata(
         raise AgentGraphSpanMetadataError("target prompt does not match graph span prompt byte hash")
     if expected_token_count is not None and expected_token_count != token_count:
         raise AgentGraphSpanMetadataError("target prompt token count does not match graph span metadata")
+    if expected_token_ids is not None:
+        if not isinstance(expected_token_ids, list) or not all(isinstance(item, int) for item in expected_token_ids):
+            raise AgentGraphSpanMetadataError("target prompt token ids must be an integer list")
+        if len(expected_token_ids) != token_count:
+            raise AgentGraphSpanMetadataError("target prompt token ids length does not match graph span metadata")
+        if token_hash(expected_token_ids) != token_hash_value:
+            raise AgentGraphSpanMetadataError("target prompt token hash does not match graph span metadata")
+    if expected_tokenizer_hash is not None:
+        _ensure_sha256("target tokenizer_hash", expected_tokenizer_hash)
+        if expected_tokenizer_hash != tokenizer_hash:
+            raise AgentGraphSpanMetadataError("target tokenizer hash does not match graph span metadata")
 
     spans = metadata.get("kv_spans")
     if not isinstance(spans, list) or not spans:
@@ -148,4 +161,13 @@ def validate_prompt_span_metadata(
         "token_count": token_count,
         "kv_span_count": len(spans),
         "cache_refs": sorted({span["cache_ref"] for span in spans}),
+        "target_tokenizer_view_verified": any(
+            value is not None
+            for value in (
+                expected_prompt,
+                expected_token_count,
+                expected_token_ids,
+                expected_tokenizer_hash,
+            )
+        ),
     }

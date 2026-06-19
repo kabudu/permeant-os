@@ -122,8 +122,10 @@ Deliverables:
   range to graph/KV span evidence.
 - [x] Adapter-side vLLM import worker validates graph span metadata before
   target hook ingest.
-- [ ] Import path verifies that graph token spans match the target tokenizer
-  view inside the end-to-end runtime protocol.
+- [x] Import path verifies that graph token spans match the target tokenizer
+  view when the vLLM staged target payload provides prompt/tokenizer evidence.
+- [ ] End-to-end daemon transaction binds the graph package and KV state as one
+  commit unit.
 - [x] Analyzer reports graph/KV alignment status.
 
 Validation:
