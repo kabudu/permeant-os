@@ -198,6 +198,15 @@ references:
 - `restore_policy`: `required`, `optional`, `quarantine_on_mismatch`, or
   `external_rebind`.
 
+The local reference harness packages file artifacts in a content-addressed blob
+store under `artifacts/sha256/<prefix>/<digest>/`. Import first verifies the
+manifest hash, graph hash, artifact hash, and artifact size, then restores each
+required artifact into a target workspace using a preserve-relative-path policy.
+Absolute paths and `..` traversal are rejected before any target file is
+written. Missing or mismatched required artifacts fail import; external
+artifacts should use explicit rebind policy metadata before unresolved graph
+references are accepted.
+
 ### Memory Nodes
 
 Memory nodes represent raw records, facts, profiles, summaries, retrieval

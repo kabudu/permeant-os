@@ -25,7 +25,7 @@ What works today:
 - Conservative AWS prewarm image/container recipe for faster E2E bootstrap without always-on infrastructure.
 - Exact short-horizon MLX-to-vLLM continuation fidelity for one validated Qwen run.
 - Agent Memory Graph v0 schema and specification for portable conversation, tool, artifact, memory, checkpoint, provenance, and KV-span state.
-- Minimal local Agent Memory Graph export/import harness with deterministic prompt reconstruction and artifact hash verification.
+- Minimal local Agent Memory Graph export/import harness with deterministic prompt reconstruction, content-addressed artifact packaging, artifact hash verification, and restored-workspace validation.
 - Optional Agent Memory Graph hash metadata in migration manifests.
 
 What is still experimental:
@@ -143,6 +143,7 @@ Completed:
 - Minimal local graph export/import harness with deterministic prompt reconstruction, artifact hash verification, prompt token hash capture, and simulated KV hash validation.
 - Optional graph hash, artifact hash, prompt hash, and simulated KV hash fields in migration manifests.
 - Optional graph-to-KV span metadata in migration manifests when an Agent Memory Graph package is supplied.
+- Content-addressed artifact packaging and restored-workspace verification in the local graph harness.
 - Analyzer reporting for prompt, graph, graph/KV span, and KV alignment in fidelity summaries.
 - Graph-attached live KV migration planning notes and acceptance criteria.
 

@@ -138,21 +138,26 @@ Move generated files and structured artifacts as first-class graph objects.
 
 Deliverables:
 
-- Content-addressed artifact store.
-- Path mapping policy for target workspaces.
-- Redaction/exclusion rules.
-- Large-file streaming support.
-- Artifact restore report.
+- [x] Content-addressed artifact store for the local Agent Memory Graph package.
+- [x] Path mapping policy for target workspaces in the local import path.
+- [ ] Redaction/exclusion rules.
+- [ ] Large-file streaming support.
+- [x] Artifact restore report for restored local files.
 
 Validation:
 
-- Agent creates files, references them in messages/tool outputs, migrates, and resumes with the same files available.
-- Hash mismatch causes import failure or quarantine.
+- [x] Agent creates files, references them in messages/tool outputs, migrates,
+  and resumes with the same files available in a restored workspace.
+- [x] Hash mismatch causes import failure for required local artifacts.
+- [x] Unsafe restore paths are rejected before writing target files.
 
 Exit criteria:
 
-- File artifacts are reproducibly restored.
-- Graph references never point at missing files unless explicitly marked external.
+- [x] File artifacts are reproducibly restored by the local harness.
+- [x] Local graph references fail import when required blobs are missing or
+  invalid.
+- [ ] External artifacts are explicitly marked rebindable before graph
+  references may remain unresolved.
 
 ## Phase 5: Tool-call replay and side-effect safety
 
@@ -374,5 +379,7 @@ Scope:
   crate publishing become part of the product flow.
 - [x] Prototype graph-attached migration manifest extensions and analyzer
   checks behind the existing Agent Memory Graph manifest path.
+- [x] Add content-addressed artifact packaging and restored-workspace
+  verification to the local Agent Memory Graph harness.
 - [ ] Wire live MLX and vLLM adapters to produce and validate graph-attached
   span metadata for the same prompt used to prefill the migrated KV cache.
