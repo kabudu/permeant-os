@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://permeantos.dev/schemas/agent-memory-graph-v0.schema.json",
+  "$id": "https://www.permeantos.org/schemas/agent-memory-graph-v0.schema.json",
   "title": "PermeantOS Agent Memory Graph v0",
   "type": "object",
   "additionalProperties": false,
