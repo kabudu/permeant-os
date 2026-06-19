@@ -7,6 +7,8 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.1-agent-memory-graph-schema] - 2026-06-19
+
 ### Added
 
 - Agent Memory Graph v0 specification, JSON schema, validation fixture, and
@@ -31,5 +33,6 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.0-research-preview...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.1-agent-memory-graph-schema...HEAD
+[0.1.1-agent-memory-graph-schema]: https://github.com/kabudu/permeant-os/compare/v0.1.0-research-preview...v0.1.1-agent-memory-graph-schema
 [0.1.0-research-preview]: https://github.com/kabudu/permeant-os/releases/tag/v0.1.0-research-preview
