@@ -119,6 +119,37 @@ sidecar before calling the target hook and records the validation result in its
 processed marker. This is adapter-side evidence only; the daemon wire protocol
 still carries tensor state as before.
 
+When the staged target payload includes a target tokenizer view, the worker also
+verifies that view against the graph span metadata before ingest. The accepted
+forms are:
+
+```json
+{
+  "target_prompt": {
+    "text": "same prompt text used by the target",
+    "token_ids": [1, 2, 3],
+    "tokenizer_hash": "sha256:..."
+  }
+}
+```
+
+or the existing target-runtime fields:
+
+```json
+{
+  "prompt": "same prompt text used by the target",
+  "prompt_token_ids": [1, 2, 3],
+  "prompt_tokenization": {
+    "token_count": 3,
+    "tokenizer_hash": "sha256:..."
+  }
+}
+```
+
+If any supplied target prompt hash, token count, token hash, or tokenizer hash
+disagrees with `agent_graph_span_metadata`, the worker rejects the staged import
+before the target hook runs.
+
 ## Injector backend
 
 Enable it with:
@@ -227,8 +258,8 @@ That lets us debug the adapter boundary before wiring in live MLX or live target
 `adapters/agent_graph_span_metadata.py` provides the shared helper for building
 and validating prompt-bound graph span metadata. Source adapters should use
 `build_prompt_span_metadata(...)` after prefill. Target-side workers should use
-`validate_prompt_span_metadata(...)` before activating or forwarding migrated
-state.
+`validate_prompt_span_metadata(...)` with the target tokenizer view before
+activating or forwarding migrated state.
 
 ## Fixture and hook bring-up
 

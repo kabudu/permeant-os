@@ -7,6 +7,12 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Target tokenizer-view validation for Agent Memory Graph span metadata in the
+  vLLM import worker, including prompt text, token IDs, token count, and
+  tokenizer hash mismatch rejection before target hook ingest.
+
 ## [0.1.9-live-graph-span-metadata] - 2026-06-20
 
 ### Added

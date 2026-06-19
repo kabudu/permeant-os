@@ -40,6 +40,9 @@ Implemented follow-up:
 - The vLLM import worker validates that metadata before forwarding staged
   imports to its target hook and records the validation result in the processed
   marker.
+- When the target payload provides prompt text, token IDs, token count, or
+  tokenizer hash, the vLLM import worker compares that target tokenizer view
+  against the graph span metadata and rejects mismatches before ingest.
 
 ## Current Inputs
 

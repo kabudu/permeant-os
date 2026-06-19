@@ -64,6 +64,51 @@ def _full_payload_path(import_dir: Path, ready_payload: dict[str, Any]) -> Path:
     return path
 
 
+def _target_prompt_view(payload: dict[str, Any]) -> dict[str, Any]:
+    prompt_view = payload.get("target_prompt")
+    if not isinstance(prompt_view, dict):
+        prompt_view = {}
+
+    prompt_text = prompt_view.get("text")
+    if prompt_text is None:
+        prompt_text = payload.get("prompt")
+    if prompt_text is not None and not isinstance(prompt_text, str):
+        raise AdapterError("target prompt text must be a string when present")
+
+    token_ids = prompt_view.get("token_ids")
+    if token_ids is None:
+        token_ids = payload.get("prompt_token_ids")
+    if token_ids is not None and (
+        not isinstance(token_ids, list) or not all(isinstance(item, int) for item in token_ids)
+    ):
+        raise AdapterError("target prompt token_ids must be an integer list when present")
+
+    token_count = prompt_view.get("token_count")
+    if token_count is None:
+        tokenization = payload.get("prompt_tokenization")
+        if isinstance(tokenization, dict):
+            token_count = tokenization.get("token_count")
+    if token_count is None and token_ids is not None:
+        token_count = len(token_ids)
+    if token_count is not None and (not isinstance(token_count, int) or token_count <= 0):
+        raise AdapterError("target prompt token_count must be a positive integer when present")
+
+    tokenizer_hash = prompt_view.get("tokenizer_hash")
+    if tokenizer_hash is None:
+        tokenization = payload.get("prompt_tokenization")
+        if isinstance(tokenization, dict):
+            tokenizer_hash = tokenization.get("tokenizer_hash")
+    if tokenizer_hash is not None and not isinstance(tokenizer_hash, str):
+        raise AdapterError("target prompt tokenizer_hash must be a string when present")
+
+    return {
+        "expected_prompt": prompt_text,
+        "expected_token_count": token_count,
+        "expected_token_ids": token_ids,
+        "expected_tokenizer_hash": tokenizer_hash,
+    }
+
+
 def _consume_one(import_dir: Path, ready_path: Path, hook) -> dict[str, Any]:
     ready_payload = _load_json(ready_path)
     payload_path = _full_payload_path(import_dir, ready_payload)
@@ -72,7 +117,8 @@ def _consume_one(import_dir: Path, ready_path: Path, hook) -> dict[str, Any]:
     if "agent_graph_span_metadata" in full_payload:
         try:
             graph_span_validation = validate_prompt_span_metadata(
-                full_payload["agent_graph_span_metadata"]
+                full_payload["agent_graph_span_metadata"],
+                **_target_prompt_view(full_payload),
             )
         except AgentGraphSpanMetadataError as exc:
             raise AdapterError(f"invalid agent graph span metadata: {exc}") from exc
