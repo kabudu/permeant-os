@@ -7,6 +7,11 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Conservative AWS prewarm image/container recipe with snapshot-cost guardrails,
+  cleanup guidance, and a local snapshot storage cost estimator.
+
 ## [0.1.4-analyzer-alignment-report] - 2026-06-19
 
 ### Added

@@ -250,7 +250,9 @@ Make repeated validation boring and affordable.
 
 Deliverables:
 
-- Prewarmed AWS AMI or container image with Rust toolchain, vLLM, CUDA stack, and model weights.
+- Conservative prewarmed AWS AMI or container recipe with Rust toolchain,
+  vLLM, and CUDA stack; model weights stay outside the image unless a later
+  cost/latency calculation justifies baking them in.
 - Longer-horizon decode-fidelity benchmark suite.
 - Larger context runs beyond 2k tokens.
 - Transfer quantization comparison for real-runtime fidelity.
@@ -357,8 +359,10 @@ Scope:
 - [x] Build a minimal local graph export/import example.
 - [x] Add graph hash fields to migration manifests.
 - [x] Extend the analyzer to report prompt, graph, and KV alignment together.
-- [ ] Prepare a conservative prewarmed AWS image or container recipe to reduce
+- [x] Prepare a conservative prewarmed AWS image or container recipe to reduce
   E2E bootstrap time without adding always-on infrastructure: document the
   build steps, cleanup steps, expected snapshot/storage cost, and keep model
   weights out of the image unless a later cost/latency calculation justifies
   baking them in.
+- [ ] Build graph-attached live KV migration planning notes and acceptance
+  criteria before changing the migration protocol.
