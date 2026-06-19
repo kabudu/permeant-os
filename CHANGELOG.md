@@ -7,6 +7,8 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.6-graph-attached-kv-plan] - 2026-06-19
+
 ### Added
 
 - Graph-attached live KV migration planning notes and acceptance criteria for
@@ -70,7 +72,8 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.5-aws-prewarm-recipe...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.6-graph-attached-kv-plan...HEAD
+[0.1.6-graph-attached-kv-plan]: https://github.com/kabudu/permeant-os/compare/v0.1.5-aws-prewarm-recipe...v0.1.6-graph-attached-kv-plan
 [0.1.5-aws-prewarm-recipe]: https://github.com/kabudu/permeant-os/compare/v0.1.4-analyzer-alignment-report...v0.1.5-aws-prewarm-recipe
 [0.1.4-analyzer-alignment-report]: https://github.com/kabudu/permeant-os/compare/v0.1.3-graph-hash-manifests...v0.1.4-analyzer-alignment-report
 [0.1.3-graph-hash-manifests]: https://github.com/kabudu/permeant-os/compare/v0.1.2-local-agent-graph-harness...v0.1.3-graph-hash-manifests
