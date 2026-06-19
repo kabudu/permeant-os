@@ -377,5 +377,7 @@ and KV-span representation.
 - [x] Extend the analyzer to report prompt, graph, and KV alignment together.
 - [x] Define graph-attached live KV migration planning notes and acceptance
   criteria.
-- [ ] Implement graph-attached live KV migration manifest extensions and runtime
+- [x] Prototype graph-attached live KV migration manifest extensions and analyzer
+  checks.
+- [ ] Implement live-runtime graph-attached span production and target
   validation.

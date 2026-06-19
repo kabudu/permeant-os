@@ -42,6 +42,8 @@ def test_local_agent_graph_export_import_roundtrip():
         assert result["prompt_byte_hash"] == manifest["prompt"]["byte_hash"]
         assert result["prompt_token_hash"] == manifest["prompt"]["token_hash"]
         assert result["kv_hash"] == manifest["kv"]["kv_hash"]
+        assert manifest["kv_spans"] == graph["kv_spans"]
+        assert manifest["kv_spans"][0]["cache_ref"] == manifest["kv"]["cache_ref"]
         assert result["deterministic_next_response"] == manifest["deterministic_next_response"]
 
 

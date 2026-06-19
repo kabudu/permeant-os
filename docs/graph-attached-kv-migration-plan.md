@@ -228,3 +228,9 @@ Recommended next steps after this planning item:
    report graph/KV binding status.
 6. Add real-runtime failure injection and rollback checks once the happy path
    exists.
+
+Items 1 and 2 are now prototyped through the existing Agent Memory Graph
+manifest path: `kv_spans` are exported by the local harness, embedded by
+`sim-migrate --agent-graph-manifest`, and reported by the analyzer as aligned,
+partial, or diverged evidence. Live-runtime adapter production and target-side
+validation remain the next implementation step.

@@ -372,5 +372,7 @@ Scope:
 - [x] Add pull request CI for Rust and Python validation.
 - [ ] Add tag/release validation workflow once release packaging, binaries, or
   crate publishing become part of the product flow.
-- [ ] Prototype graph-attached migration manifest extensions and analyzer
+- [x] Prototype graph-attached migration manifest extensions and analyzer
   checks behind the existing Agent Memory Graph manifest path.
+- [ ] Wire live MLX and vLLM adapters to produce and validate graph-attached
+  span metadata for the same prompt used to prefill the migrated KV cache.
