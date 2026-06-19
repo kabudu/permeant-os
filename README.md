@@ -25,6 +25,7 @@ What works today:
 - Exact short-horizon MLX-to-vLLM continuation fidelity for one validated Qwen run.
 - Agent Memory Graph v0 schema and specification for portable conversation, tool, artifact, memory, checkpoint, provenance, and KV-span state.
 - Minimal local Agent Memory Graph export/import harness with deterministic prompt reconstruction and artifact hash verification.
+- Optional Agent Memory Graph hash metadata in migration manifests.
 
 What is still experimental:
 
@@ -136,10 +137,10 @@ Completed:
 - Machine-readable JSON Schema with validation fixture and contract tests.
 - Published schema identifier: `https://www.permeantos.org/schemas/agent-memory-graph-v0.schema.json`.
 - Minimal local graph export/import harness with deterministic prompt reconstruction, artifact hash verification, prompt token hash capture, and simulated KV hash validation.
+- Optional graph hash, artifact hash, prompt hash, and simulated KV hash fields in migration manifests.
 
 Remaining:
 
-- Graph hash fields in migration manifests.
 - Analyzer support for prompt, graph, and KV alignment.
 - Graph-attached live KV migration.
 

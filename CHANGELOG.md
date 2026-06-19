@@ -7,6 +7,12 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Optional Agent Memory Graph hash metadata in migration benchmark manifests,
+  populated from local graph harness manifests through
+  `sim-migrate --agent-graph-manifest`.
+
 ## [0.1.2-local-agent-graph-harness] - 2026-06-19
 
 ### Added

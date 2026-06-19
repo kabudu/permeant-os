@@ -81,6 +81,7 @@ Current strengths:
 - MLX and vLLM live runtime adapters.
 - Agent Memory Graph v0 schema and specification.
 - Minimal local Agent Memory Graph export/import harness.
+- Optional Agent Memory Graph hash metadata in migration manifests.
 - Repeatable AWS E2E runner with cleanup verification.
 - Paper and roadmap.
 
