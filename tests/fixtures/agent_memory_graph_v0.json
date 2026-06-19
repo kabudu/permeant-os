@@ -1,0 +1,509 @@
+{
+  "graph_id": "graph:example:20260619",
+  "graph_version": "0.1",
+  "created_at": "2026-06-19T00:00:09Z",
+  "agent": {
+    "id": "agent:example",
+    "runtime": "local-loop",
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "runtime_version": "0.1.0"
+  },
+  "participants": [
+    {
+      "id": "agent:example",
+      "kind": "agent",
+      "name": "Example migration agent",
+      "model": "Qwen/Qwen2.5-0.5B-Instruct"
+    },
+    {
+      "id": "user:example",
+      "kind": "user",
+      "name": "Example user"
+    },
+    {
+      "id": "tool:fs",
+      "kind": "tool",
+      "provider": "local-loop"
+    },
+    {
+      "id": "agent:target",
+      "kind": "agent",
+      "name": "Target migration runtime",
+      "provider": "vllm"
+    }
+  ],
+  "policies": {
+    "default_replay_policy": "ask_user",
+    "redaction_policy": "required",
+    "retention_policy": "durable",
+    "required_approval_for_side_effects": true
+  },
+  "nodes": [
+    {
+      "id": "event:start:1",
+      "type": "event",
+      "created_at": "2026-06-19T00:00:00Z",
+      "content_hash": "sha256:a5b09c6a7c56ffae50511f223725b6afb9db276e68d2e1ec8cc771ef5fbaf3a5",
+      "provenance": {
+        "runtime": "local-loop",
+        "captured_at": "2026-06-19T00:00:00Z"
+      },
+      "actor_id": "user:example",
+      "event_kind": "user_input",
+      "memory_scope": "thread",
+      "memory_tier": "active_context",
+      "sensitivity": "internal",
+      "retention": "session",
+      "redaction_state": "none"
+    },
+    {
+      "id": "turn:system:1",
+      "type": "message",
+      "created_at": "2026-06-19T00:00:00Z",
+      "content_hash": "sha256:11b1d897f65f1ef1442ac3bf9bbf7d20a247f913e72e5f75a59c119d24b61203",
+      "provenance": {
+        "runtime": "local-loop",
+        "captured_at": "2026-06-19T00:00:00Z"
+      },
+      "actor_id": "agent:example",
+      "memory_scope": "thread",
+      "memory_tier": "active_context",
+      "sensitivity": "internal",
+      "retention": "session",
+      "redaction_state": "none",
+      "role": "system",
+      "content": "You are a careful migration test agent."
+    },
+    {
+      "id": "turn:user:1",
+      "type": "message",
+      "created_at": "2026-06-19T00:00:01Z",
+      "content_hash": "sha256:f3f0093f910b749d00cbdc7b130cfdfc3d17592d8df02980eedca70a32145f25",
+      "provenance": {
+        "runtime": "local-loop",
+        "captured_at": "2026-06-19T00:00:01Z"
+      },
+      "actor_id": "user:example",
+      "memory_scope": "thread",
+      "memory_tier": "active_context",
+      "sensitivity": "internal",
+      "retention": "session",
+      "redaction_state": "none",
+      "role": "user",
+      "content": "Write a report and remember the result."
+    },
+    {
+      "id": "tool:call:1",
+      "type": "tool_call",
+      "created_at": "2026-06-19T00:00:02Z",
+      "content_hash": "sha256:b6ca33df82087d26a6bd3d968ccefdde2ae8bcb7f7f09690f85e0a6bd94d803d",
+      "provenance": {
+        "runtime": "local-loop",
+        "captured_at": "2026-06-19T00:00:02Z"
+      },
+      "actor_id": "agent:example",
+      "memory_scope": "thread",
+      "memory_tier": "working",
+      "sensitivity": "internal",
+      "retention": "durable",
+      "redaction_state": "none",
+      "name": "fs.write_file",
+      "provider": "local-loop",
+      "call_id": "call_write_report_1",
+      "arguments_hash": "sha256:75ee6bc43cdd706b41f3d1899c223200b3e904b8b03357b37b1af6b6d837a046",
+      "input_schema_hash": "sha256:5cd29d9f70ab878a7165cf22e8f8ed1e83c982c757898f975341e45e5e66f9c6",
+      "idempotency_key": "write-report-20260619",
+      "side_effect": "external_write",
+      "status": "completed",
+      "resume_policy": "never_retry",
+      "approval_state": "approved",
+      "consent_ref": "event:approval:1",
+      "external_resource_ids": ["file:reports/result.json"]
+    },
+    {
+      "id": "tool:result:1",
+      "type": "tool_result",
+      "created_at": "2026-06-19T00:00:03Z",
+      "content_hash": "sha256:482b78251e10e86eec72c9bc5acc2f42d88951b25c160d99f71b1cee3da0482d",
+      "provenance": {
+        "runtime": "local-loop",
+        "captured_at": "2026-06-19T00:00:03Z"
+      },
+      "actor_id": "tool:fs",
+      "memory_scope": "thread",
+      "memory_tier": "working",
+      "sensitivity": "internal",
+      "retention": "durable",
+      "redaction_state": "none",
+      "result_hash": "sha256:26b13017d8a092a766e882bd846263e3daff80d22883d51a6461e7982ab1b9cd",
+      "output_schema_hash": "sha256:6e1f13bc0dfb5f6f340b06c25816f6af40c615d1fb5965dd7953450d6f772f13",
+      "is_error": false,
+      "resource_refs": ["file:///workspace/reports/result.json"],
+      "status": "completed"
+    },
+    {
+      "id": "artifact:report:1",
+      "type": "artifact",
+      "created_at": "2026-06-19T00:00:04Z",
+      "content_hash": "sha256:f9908774cab2ba5a7e7a76e98723a47233e90099b640a8c2cbdf398f307fd9f9",
+      "provenance": {
+        "runtime": "local-loop",
+        "captured_at": "2026-06-19T00:00:04Z"
+      },
+      "actor_id": "tool:fs",
+      "memory_scope": "thread",
+      "memory_tier": "archival",
+      "sensitivity": "internal",
+      "retention": "durable",
+      "redaction_state": "none",
+      "artifact_kind": "file",
+      "path": "reports/result.json",
+      "uri": "file:///workspace/reports/result.json",
+      "sha256": "03cf2e4e1a64bb4c453a17c3f47e4f6d6f7f42fa68c5f6fc8d521c9d0d0bc351",
+      "size_bytes": 128,
+      "media_type": "application/json",
+      "root_ref": "workspace:example",
+      "restore_policy": "required"
+    },
+    {
+      "id": "plan:active:1",
+      "type": "plan",
+      "created_at": "2026-06-19T00:00:05Z",
+      "content_hash": "sha256:a49c34bca62c46b6abacb6046ebc94af536ee1cc723ad1799314f78b84c657d0",
+      "provenance": {
+        "runtime": "local-loop",
+        "captured_at": "2026-06-19T00:00:05Z"
+      },
+      "actor_id": "agent:example",
+      "memory_scope": "thread",
+      "memory_tier": "working",
+      "sensitivity": "internal",
+      "retention": "session",
+      "redaction_state": "none",
+      "items": [
+        {
+          "text": "Restore report artifact",
+          "status": "completed"
+        },
+        {
+          "text": "Continue deterministic response",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "task:continue:1",
+      "type": "task",
+      "created_at": "2026-06-19T00:00:05Z",
+      "content_hash": "sha256:9407d84867019c43f4bd1fdfcb188e5a1f7d0d66a94c11aeabf3ef7650423a9c",
+      "provenance": {
+        "runtime": "local-loop",
+        "captured_at": "2026-06-19T00:00:05Z"
+      },
+      "actor_id": "agent:example",
+      "memory_scope": "thread",
+      "memory_tier": "working",
+      "sensitivity": "internal",
+      "retention": "session",
+      "redaction_state": "none",
+      "status": "in_progress",
+      "resume_policy": "retry_safe"
+    },
+    {
+      "id": "memory:semantic:1",
+      "type": "memory",
+      "created_at": "2026-06-19T00:00:06Z",
+      "content_hash": "sha256:ee4fd6679cefa0bef31503ca0d733192969a1cedd1da40f41d54b6e1da6088cf",
+      "provenance": {
+        "runtime": "local-loop",
+        "captured_at": "2026-06-19T00:00:06Z"
+      },
+      "actor_id": "agent:example",
+      "memory_scope": "user",
+      "memory_tier": "profile",
+      "sensitivity": "confidential",
+      "retention": "durable",
+      "redaction_state": "none",
+      "quality_state": "verified",
+      "historical_state": "current",
+      "trust_level": "derived",
+      "valid_at": "2026-06-19T00:00:06Z",
+      "confidence": 0.92,
+      "memory_kind": "semantic",
+      "episode": {
+        "schema_version": "mnemara-compatible-v0",
+        "episode_id": "episode:report:1",
+        "continuity_state": "open",
+        "goal_summary_hash": "sha256:4567607ad84767686486eadfdf0a32f0d660fc6b79b82cf56c90fa0b9e257045",
+        "actor_ids": ["agent:example", "user:example"],
+        "recurrence_key": "weekly-report",
+        "interval_hint": "P1W",
+        "started_at": "2026-06-19T00:00:00Z",
+        "boundary_labels": ["task", "session"],
+        "causal_record_ids": ["tool:call:1"],
+        "related_record_ids": ["artifact:report:1"],
+        "salience": {
+          "reuse": 0.41,
+          "novelty": 0.72,
+          "unresolved": 0.33
+        },
+        "affective_annotations": [
+          {
+            "tone": "focused",
+            "sentiment": "neutral",
+            "provenance": "derived",
+            "confidence": 0.6
+          }
+        ]
+      },
+      "conflict": {
+        "review_state": "needs_review",
+        "conflicting_node_ids": ["memory:semantic:old"],
+        "drift_score": 0.24,
+        "note": "Older memory mentioned a draft report path."
+      },
+      "lineage_links": [
+        {
+          "node_id": "turn:user:1",
+          "relation": "derived_from"
+        }
+      ],
+      "text_hash": "sha256:c046352a10082fd7b19dcaa8a8e04a47e4f3809db9df75c70beefcdf69889035",
+      "subject": "user:example",
+      "predicate": "requested_artifact",
+      "object": "reports/result.json",
+      "namespace": ["user:example", "facts"],
+      "key": "requested_artifact_report",
+      "embedding_model": "text-embedding-3-small",
+      "embedding_dim": 1536,
+      "embedding_hash": "sha256:aa7bce3dcfed5b9260561f7b910aa208812cd8a53614b1423b9c6ff52cd71be8",
+      "distance_metric": "cosine",
+      "vector_store_ref": "vector:local:user-example"
+    },
+    {
+      "id": "retrieval:context:1",
+      "type": "retrieval",
+      "created_at": "2026-06-19T00:00:06Z",
+      "content_hash": "sha256:84c15622ef0c91a98d1824b2de9728f47ee8ce8c3e25423c8b87e53c09230b0e",
+      "provenance": {
+        "runtime": "local-loop",
+        "captured_at": "2026-06-19T00:00:06Z"
+      },
+      "actor_id": "agent:example",
+      "memory_scope": "thread",
+      "memory_tier": "recall",
+      "sensitivity": "internal",
+      "retention": "session",
+      "redaction_state": "none",
+      "query_hash": "sha256:03e86bfc2d0352d9fe6cfe010a6a48baa670f7178b7c9fd5a6ac7cbd83d89780",
+      "retrieval_kind": "hybrid",
+      "planner_profile": "continuity_aware",
+      "policy_profile": "autonomous_agent",
+      "scorer_kind": "hybrid",
+      "selected_channels": ["lexical", "semantic", "temporal", "episodic", "provenance"],
+      "candidate_sources": ["direct_match", "episode_neighbor", "lineage_neighbor"],
+      "planner_stages": ["seed_candidates", "expand_episode", "score_provenance", "rerank"],
+      "graph_expansion_max_hops": 2,
+      "historical_mode": "mixed",
+      "selection_policy": "top_k_then_required_artifacts",
+      "results": [
+        {
+          "node_id": "memory:semantic:1",
+          "rank": 1,
+          "score": 0.87,
+          "score_kind": "hybrid",
+          "candidate_source": "episode_neighbor",
+          "score_breakdown": [
+            {
+              "name": "semantic",
+              "value": 0.78,
+              "weight": 0.45
+            },
+            {
+              "name": "episodic_salience",
+              "value": 0.72,
+              "weight": 0.3
+            },
+            {
+              "name": "provenance",
+              "value": 0.95,
+              "weight": 0.25
+            }
+          ]
+        },
+        {
+          "node_id": "artifact:report:1",
+          "rank": 2,
+          "score": 1.0,
+          "score_kind": "required_reference",
+          "candidate_source": "direct_match"
+        }
+      ]
+    },
+    {
+      "id": "summary:thread:1",
+      "type": "summary",
+      "created_at": "2026-06-19T00:00:06Z",
+      "content_hash": "sha256:fda5e0ff2ee67058e3e633f6a748fbe2a6a037f9a1d3ad7f7bb579ba6915a2db",
+      "provenance": {
+        "runtime": "local-loop",
+        "captured_at": "2026-06-19T00:00:06Z"
+      },
+      "actor_id": "agent:example",
+      "memory_scope": "thread",
+      "memory_tier": "recall",
+      "sensitivity": "internal",
+      "retention": "session",
+      "redaction_state": "none",
+      "source_node_ids": ["turn:system:1", "turn:user:1", "tool:call:1", "tool:result:1"],
+      "lossy": true,
+      "summarizer": "local-loop-summary-v0"
+    },
+    {
+      "id": "checkpoint:session:1",
+      "type": "checkpoint",
+      "created_at": "2026-06-19T00:00:07Z",
+      "content_hash": "sha256:756ce75465dc0e46404361d46d06febef2fff79cf639ad9d6f4a93c8f6a2b2e6",
+      "provenance": {
+        "runtime": "local-loop",
+        "captured_at": "2026-06-19T00:00:07Z"
+      },
+      "actor_id": "agent:example",
+      "memory_scope": "thread",
+      "memory_tier": "external",
+      "sensitivity": "internal",
+      "retention": "durable",
+      "redaction_state": "none",
+      "checkpoint_kind": "session",
+      "state_hash": "sha256:073dd179b7501d80b413f31c7a95bf5869f18e25c7a84eb6c3d4d466c6a338fe",
+      "resume_ref": "session:conversation_123"
+    },
+    {
+      "id": "trace:span:1",
+      "type": "trace_span",
+      "created_at": "2026-06-19T00:00:07Z",
+      "content_hash": "sha256:8514c644c489250fb3359cf20c0e6f375bf19d939e2efc772fc47d891b4fd3c4",
+      "provenance": {
+        "runtime": "local-loop",
+        "captured_at": "2026-06-19T00:00:07Z"
+      },
+      "actor_id": "agent:example",
+      "memory_scope": "thread",
+      "memory_tier": "external",
+      "sensitivity": "confidential",
+      "retention": "session",
+      "redaction_state": "redacted",
+      "trace_id": "trace-example-1",
+      "span_id": "span-tool-call-1",
+      "span_kind": "tool",
+      "started_at": "2026-06-19T00:00:02Z",
+      "ended_at": "2026-06-19T00:00:03Z"
+    },
+    {
+      "id": "handoff:runtime:1",
+      "type": "handoff",
+      "created_at": "2026-06-19T00:00:08Z",
+      "content_hash": "sha256:7a4aa2ef388d31237c49ce31b26ed4a3fbd7c0f85e6c5408db1a29a310e6e864",
+      "provenance": {
+        "runtime": "local-loop",
+        "captured_at": "2026-06-19T00:00:08Z"
+      },
+      "actor_id": "agent:example",
+      "memory_scope": "thread",
+      "memory_tier": "external",
+      "sensitivity": "internal",
+      "retention": "session",
+      "redaction_state": "none",
+      "from_actor_id": "agent:example",
+      "to_actor_id": "agent:target",
+      "handoff_reason": "migrate_to_target_runtime"
+    },
+    {
+      "id": "cred:aws:1",
+      "type": "credential_ref",
+      "created_at": "2026-06-19T00:00:07Z",
+      "content_hash": "sha256:ef29e4207a42314e6db759e13f97e646e52aeefa060cc2fa9772b404784759d6",
+      "provenance": {
+        "runtime": "local-loop",
+        "captured_at": "2026-06-19T00:00:07Z"
+      },
+      "actor_id": "agent:example",
+      "memory_scope": "agent",
+      "memory_tier": "external",
+      "sensitivity": "secret",
+      "retention": "delete_on_import",
+      "redaction_state": "external_only",
+      "capability": "aws.sts.assume_role",
+      "binding": "target-runtime/aws/default",
+      "required": false
+    },
+    {
+      "id": "kv:span:1",
+      "type": "kv_span",
+      "created_at": "2026-06-19T00:00:08Z",
+      "content_hash": "sha256:c4093477f8b6f3bde901b61c66e5f726e5a778cd19f38b31710e00589fe0f8f6",
+      "provenance": {
+        "runtime": "local-loop",
+        "captured_at": "2026-06-19T00:00:08Z"
+      },
+      "actor_id": "agent:example",
+      "memory_scope": "thread",
+      "memory_tier": "active_context",
+      "sensitivity": "internal",
+      "retention": "session",
+      "redaction_state": "none",
+      "token_start": 0,
+      "token_end": 64,
+      "cache_ref": "kv:prefix:0",
+      "tokenizer_hash": "sha256:a98f031ea7d77fd0d17b347cc0fb79acae4a98dfb447cc2c7bd7bbf31cc1fc13",
+      "block_hashes": [
+        "sha256:9b348fd98f32f9c8e8c9478f631397df772f1126dc224a04513d0bb68d43fb7c"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "turn:system:1",
+      "to": "turn:user:1",
+      "type": "caused"
+    },
+    {
+      "from": "turn:user:1",
+      "to": "tool:call:1",
+      "type": "caused"
+    },
+    {
+      "from": "tool:call:1",
+      "to": "tool:result:1",
+      "type": "produced"
+    },
+    {
+      "from": "tool:call:1",
+      "to": "artifact:report:1",
+      "type": "produced"
+    },
+    {
+      "from": "turn:user:1",
+      "to": "memory:semantic:1",
+      "type": "produced"
+    },
+    {
+      "from": "kv:span:1",
+      "to": "turn:user:1",
+      "type": "references"
+    }
+  ],
+  "kv_spans": [
+    {
+      "node_id": "turn:user:1",
+      "token_start": 0,
+      "token_end": 64,
+      "cache_ref": "kv:prefix:0",
+      "tokenizer_hash": "sha256:a98f031ea7d77fd0d17b347cc0fb79acae4a98dfb447cc2c7bd7bbf31cc1fc13",
+      "block_hashes": [
+        "sha256:9b348fd98f32f9c8e8c9478f631397df772f1126dc224a04513d0bb68d43fb7c"
+      ]
+    }
+  ],
+  "graph_hash": "sha256:263aff69be0961bd49e7cd706c6706d138a7a617e137c14526ebcaa4090edf18"
+}
