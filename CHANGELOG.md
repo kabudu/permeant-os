@@ -7,6 +7,12 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Content-addressed artifact packaging and restored-workspace verification in
+  the local Agent Memory Graph harness, including import restore reports and
+  path traversal rejection for artifact targets.
+
 ## [0.1.7-graph-kv-manifest-spans] - 2026-06-19
 
 ### Added

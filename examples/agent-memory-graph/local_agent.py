@@ -31,6 +31,8 @@ TOOL_ID = "tool:local-fs"
 MODEL_ID = "deterministic-local-agent-v0"
 RUNTIME_ID = "examples/agent-memory-graph"
 TOKENIZER_HASH = "sha256:" + hashlib.sha256(b"permeant-local-byte-tokenizer-v0").hexdigest()
+ARTIFACT_STORE_VERSION = "content-addressed-v0"
+RESTORE_POLICY_VERSION = "workspace-relative-v0"
 
 
 class ImportVerificationError(ValueError):
@@ -65,6 +67,28 @@ def write_json(path: Path, value: Any) -> None:
 
 def read_json(path: Path) -> Any:
     return json.loads(path.read_text())
+
+
+def content_addressed_blob_path(content_hash: str, logical_path: str) -> str:
+    digest = content_hash.removeprefix("sha256:")
+    return f"artifacts/sha256/{digest[:2]}/{digest}/{Path(logical_path).name}"
+
+
+def safe_relative_path(path: str, label: str) -> Path:
+    relative = Path(path)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ImportVerificationError(f"unsafe {label}: {path}")
+    if not relative.parts:
+        raise ImportVerificationError(f"empty {label}")
+    return relative
+
+
+def safe_workspace_relative_path(path: str) -> Path:
+    return safe_relative_path(path, "artifact restore path")
+
+
+def safe_package_relative_path(path: str) -> Path:
+    return safe_relative_path(path, "package path")
 
 
 def canonical_graph_hash(graph: dict[str, Any]) -> str:
@@ -401,11 +425,24 @@ def build_graph(session: LocalSession, artifact_hash: str, prompt: str) -> dict[
 def build_manifest(graph: dict[str, Any], session: LocalSession, prompt: str) -> dict[str, Any]:
     prompt_tokens = tokenize_prompt(prompt)
     artifact_hash = sha256_bytes(session.artifact_bytes)
+    artifact_blob_path = content_addressed_blob_path(artifact_hash, session.artifact_path)
     return {
         "manifest_version": "0.1",
         "created_at": CREATED_AT,
         "graph_path": "graph.json",
         "graph_hash": graph["graph_hash"],
+        "artifact_store": {
+            "version": ARTIFACT_STORE_VERSION,
+            "layout": "sha256-prefix",
+            "root": "artifacts/sha256",
+        },
+        "restore_policy": {
+            "version": RESTORE_POLICY_VERSION,
+            "target_root": "workspace",
+            "path_mapping": "preserve-relative-path",
+            "on_hash_mismatch": "fail",
+            "on_missing_required": "fail",
+        },
         "prompt": {
             "reconstruction": "permeant-local-reference-template-v0",
             "byte_hash": sha256_bytes(prompt.encode("utf-8")),
@@ -422,9 +459,12 @@ def build_manifest(graph: dict[str, Any], session: LocalSession, prompt: str) ->
         "artifacts": [
             {
                 "path": session.artifact_path,
-                "blob_path": f"artifacts/{session.artifact_path}",
+                "blob_path": artifact_blob_path,
                 "sha256": artifact_hash,
                 "size_bytes": len(session.artifact_bytes),
+                "media_type": "application/json",
+                "restore_policy": "required",
+                "target_path": session.artifact_path,
             }
         ],
         "deterministic_next_response": session.deterministic_response,
@@ -440,7 +480,7 @@ def export_session(output_dir: Path) -> dict[str, Any]:
 
     if output_dir.exists():
         shutil.rmtree(output_dir)
-    artifact_file = output_dir / "artifacts" / session.artifact_path
+    artifact_file = output_dir / manifest["artifacts"][0]["blob_path"]
     artifact_file.parent.mkdir(parents=True, exist_ok=True)
     artifact_file.write_bytes(session.artifact_bytes)
     write_json(output_dir / "graph.json", graph)
@@ -456,9 +496,10 @@ def verify_graph(graph: dict[str, Any], expected_hash: str) -> None:
         raise ImportVerificationError("graph hash field does not match manifest")
 
 
-def verify_artifacts(package_dir: Path, manifest: dict[str, Any]) -> None:
+def verify_artifacts(package_dir: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    verified = []
     for artifact in manifest["artifacts"]:
-        blob = package_dir / artifact["blob_path"]
+        blob = package_dir / safe_package_relative_path(artifact["blob_path"])
         if not blob.exists():
             raise ImportVerificationError(f"missing artifact blob: {artifact['blob_path']}")
         data = blob.read_bytes()
@@ -469,13 +510,80 @@ def verify_artifacts(package_dir: Path, manifest: dict[str, Any]) -> None:
             )
         if len(data) != artifact["size_bytes"]:
             raise ImportVerificationError(f"artifact size mismatch for {artifact['path']}")
+        verified.append(
+            {"path": artifact["path"], "blob_path": artifact["blob_path"], "sha256": actual_hash}
+        )
+    return verified
 
 
-def import_session(package_dir: Path) -> dict[str, Any]:
+def restore_artifacts(
+    package_dir: Path,
+    manifest: dict[str, Any],
+    workspace_dir: Path,
+) -> list[dict[str, Any]]:
+    report = []
+    for artifact in manifest["artifacts"]:
+        policy = artifact.get("restore_policy", "required")
+        if policy == "external_rebind":
+            report.append(
+                {
+                    "path": artifact["path"],
+                    "status": "rebind_required",
+                    "policy": policy,
+                    "sha256": artifact["sha256"],
+                }
+            )
+            continue
+
+        source = package_dir / safe_package_relative_path(artifact["blob_path"])
+        target_relative = safe_workspace_relative_path(
+            artifact.get("target_path", artifact["path"])
+        )
+        target = workspace_dir / target_relative
+        data = source.read_bytes()
+        actual_hash = sha256_bytes(data)
+        if actual_hash != artifact["sha256"]:
+            if policy == "quarantine_on_mismatch":
+                quarantine = workspace_dir / ".permeantos-quarantine" / target_relative
+                quarantine.parent.mkdir(parents=True, exist_ok=True)
+                quarantine.write_bytes(data)
+                report.append(
+                    {
+                        "path": artifact["path"],
+                        "target_path": str(quarantine),
+                        "status": "quarantined",
+                        "policy": policy,
+                        "sha256": actual_hash,
+                    }
+                )
+                continue
+            raise ImportVerificationError(
+                f"artifact hash mismatch while restoring {artifact['path']}: "
+                f"expected {artifact['sha256']}, got {actual_hash}"
+            )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        report.append(
+            {
+                "path": artifact["path"],
+                "target_path": str(target_relative),
+                "status": "restored",
+                "policy": policy,
+                "sha256": actual_hash,
+                "size_bytes": len(data),
+            }
+        )
+    return report
+
+
+def import_session(package_dir: Path, workspace_dir: Path | None = None) -> dict[str, Any]:
     manifest = read_json(package_dir / "manifest.json")
-    graph = read_json(package_dir / manifest["graph_path"])
+    graph = read_json(package_dir / safe_package_relative_path(manifest["graph_path"]))
     verify_graph(graph, manifest["graph_hash"])
-    verify_artifacts(package_dir, manifest)
+    verified_artifacts = verify_artifacts(package_dir, manifest)
+    if workspace_dir is None:
+        workspace_dir = package_dir / "restored-workspace"
+    restore_report = restore_artifacts(package_dir, manifest, workspace_dir)
 
     prompt = reconstruct_prompt(graph)
     prompt_tokens = tokenize_prompt(prompt)
@@ -498,6 +606,10 @@ def import_session(package_dir: Path) -> dict[str, Any]:
     return {
         "graph_hash": graph["graph_hash"],
         "artifact_hashes": {artifact["path"]: artifact["sha256"] for artifact in manifest["artifacts"]},
+        "artifact_store": manifest["artifact_store"],
+        "verified_artifacts": verified_artifacts,
+        "restored_workspace": str(workspace_dir),
+        "restore_report": restore_report,
         "prompt_byte_hash": prompt_byte_hash,
         "prompt_token_hash": prompt_token_hash,
         "kv_hash": kv_hash,
@@ -511,7 +623,7 @@ def command_export(args: argparse.Namespace) -> None:
 
 
 def command_import(args: argparse.Namespace) -> None:
-    result = import_session(Path(args.input))
+    result = import_session(Path(args.input), Path(args.workspace) if args.workspace else None)
     print(json.dumps(result, indent=2, sort_keys=True))
 
 
@@ -541,6 +653,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     import_parser = subcommands.add_parser("import", help="import and verify a package")
     import_parser.add_argument("--input", required=True, help="input package directory")
+    import_parser.add_argument(
+        "--workspace",
+        help="target workspace directory for restored artifacts",
+    )
     import_parser.set_defaults(func=command_import)
 
     demo_parser = subcommands.add_parser("demo", help="export, import, and verify in one command")
