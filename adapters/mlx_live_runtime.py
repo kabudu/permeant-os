@@ -17,6 +17,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from mlx_lm import batch_generate, load
 
+from agent_graph_span_metadata import build_prompt_span_metadata, sha256_bytes
 from mlx_runtime_bridge import build_extractor_response_from_cache
 
 
@@ -58,6 +59,13 @@ def _model_id() -> str:
     return os.getenv("PERMEANT_MLX_MODEL_ID", DEFAULT_MODEL)
 
 
+def _tokenizer_hash() -> str:
+    explicit = os.getenv("PERMEANT_MLX_TOKENIZER_HASH")
+    if explicit:
+        return explicit
+    return sha256_bytes(f"mlx-tokenizer:{_model_id()}".encode("utf-8"))
+
+
 def _continuation_prompt() -> str | None:
     return os.getenv("PERMEANT_SOURCE_CONTINUATION_PROMPT") or os.getenv("PERMEANT_VLLM_CONTINUATION_PROMPT")
 
@@ -77,6 +85,16 @@ def _encode_prompt(tokenizer: Any, prompt_text: str) -> list[int]:
     return list(encoded)
 
 
+def _decode_prompt_tokens(tokenizer: Any, prompt_tokens: list[int]) -> str | None:
+    decode = getattr(tokenizer, "decode", None)
+    if not callable(decode):
+        return None
+    decoded = decode(prompt_tokens)
+    if isinstance(decoded, str):
+        return decoded
+    return None
+
+
 def _build_prompt_text(tokenizer: Any, minimum_tokens: int) -> tuple[str, list[int]]:
     seed = _base_prompt().strip()
     text = seed
@@ -84,7 +102,9 @@ def _build_prompt_text(tokenizer: Any, minimum_tokens: int) -> tuple[str, list[i
     while len(tokens) < minimum_tokens:
         text = f"{text}\n{seed}"
         tokens = _encode_prompt(tokenizer, text)
-    return text, tokens[:minimum_tokens]
+    prefill_tokens = tokens[:minimum_tokens]
+    prefill_text = _decode_prompt_tokens(tokenizer, prefill_tokens)
+    return prefill_text or text, prefill_tokens
 
 
 def _prefill_prompt(model: Any, tokenizer: Any, prompt_tokens: list[int]) -> list[Any]:
@@ -210,8 +230,17 @@ def get_live_runtime() -> LiveRuntime:
 def provider(request: dict[str, Any]) -> dict[str, Any]:
     minimum_tokens = int(request.get("seq_len") or _target_seq_len())
     runtime = _ensure_runtime(minimum_tokens)
-    return build_extractor_response_from_cache(
+    response = build_extractor_response_from_cache(
         runtime.caches,
         seq_len=minimum_tokens,
         required_tensor_names=request.get("tensor_names"),
     )
+    response["agent_graph_span_metadata"] = build_prompt_span_metadata(
+        prompt=runtime.prompt_text,
+        token_ids=runtime.prompt_tokens[:minimum_tokens],
+        tokenizer_hash=_tokenizer_hash(),
+        model_id=_model_id(),
+        runtime="mlx-live-runtime",
+        cache_ref=os.getenv("PERMEANT_AGENT_GRAPH_CACHE_REF", "kv:mlx-live:prefill"),
+    )
+    return response

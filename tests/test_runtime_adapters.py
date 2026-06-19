@@ -53,6 +53,18 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(len(payload["tensors"]), 4)
         self.assertEqual(payload["tensors"][3]["name"], "layer.1.value")
 
+    def test_extractor_preserves_agent_graph_span_metadata(self):
+        request = {"seq_len": 4, "n_layers": 1, "n_kv_heads": 2, "head_dim": 3}
+        result = self.run_script(
+            "mlx_extractor.py",
+            request,
+            {"PERMEANT_EXTRACTOR_HOOK": str(FIXTURES / "runtime_adapter_hooks.py") + ":graph_span_extractor_hook"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertIn("agent_graph_span_metadata", payload)
+        self.assertEqual(payload["agent_graph_span_metadata"]["prompt"]["token_count"], 4)
+
     def test_injector_fixture_mode(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             state_path = Path(tmpdir) / "injector_state.json"

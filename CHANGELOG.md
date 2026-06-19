@@ -7,6 +7,12 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Adapter-side Agent Memory Graph span metadata helper, MLX live runtime
+  emission for prefill prompts, and vLLM import worker validation before target
+  hook ingest.
+
 ## [0.1.8-artifact-restore-harness] - 2026-06-19
 
 ### Added

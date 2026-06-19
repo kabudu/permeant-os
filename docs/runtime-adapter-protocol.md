@@ -79,6 +79,46 @@ Canonical tensor shape expected by the current transpiler:
 
 - `[1, n_kv_heads, seq_len, head_dim]`
 
+Extractor responses may also include prompt-bound Agent Memory Graph span
+metadata:
+
+```json
+{
+  "tensors": [],
+  "agent_graph_span_metadata": {
+    "version": "0.1",
+    "source_runtime": "mlx-live-runtime",
+    "model_id": "Qwen/Qwen2.5-0.5B-Instruct",
+    "prompt": {
+      "byte_hash": "sha256:...",
+      "token_hash": "sha256:...",
+      "token_count": 2016,
+      "tokenizer_hash": "sha256:..."
+    },
+    "kv_spans": [
+      {
+        "node_id": "checkpoint:prompt",
+        "token_start": 0,
+        "token_end": 2016,
+        "cache_ref": "kv:mlx-live:prefill",
+        "tokenizer_hash": "sha256:...",
+        "block_hashes": ["sha256:..."]
+      }
+    ],
+    "binding": {
+      "prompt_used_for_prefill": true,
+      "same_prompt_required_on_target": true
+    }
+  }
+}
+```
+
+The in-tree MLX live runtime attaches this metadata to the same prompt/token IDs
+used to prefill the exported KV cache. The vLLM import worker validates the
+sidecar before calling the target hook and records the validation result in its
+processed marker. This is adapter-side evidence only; the daemon wire protocol
+still carries tensor state as before.
+
 ## Injector backend
 
 Enable it with:
@@ -181,6 +221,14 @@ They support fixture-backed bring-up immediately:
 - `PERMEANT_INJECTOR_FIXTURE_STATE=/path/to/injector-state.json`
 
 That lets us debug the adapter boundary before wiring in live MLX or live target-runtime calls.
+
+## Graph span helper
+
+`adapters/agent_graph_span_metadata.py` provides the shared helper for building
+and validating prompt-bound graph span metadata. Source adapters should use
+`build_prompt_span_metadata(...)` after prefill. Target-side workers should use
+`validate_prompt_span_metadata(...)` before activating or forwarding migrated
+state.
 
 ## Fixture and hook bring-up
 
