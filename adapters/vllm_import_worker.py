@@ -22,6 +22,10 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+from agent_graph_span_metadata import (  # noqa: E402
+    AgentGraphSpanMetadataError,
+    validate_prompt_span_metadata,
+)
 from runtime_adapter_utils import AdapterError, load_hook  # noqa: E402
 
 
@@ -64,11 +68,24 @@ def _consume_one(import_dir: Path, ready_path: Path, hook) -> dict[str, Any]:
     ready_payload = _load_json(ready_path)
     payload_path = _full_payload_path(import_dir, ready_payload)
     full_payload = _load_json(payload_path)
+    graph_span_validation = None
+    if "agent_graph_span_metadata" in full_payload:
+        try:
+            graph_span_validation = validate_prompt_span_metadata(
+                full_payload["agent_graph_span_metadata"]
+            )
+        except AgentGraphSpanMetadataError as exc:
+            raise AdapterError(f"invalid agent graph span metadata: {exc}") from exc
     result = hook(full_payload)
     if result is None:
         result = {"success": True}
     if not isinstance(result, dict):
         raise AdapterError("runtime hook must return a dict or None")
+    if graph_span_validation is not None:
+        result = {
+            **result,
+            "agent_graph_span_validation": graph_span_validation,
+        }
     _record_processed(ready_path, ready_payload["hash"], result)
     return result
 

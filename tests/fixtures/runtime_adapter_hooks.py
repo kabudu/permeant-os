@@ -16,6 +16,36 @@ def extractor_hook(request):
     return {"tensors": tensors}
 
 
+def graph_span_extractor_hook(request):
+    payload = extractor_hook(request)
+    payload["agent_graph_span_metadata"] = {
+        "version": "0.1",
+        "source_runtime": "fixture-mlx",
+        "model_id": "fixture-model",
+        "prompt": {
+            "byte_hash": "sha256:" + "a" * 64,
+            "token_hash": "sha256:" + "b" * 64,
+            "token_count": int(request["seq_len"]),
+            "tokenizer_hash": "sha256:" + "c" * 64,
+        },
+        "kv_spans": [
+            {
+                "node_id": "checkpoint:prompt",
+                "token_start": 0,
+                "token_end": int(request["seq_len"]),
+                "cache_ref": "kv:fixture:prefill",
+                "tokenizer_hash": "sha256:" + "c" * 64,
+                "block_hashes": ["sha256:" + "d" * 64],
+            }
+        ],
+        "binding": {
+            "prompt_used_for_prefill": True,
+            "same_prompt_required_on_target": True,
+        },
+    }
+    return payload
+
+
 def injector_hook(request):
     action = request["action"]
     if action == "inject_block":

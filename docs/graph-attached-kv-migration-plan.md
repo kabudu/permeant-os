@@ -1,8 +1,8 @@
 # Graph-Attached Live KV Migration Plan
 
 Status: planning notes and acceptance criteria for the Phase 3 KV-attached
-graph migration milestone. This document intentionally precedes any protocol
-change.
+graph migration milestone. Adapter-side graph span metadata now exists as a
+sidecar contract, while daemon wire-protocol changes remain future work.
 
 PermeantOS can already migrate live KV tensors and can already export an Agent
 Memory Graph package locally. Phase 3 joins those two surfaces into one
@@ -25,12 +25,21 @@ In scope:
 - Acceptance criteria and failure cases for the first real MLX-to-vLLM
   graph-attached validation run.
 
-Out of scope for this planning item:
+Out of scope for the planning item:
 
 - Changing the daemon wire protocol.
-- Changing the vLLM or MLX live runtime hooks.
 - Publishing the Agent Memory Graph schema as a stable public API.
 - Migrating vector stores, raw credentials, or non-idempotent side effects.
+
+Implemented follow-up:
+
+- `adapters/agent_graph_span_metadata.py` builds and validates prompt-bound
+  graph span metadata.
+- The MLX live runtime attaches `agent_graph_span_metadata` for the same prompt
+  token IDs used to prefill the source cache.
+- The vLLM import worker validates that metadata before forwarding staged
+  imports to its target hook and records the validation result in the processed
+  marker.
 
 ## Current Inputs
 

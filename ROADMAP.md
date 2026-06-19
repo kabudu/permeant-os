@@ -115,10 +115,16 @@ Attach existing PermeantOS KV migration to the graph layer.
 
 Deliverables:
 
-- Graph nodes include token spans and KV cache references.
+- [x] Graph nodes include token spans and KV cache references in the local
+  Agent Memory Graph package.
 - Migration manifest includes both tensor state and graph state.
-- Import path verifies that graph token spans match the target tokenizer view.
-- Analyzer reports graph/KV alignment status.
+- [x] Adapter-side MLX source metadata binds the live prefill prompt token
+  range to graph/KV span evidence.
+- [x] Adapter-side vLLM import worker validates graph span metadata before
+  target hook ingest.
+- [ ] Import path verifies that graph token spans match the target tokenizer
+  view inside the end-to-end runtime protocol.
+- [x] Analyzer reports graph/KV alignment status.
 
 Validation:
 
@@ -381,5 +387,5 @@ Scope:
   checks behind the existing Agent Memory Graph manifest path.
 - [x] Add content-addressed artifact packaging and restored-workspace
   verification to the local Agent Memory Graph harness.
-- [ ] Wire live MLX and vLLM adapters to produce and validate graph-attached
+- [x] Wire live MLX and vLLM adapters to produce and validate graph-attached
   span metadata for the same prompt used to prefill the migrated KV cache.

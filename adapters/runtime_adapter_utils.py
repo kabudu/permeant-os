@@ -117,7 +117,13 @@ def normalize_extractor_payload(payload: Any) -> dict[str, Any]:
             "data": flat_data,
         })
 
-    return {"tensors": normalized}
+    result = {"tensors": normalized}
+    graph_span_metadata = payload.get("agent_graph_span_metadata")
+    if graph_span_metadata is not None:
+        if not isinstance(graph_span_metadata, dict):
+            raise AdapterError("agent_graph_span_metadata must be an object when present")
+        result["agent_graph_span_metadata"] = graph_span_metadata
+    return result
 
 
 def normalize_injector_response(payload: Any) -> dict[str, Any]:
