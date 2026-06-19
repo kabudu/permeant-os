@@ -34,7 +34,8 @@ What is still experimental:
 - The vLLM attachment path uses implementation details that may change between vLLM versions.
 - Fidelity has been validated for one model family and a 16-token continuation horizon.
 - Cloud validation is expensive and slow on cold hosts unless a prewarmed image is used.
-- Graph-attached KV migration is planned but not yet implemented.
+- Graph-attached KV migration planning is complete, but the runtime protocol
+  implementation is not yet built.
 
 ## Repository layout
 
@@ -57,6 +58,7 @@ What is still experimental:
 - `docs/deployment-and-testing-guide.md`: local, cloud-host, manifest, benchmark, and Runpod workflow guide.
 - `docs/aws-real-runtime-e2e-runner.md`: repeatable AWS real-runtime E2E runner and cleanup/resume runbook.
 - `docs/aws-prewarm-image.md`: conservative AWS image/container prewarm recipe and cost guardrails.
+- `docs/graph-attached-kv-migration-plan.md`: Phase 3 graph-attached live KV migration plan and acceptance criteria.
 - `docs/runtime-adapter-protocol.md`: command-backed extractor/injector contract.
 - `docs/real-runtime-bringup.md`: live runtime bring-up notes.
 - `docs/aws-real-runtime-fidelity-followup-2026-06-16.md`: fidelity investigation history.
@@ -141,10 +143,11 @@ Completed:
 - Minimal local graph export/import harness with deterministic prompt reconstruction, artifact hash verification, prompt token hash capture, and simulated KV hash validation.
 - Optional graph hash, artifact hash, prompt hash, and simulated KV hash fields in migration manifests.
 - Analyzer reporting for prompt, graph, and KV alignment in fidelity summaries.
+- Graph-attached live KV migration planning notes and acceptance criteria.
 
 Remaining:
 
-- Graph-attached live KV migration.
+- Graph-attached live KV migration manifest extensions and real-runtime protocol implementation.
 
 See `ROADMAP.md` for the detailed phased plan.
 

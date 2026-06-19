@@ -364,5 +364,7 @@ Scope:
   build steps, cleanup steps, expected snapshot/storage cost, and keep model
   weights out of the image unless a later cost/latency calculation justifies
   baking them in.
-- [ ] Build graph-attached live KV migration planning notes and acceptance
+- [x] Build graph-attached live KV migration planning notes and acceptance
   criteria before changing the migration protocol.
+- [ ] Prototype graph-attached migration manifest extensions and analyzer
+  checks behind the existing Agent Memory Graph manifest path.

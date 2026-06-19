@@ -7,6 +7,12 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Graph-attached live KV migration planning notes and acceptance criteria for
+  Phase 3, covering transaction stages, manifest evidence, adapter
+  responsibilities, analyzer expectations, and failure cases.
+
 ## [0.1.5-aws-prewarm-recipe] - 2026-06-19
 
 ### Added

@@ -375,3 +375,7 @@ and KV-span representation.
 - [x] Build the minimal local export/import harness.
 - [x] Add graph hash fields to migration manifests.
 - [x] Extend the analyzer to report prompt, graph, and KV alignment together.
+- [x] Define graph-attached live KV migration planning notes and acceptance
+  criteria.
+- [ ] Implement graph-attached live KV migration manifest extensions and runtime
+  validation.

@@ -54,7 +54,11 @@ def test_runtime_hook_writes_directly_into_vllm_style_kv_cache(tmp_path, monkeyp
     module = _reload_module()
 
     payload = fixture.build_tensor_backed_payload("sha256:test-c")
-    assert module.runtime_hook(payload) == {"success": True, "written_layers": ["model.layers.0"]}
+    result = module.runtime_hook(payload)
+    assert result["success"] is True
+    assert result["written_layers"] == ["model.layers.0"]
+    assert result["target_block_allocation"]["mode"] == "sequential_fallback"
+    assert result["written_layer_summaries"][0]["slot_probe"]["all_samples_match"] is True
     assert module.runtime_hook({"block_hashes": ["sha256:test-c"]}) == {"success": True}
     assert fixture.snapshot_tensor_backed_runtime() == {
         "registered_hashes": ["sha256:test-c"],
