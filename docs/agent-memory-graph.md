@@ -372,6 +372,6 @@ and KV-span representation.
 - [x] Define KV-span linkage to cache references.
 - [x] Add machine-readable JSON schema.
 - [x] Add a validation fixture and schema test.
-- [ ] Build the minimal local export/import harness.
+- [x] Build the minimal local export/import harness.
 - [ ] Add graph hash fields to migration manifests.
 - [ ] Extend the analyzer to report prompt, graph, and KV alignment together.

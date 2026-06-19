@@ -347,7 +347,7 @@ Scope:
 ## Immediate next steps
 
 - [x] Add `docs/agent-memory-graph.md` with the v0 schema.
-- [ ] Build a minimal local graph export/import example.
+- [x] Build a minimal local graph export/import example.
 - [ ] Add graph hash fields to migration manifests.
 - [ ] Extend the analyzer to report prompt, graph, and KV alignment together.
 - [ ] Prepare a prewarmed AWS image or container to reduce E2E cycle time.

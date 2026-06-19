@@ -80,6 +80,7 @@ Current strengths:
 - Rust core protocol and daemon.
 - MLX and vLLM live runtime adapters.
 - Agent Memory Graph v0 schema and specification.
+- Minimal local Agent Memory Graph export/import harness.
 - Repeatable AWS E2E runner with cleanup verification.
 - Paper and roadmap.
 
@@ -96,4 +97,5 @@ Current limitations:
 - arXiv bundle: `paper/arxiv/`
 - Roadmap: `ROADMAP.md`
 - Agent Memory Graph schema: `docs/agent-memory-graph.md`
+- Local graph harness: `examples/agent-memory-graph/`
 - AWS E2E runbook: `docs/aws-real-runtime-e2e-runner.md`
