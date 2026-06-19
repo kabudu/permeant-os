@@ -4,7 +4,7 @@
 
 PermeantOS is an open-source research-preview system for live AI agent migration. It introduces a state-fluid hypervisor and the Unified State Exchange Format (USXF), a runtime-neutral format for moving active AI state across heterogeneous model runtimes.
 
-Today, PermeantOS focuses on live KV-cache migration: moving the active attention cache of a long-running model from one host to another so an agent can resume without expensive re-prefill. The longer-term roadmap extends this into full Agent Memory Graph migration, including conversation turns, tool calls, artifacts, retrieval memory, provenance, and pending work.
+Today, PermeantOS focuses on live KV-cache migration: moving the active attention cache of a long-running model from one host to another so an agent can resume without expensive re-prefill. The longer-term roadmap extends this into full Agent Memory Graph migration, including conversation turns, tool calls, artifacts, retrieval memory, provenance, and pending work. The first graph milestone, the v0 schema and specification, is now defined.
 
 ## Why this matters
 
@@ -58,7 +58,7 @@ This matters because migration fidelity tests must account for tokenizer and run
 
 KV cache migration is the first layer. Full agent migration requires more.
 
-The Agent Memory Graph roadmap adds:
+The Agent Memory Graph v0 schema now defines:
 
 - conversation turns;
 - tool calls and tool results;
@@ -68,7 +68,7 @@ The Agent Memory Graph roadmap adds:
 - provenance and signatures;
 - token-span mappings from graph nodes to KV cache ranges.
 
-The goal is to migrate not just model activations, but agent continuity.
+The next implementation step is a minimal local export/import harness, followed by graph hash fields in migration manifests and graph-attached KV migration. The goal is to migrate not just model activations, but agent continuity.
 
 ## Status
 
@@ -79,6 +79,7 @@ Current strengths:
 - Real cross-runtime proof point.
 - Rust core protocol and daemon.
 - MLX and vLLM live runtime adapters.
+- Agent Memory Graph v0 schema and specification.
 - Repeatable AWS E2E runner with cleanup verification.
 - Paper and roadmap.
 
@@ -87,11 +88,12 @@ Current limitations:
 - Fidelity has been validated for one model family and a short continuation horizon.
 - vLLM integration relies on internal runtime behavior that may change.
 - Python adapters are needed for Python-native ML runtimes.
-- Full Agent Memory Graph migration is planned but not yet implemented.
+- Agent Memory Graph export/import and graph-attached KV migration are planned but not yet implemented.
 
 ## Learn more
 
 - Paper source: `docs/usxf-arxiv-paper.md`
 - arXiv bundle: `paper/arxiv/`
 - Roadmap: `ROADMAP.md`
+- Agent Memory Graph schema: `docs/agent-memory-graph.md`
 - AWS E2E runbook: `docs/aws-real-runtime-e2e-runner.md`
