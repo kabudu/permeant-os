@@ -4,7 +4,7 @@
 
 # PermeantOS
 
-PermeantOS is an experimental state-fluid hypervisor for live AI agent migration. It currently focuses on cross-host KV-cache migration between heterogeneous runtimes, with a longer-term roadmap toward full agent memory graph migration.
+PermeantOS is an experimental state-fluid hypervisor for live AI agent migration. It currently focuses on cross-host KV-cache migration between heterogeneous runtimes, with a longer-term roadmap toward full Agent Memory Graph migration. The first graph milestone, the v0 schema and specification, is now defined.
 
 The current prototype has demonstrated a real end-to-end migration from a local Apple Silicon MLX source runtime to an AWS NVIDIA vLLM target runtime. In the validated run, PermeantOS migrated a `Qwen/Qwen2.5-0.5B-Instruct` KV cache, wrote it into vLLM target blocks, seeded vLLM prefix-cache metadata, and matched the source continuation exactly for a 16-token validation horizon.
 
@@ -23,6 +23,7 @@ What works today:
 - vLLM live target adapter with target block allocation, KV writes, prefix-cache seeding, and fidelity probes.
 - Repeatable AWS real-runtime E2E runner with cleanup verification.
 - Exact short-horizon MLX-to-vLLM continuation fidelity for one validated Qwen run.
+- Agent Memory Graph v0 schema and specification for portable conversation, tool, artifact, memory, checkpoint, provenance, and KV-span state.
 
 What is still experimental:
 
@@ -30,7 +31,7 @@ What is still experimental:
 - The vLLM attachment path uses implementation details that may change between vLLM versions.
 - Fidelity has been validated for one model family and a 16-token continuation horizon.
 - Cloud validation is expensive and slow on cold hosts unless a prewarmed image is used.
-- Full agent memory graph migration is planned, not implemented.
+- Agent Memory Graph export/import and graph-attached KV migration are planned but not yet implemented.
 
 ## Repository layout
 
@@ -44,6 +45,8 @@ What is still experimental:
 ## Key documents
 
 - `ROADMAP.md`: full roadmap, including Agent Memory Graph migration phases.
+- `docs/agent-memory-graph.md`: Agent Memory Graph v0 schema specification.
+- `docs/schemas/agent-memory-graph-v0.schema.json`: machine-readable JSON Schema for the graph envelope.
 - `docs/usxf-arxiv-paper.md`: paper draft covering USXF, PermeantOS, and real-runtime E2E findings.
 - `paper/arxiv/`: arXiv-oriented LaTeX submission bundle.
 - `docs/website/white-paper.md`: website-friendly technical white paper.
@@ -121,9 +124,22 @@ Read `docs/aws-real-runtime-e2e-runner.md` first. The script provisions billable
 | Runpod live-source proof | RTX 3090 | live MLX | SSH tunnel to daemon | 2048 | 156377.4295 | 0.00011692589682723728 | `migration-20260614-154223-70658-manifest.json` |
 | Runpod HTTP-bridge proof | RTX 3090 | live MLX | HTTP bridge | 2048 | 54649.212125 | 0.0016446839797195588 | `migration-20260614-195346-87816-manifest.json` |
 
-## Roadmap
+## Agent Memory Graph Progress
 
-The next major milestone is full agent memory graph migration: conversation turns, tool calls, artifacts, vector memories, pending work, provenance, and KV spans in one transactional migration envelope.
+The next major milestone is full Agent Memory Graph migration: conversation turns, tool calls, artifacts, vector memories, pending work, provenance, and KV spans in one transactional migration envelope.
+
+Completed:
+
+- Agent Memory Graph v0 schema and specification.
+- Machine-readable JSON Schema with validation fixture and contract tests.
+- Published schema identifier: `https://www.permeantos.org/schemas/agent-memory-graph-v0.schema.json`.
+
+Remaining:
+
+- Minimal local graph export/import harness.
+- Graph hash fields in migration manifests.
+- Analyzer support for prompt, graph, and KV alignment.
+- Graph-attached live KV migration.
 
 See `ROADMAP.md` for the detailed phased plan.
 
@@ -133,7 +149,7 @@ Contributions are welcome, especially around:
 
 - Runtime adapters.
 - Manifest and analyzer tooling.
-- Agent Memory Graph schema design.
+- Agent Memory Graph export/import and adapter implementations.
 - Reproducible benchmarks.
 - Security review.
 - Documentation and examples.
