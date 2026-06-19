@@ -1,0 +1,1105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://www.permeantos.org/schemas/agent-memory-graph-v0.schema.json",
+  "title": "PermeantOS Agent Memory Graph v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "graph_id",
+    "graph_version",
+    "created_at",
+    "agent",
+    "nodes",
+    "edges",
+    "kv_spans",
+    "graph_hash"
+  ],
+  "properties": {
+    "graph_id": {
+      "$ref": "#/$defs/stable_id"
+    },
+    "graph_version": {
+      "type": "string",
+      "const": "0.1"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "agent": {
+      "$ref": "#/$defs/agent"
+    },
+    "participants": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/participant"
+      }
+    },
+    "source_graph_id": {
+      "$ref": "#/$defs/stable_id"
+    },
+    "lineage": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/lineage_entry"
+      }
+    },
+    "policies": {
+      "$ref": "#/$defs/policies"
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/edge"
+      }
+    },
+    "kv_spans": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/kv_span"
+      }
+    },
+    "graph_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "extensions": {
+      "$ref": "#/$defs/extensions"
+    }
+  },
+  "$defs": {
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "runtime", "model"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/stable_id"
+        },
+        "runtime": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runtime_version": {
+          "type": "string"
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "created_at", "content_hash", "provenance"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/stable_id"
+        },
+        "type": {
+          "enum": [
+            "event",
+            "message",
+            "tool_call",
+            "tool_result",
+            "plan",
+            "task",
+            "artifact",
+            "memory",
+            "retrieval",
+            "summary",
+            "checkpoint",
+            "trace_span",
+            "handoff",
+            "credential_ref",
+            "kv_span"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "provenance": {
+          "$ref": "#/$defs/provenance"
+        },
+        "actor_id": {
+          "$ref": "#/$defs/stable_id"
+        },
+        "memory_scope": {
+          "enum": ["thread", "user", "org", "agent", "global", "external"]
+        },
+        "memory_tier": {
+          "enum": [
+            "active_context",
+            "working",
+            "recall",
+            "archival",
+            "profile",
+            "vector_index",
+            "external"
+          ]
+        },
+        "sensitivity": {
+          "enum": ["public", "internal", "confidential", "secret", "regulated"]
+        },
+        "retention": {
+          "enum": ["ephemeral", "session", "durable", "legal_hold", "delete_on_import"]
+        },
+        "redaction_state": {
+          "enum": ["none", "redacted", "encrypted", "tokenized", "external_only"]
+        },
+        "quality_state": {
+          "enum": ["active", "verified", "pinned", "archived", "suppressed", "deleted"]
+        },
+        "historical_state": {
+          "enum": ["current", "historical", "superseded"]
+        },
+        "trust_level": {
+          "enum": ["unknown", "untrusted", "derived", "operator_reviewed", "verified"]
+        },
+        "valid_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "invalidated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "event_kind": {
+          "enum": [
+            "user_input",
+            "system_alert",
+            "scheduler_tick",
+            "approval",
+            "interruption",
+            "cancellation",
+            "webhook",
+            "runtime"
+          ]
+        },
+        "role": {
+          "enum": ["system", "user", "assistant", "tool"]
+        },
+        "content": {
+          "type": "string"
+        },
+        "content_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provider": {
+          "type": "string"
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "arguments_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "input_schema_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "side_effect": {
+          "enum": ["none", "read_only", "external_write", "unknown"]
+        },
+        "status": {
+          "enum": [
+            "not_started",
+            "in_progress",
+            "completed",
+            "failed",
+            "cancelled",
+            "needs_user"
+          ]
+        },
+        "resume_policy": {
+          "enum": ["retry_safe", "never_retry", "ask_user", "rebind", "compensate"]
+        },
+        "approval_state": {
+          "enum": ["not_required", "requested", "approved", "denied", "expired"]
+        },
+        "consent_ref": {
+          "type": "string"
+        },
+        "external_resource_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "result_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "output_schema_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "is_error": {
+          "type": "boolean"
+        },
+        "resource_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "artifact_kind": {
+          "enum": ["file", "directory", "blob", "external"]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "media_type": {
+          "type": "string"
+        },
+        "root_ref": {
+          "type": "string"
+        },
+        "restore_policy": {
+          "enum": ["required", "optional", "quarantine_on_mismatch", "external_rebind"]
+        },
+        "memory_kind": {
+          "enum": [
+            "raw_event",
+            "semantic",
+            "episodic",
+            "procedural",
+            "profile",
+            "retrieval_chunk",
+            "entity",
+            "relationship",
+            "summary",
+            "vector_binding",
+            "external_binding"
+          ]
+        },
+        "episode": {
+          "$ref": "#/$defs/episode"
+        },
+        "conflict": {
+          "$ref": "#/$defs/conflict"
+        },
+        "lineage_links": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node_lineage_link"
+          }
+        },
+        "text_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "predicate": {
+          "type": "string"
+        },
+        "object": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "key": {
+          "type": "string"
+        },
+        "embedding_model": {
+          "type": "string"
+        },
+        "embedding_dim": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "embedding_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "distance_metric": {
+          "enum": ["cosine", "dot", "euclidean", "manhattan", "unknown"]
+        },
+        "vector_store_ref": {
+          "type": "string"
+        },
+        "query_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "retrieval_kind": {
+          "enum": ["keyword", "vector", "graph", "hybrid", "temporal", "manual"]
+        },
+        "planner_profile": {
+          "enum": ["fast_path", "continuity_aware", "adapter_defined"]
+        },
+        "policy_profile": {
+          "enum": ["general", "support", "research", "assistant", "autonomous_agent", "adapter_defined"]
+        },
+        "scorer_kind": {
+          "enum": ["lexical", "semantic", "hybrid", "curated", "configured", "adapter_defined"]
+        },
+        "selected_channels": {
+          "type": "array",
+          "items": {
+            "enum": ["lexical", "semantic", "metadata", "temporal", "episodic", "provenance", "lineage"]
+          }
+        },
+        "candidate_sources": {
+          "type": "array",
+          "items": {
+            "enum": ["direct_match", "semantic_neighbor", "episode_neighbor", "causal_neighbor", "lineage_neighbor", "related_record", "adapter_defined"]
+          }
+        },
+        "planner_stages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "graph_expansion_max_hops": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "historical_mode": {
+          "enum": ["current_only", "historical_only", "mixed", "lineage_focused", "time_travel"]
+        },
+        "time_travel_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/retrieval_result"
+          }
+        },
+        "selection_policy": {
+          "type": "string"
+        },
+        "source_node_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/stable_id"
+          }
+        },
+        "lossy": {
+          "type": "boolean"
+        },
+        "summarizer": {
+          "type": "string"
+        },
+        "checkpoint_kind": {
+          "enum": ["session", "graph", "runtime", "store", "kv", "workflow", "snapshot", "portable_package"]
+        },
+        "state_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resume_ref": {
+          "type": "string"
+        },
+        "trace_id": {
+          "type": "string"
+        },
+        "span_id": {
+          "type": "string"
+        },
+        "parent_span_id": {
+          "type": "string"
+        },
+        "span_kind": {
+          "enum": ["model", "tool", "retrieval", "orchestration", "handoff", "custom"]
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ended_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "from_actor_id": {
+          "$ref": "#/$defs/stable_id"
+        },
+        "to_actor_id": {
+          "$ref": "#/$defs/stable_id"
+        },
+        "handoff_reason": {
+          "type": "string"
+        },
+        "capability": {
+          "type": "string"
+        },
+        "binding": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "token_start": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "token_end": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cache_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tokenizer_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "block_hashes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sha256"
+          }
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["text", "status"],
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "status": {
+                "enum": ["pending", "in_progress", "completed", "blocked", "cancelled"]
+              }
+            }
+          }
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "event"
+              }
+            }
+          },
+          "then": {
+            "required": ["event_kind"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "message"
+              }
+            }
+          },
+          "then": {
+            "required": ["role"],
+            "anyOf": [
+              {
+                "required": ["content"]
+              },
+              {
+                "required": ["content_ref"]
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "tool_call"
+              }
+            }
+          },
+          "then": {
+            "required": ["name", "arguments_hash", "side_effect", "status", "resume_policy"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "retrieval"
+              }
+            }
+          },
+          "then": {
+            "required": ["query_hash", "retrieval_kind", "results"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "summary"
+              }
+            }
+          },
+          "then": {
+            "required": ["source_node_ids", "lossy", "summarizer"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "checkpoint"
+              }
+            }
+          },
+          "then": {
+            "required": ["checkpoint_kind", "state_hash"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "trace_span"
+              }
+            }
+          },
+          "then": {
+            "required": ["trace_id", "span_id", "span_kind", "started_at"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "handoff"
+              }
+            }
+          },
+          "then": {
+            "required": ["from_actor_id", "to_actor_id", "handoff_reason"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "tool_result"
+              }
+            }
+          },
+          "then": {
+            "required": ["result_hash", "status"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "task"
+              }
+            }
+          },
+          "then": {
+            "required": ["status", "resume_policy"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "artifact"
+              }
+            }
+          },
+          "then": {
+            "required": ["artifact_kind", "restore_policy"],
+            "anyOf": [
+              {
+                "required": ["sha256"]
+              },
+              {
+                "required": ["content_ref"]
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "memory"
+              }
+            }
+          },
+          "then": {
+            "required": ["memory_kind"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "credential_ref"
+              }
+            }
+          },
+          "then": {
+            "required": ["capability", "binding", "required"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "kv_span"
+              }
+            }
+          },
+          "then": {
+            "required": ["token_start", "token_end", "cache_ref"]
+          }
+        }
+      ]
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to", "type"],
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/stable_id"
+        },
+        "to": {
+          "$ref": "#/$defs/stable_id"
+        },
+        "type": {
+          "enum": [
+            "caused",
+            "derives_from",
+            "references",
+            "produced",
+            "consumed",
+            "supersedes",
+            "resumes",
+            "retrieved",
+            "summarizes",
+            "checkpointed",
+            "handoff_to",
+            "approves",
+            "invalidates"
+          ]
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      }
+    },
+    "kv_span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id", "token_start", "token_end", "cache_ref"],
+      "properties": {
+        "node_id": {
+          "$ref": "#/$defs/stable_id"
+        },
+        "token_start": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "token_end": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cache_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tokenizer_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "block_hashes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sha256"
+          }
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runtime", "captured_at"],
+      "properties": {
+        "runtime": {
+          "type": "string",
+          "minLength": 1
+        },
+        "captured_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "adapter": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": "string"
+        },
+        "source_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      }
+    },
+    "participant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/stable_id"
+        },
+        "kind": {
+          "enum": ["agent", "user", "human_approver", "tool", "service", "runtime"]
+        },
+        "name": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      }
+    },
+    "lineage_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["graph_id", "event", "created_at"],
+      "properties": {
+        "graph_id": {
+          "$ref": "#/$defs/stable_id"
+        },
+        "event": {
+          "enum": ["exported", "imported", "migrated", "compacted", "forked", "merged"]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "runtime": {
+          "type": "string"
+        },
+        "hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "policies": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "default_replay_policy": {
+          "enum": ["allow_read_only", "ask_user", "deny", "adapter_defined"]
+        },
+        "redaction_policy": {
+          "enum": ["none", "required", "adapter_defined"]
+        },
+        "retention_policy": {
+          "enum": ["ephemeral", "session", "durable", "delete_on_import", "adapter_defined"]
+        },
+        "required_approval_for_side_effects": {
+          "type": "boolean"
+        },
+        "allowed_targets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      }
+    },
+    "retrieval_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id", "rank"],
+      "properties": {
+        "node_id": {
+          "$ref": "#/$defs/stable_id"
+        },
+        "rank": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "score": {
+          "type": "number"
+        },
+        "score_kind": {
+          "type": "string"
+        },
+        "score_breakdown": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/score_component"
+          }
+        },
+        "candidate_source": {
+          "enum": ["direct_match", "semantic_neighbor", "episode_neighbor", "causal_neighbor", "lineage_neighbor", "related_record", "adapter_defined"]
+        },
+        "snippet_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "episode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "episode_id", "continuity_state"],
+      "properties": {
+        "schema_version": {
+          "type": "string"
+        },
+        "episode_id": {
+          "$ref": "#/$defs/stable_id"
+        },
+        "continuity_state": {
+          "enum": ["open", "paused", "resumed", "closed", "recurring", "unknown"]
+        },
+        "goal_summary_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "outcome_summary_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "actor_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/stable_id"
+          }
+        },
+        "recurrence_key": {
+          "type": "string"
+        },
+        "interval_hint": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ended_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "boundary_labels": {
+          "type": "array",
+          "items": {
+            "enum": ["task", "session", "handoff", "recurring_work", "approval", "checkpoint", "adapter_defined"]
+          }
+        },
+        "previous_record_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/stable_id"
+          }
+        },
+        "next_record_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/stable_id"
+          }
+        },
+        "causal_record_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/stable_id"
+          }
+        },
+        "related_record_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/stable_id"
+          }
+        },
+        "salience": {
+          "$ref": "#/$defs/episode_salience"
+        },
+        "affective_annotations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/affective_annotation"
+          }
+        }
+      }
+    },
+    "episode_salience": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reuse": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "novelty": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "unresolved": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "affective_annotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provenance", "confidence"],
+      "properties": {
+        "tone": {
+          "type": "string"
+        },
+        "sentiment": {
+          "type": "string"
+        },
+        "provenance": {
+          "enum": ["observed", "derived", "operator"]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "conflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["review_state", "conflicting_node_ids", "drift_score"],
+      "properties": {
+        "review_state": {
+          "enum": ["none", "needs_review", "reviewing", "resolved", "dismissed"]
+        },
+        "conflicting_node_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/stable_id"
+          }
+        },
+        "drift_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "resolution_kind": {
+          "enum": ["keep_current", "keep_historical", "merge", "suppress", "operator_note", "adapter_defined"]
+        },
+        "resolver": {
+          "type": "string"
+        },
+        "resolved_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    "node_lineage_link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id", "relation"],
+      "properties": {
+        "node_id": {
+          "$ref": "#/$defs/stable_id"
+        },
+        "relation": {
+          "enum": ["derived_from", "supersedes", "superseded_by", "compacted_from", "archived_from", "imported_from", "adapter_defined"]
+        }
+      }
+    },
+    "score_component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number"
+        },
+        "weight": {
+          "type": "number"
+        }
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]*\\.[a-zA-Z0-9_.-]+$"
+      },
+      "additionalProperties": true
+    },
+    "stable_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.-]*:[A-Za-z0-9_.:-]+$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}
