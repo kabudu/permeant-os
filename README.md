@@ -24,6 +24,7 @@ What works today:
 - Repeatable AWS real-runtime E2E runner with cleanup verification.
 - Exact short-horizon MLX-to-vLLM continuation fidelity for one validated Qwen run.
 - Agent Memory Graph v0 schema and specification for portable conversation, tool, artifact, memory, checkpoint, provenance, and KV-span state.
+- Minimal local Agent Memory Graph export/import harness with deterministic prompt reconstruction and artifact hash verification.
 
 What is still experimental:
 
@@ -38,6 +39,7 @@ What is still experimental:
 - `crates/`: Rust crates for USXF core logic, transport, orchestration, injector, extractor, and CLI.
 - `adapters/`: Python runtime adapters and bridge tools for MLX, vLLM, Runpod, and analysis.
 - `docs/`: runbooks, design notes, validation reports, and paper draft.
+- `examples/agent-memory-graph/`: minimal local Agent Memory Graph export/import harness.
 - `sdk/python/`: early Python SDK package.
 - `scripts/`: repeatable cloud validation scripts.
 - `ROADMAP.md`: detailed roadmap toward full agent memory graph migration.
@@ -133,10 +135,10 @@ Completed:
 - Agent Memory Graph v0 schema and specification.
 - Machine-readable JSON Schema with validation fixture and contract tests.
 - Published schema identifier: `https://www.permeantos.org/schemas/agent-memory-graph-v0.schema.json`.
+- Minimal local graph export/import harness with deterministic prompt reconstruction, artifact hash verification, prompt token hash capture, and simulated KV hash validation.
 
 Remaining:
 
-- Minimal local graph export/import harness.
 - Graph hash fields in migration manifests.
 - Analyzer support for prompt, graph, and KV alignment.
 - Graph-attached live KV migration.

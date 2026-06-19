@@ -7,6 +7,13 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Minimal local Agent Memory Graph export/import harness under
+  `examples/agent-memory-graph/`, including deterministic prompt
+  reconstruction, artifact hash verification, prompt token hash capture, and
+  simulated KV hash validation.
+
 ## [0.1.1-agent-memory-graph-schema] - 2026-06-19
 
 ### Added
