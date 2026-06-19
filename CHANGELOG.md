@@ -7,6 +7,8 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.7-graph-kv-manifest-spans] - 2026-06-19
+
 ### Added
 
 - Pull request CI workflow for Rust workspace tests, Python tests, and the
@@ -80,7 +82,8 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.6-graph-attached-kv-plan...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.7-graph-kv-manifest-spans...HEAD
+[0.1.7-graph-kv-manifest-spans]: https://github.com/kabudu/permeant-os/compare/v0.1.6-graph-attached-kv-plan...v0.1.7-graph-kv-manifest-spans
 [0.1.6-graph-attached-kv-plan]: https://github.com/kabudu/permeant-os/compare/v0.1.5-aws-prewarm-recipe...v0.1.6-graph-attached-kv-plan
 [0.1.5-aws-prewarm-recipe]: https://github.com/kabudu/permeant-os/compare/v0.1.4-analyzer-alignment-report...v0.1.5-aws-prewarm-recipe
 [0.1.4-analyzer-alignment-report]: https://github.com/kabudu/permeant-os/compare/v0.1.3-graph-hash-manifests...v0.1.4-analyzer-alignment-report
