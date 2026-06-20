@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -97,6 +98,7 @@ class RealVllmRuntime:
                 result["baseline_comparison"] = _compare_continuations(
                     self.baseline_continuation, continuation
                 )
+            _maybe_write_reverse_runtime_export(self, result)
 
         self.last_verify_result = result
         _append_probe_event(
@@ -117,6 +119,27 @@ class RealVllmRuntime:
             max_tokens=max_tokens,
             event_name="generate_continuation",
         )
+
+    def export_reverse_runtime_state(
+        self,
+        payload: dict[str, Any] | None = None,
+        request: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        del payload, request
+        if self.last_continuation is None:
+            return {
+                "success": False,
+                "error": "no target continuation is available to export",
+            }
+        state = _build_reverse_runtime_state(self, self.last_continuation, self.last_verify_result or {})
+        _append_probe_event(
+            {
+                "event": "reverse_runtime_state_export_api",
+                "proof_hash": state.get("proof_hash"),
+                "generated_token_count": state.get("generated_token_count"),
+            }
+        )
+        return {"success": True, "reverse_runtime_state": state, **state}
 
     def _sample_continuation(
         self,
@@ -186,6 +209,11 @@ def _write_probe(payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2))
 
 
+def _sha256_json(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
 def _append_probe_event(payload: dict[str, Any]) -> None:
     path = _probe_file()
     if path is None:
@@ -217,6 +245,79 @@ def _source_continuation_reference() -> dict[str, Any] | None:
     except Exception:
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def _reverse_runtime_export_file() -> Path | None:
+    value = os.getenv("PERMEANT_VLLM_REVERSE_EXPORT_FILE")
+    if not value:
+        return None
+    return Path(value).expanduser()
+
+
+def _maybe_write_reverse_runtime_export(runtime: RealVllmRuntime, verify_result: dict[str, Any]) -> None:
+    path = _reverse_runtime_export_file()
+    if path is None:
+        return
+
+    continuation = verify_result.get("continuation")
+    if not isinstance(continuation, dict):
+        return
+    payload = _build_reverse_runtime_state(runtime, continuation, verify_result)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _append_probe_event(
+        {
+            "event": "reverse_runtime_state_exported",
+            "path": str(path),
+            "proof_hash": payload["proof_hash"],
+            "generated_token_count": payload["generated_token_count"],
+        }
+    )
+
+
+def _build_reverse_runtime_state(
+    runtime: RealVllmRuntime,
+    continuation: dict[str, Any],
+    verify_result: dict[str, Any],
+) -> dict[str, Any]:
+    prompt = continuation.get("prompt")
+    generated_text = continuation.get("text")
+    generated_token_ids = continuation.get("token_ids")
+    if not isinstance(prompt, str) or not isinstance(generated_text, str):
+        raise RuntimeError("target continuation is missing prompt or generated text")
+    if not isinstance(generated_token_ids, list):
+        generated_token_ids = []
+
+    tokenization = _tokenize_prompt(runtime.llm, prompt)
+    payload: dict[str, Any] = {
+        "schema_version": "permeantos-vllm-reverse-runtime-state-v0",
+        "status": "target_runtime_state_exported",
+        "target_runtime": "vllm",
+        "model_id": os.getenv("PERMEANT_VLLM_MODEL"),
+        "prompt": prompt,
+        "prompt_token_ids": tokenization.get("token_ids") if isinstance(tokenization, dict) else None,
+        "prompt_token_count": tokenization.get("token_count") if isinstance(tokenization, dict) else None,
+        "generated_text": generated_text,
+        "generated_token_ids": [int(item) for item in generated_token_ids],
+        "generated_token_count": len(generated_token_ids),
+        "advanced_prompt": prompt + generated_text,
+        "max_tokens": continuation.get("max_tokens"),
+        "registered_hashes": sorted(runtime.registered_hashes),
+        "last_registered_hash": (runtime.last_register_payload or {}).get("hash"),
+        "source_comparison": verify_result.get("source_comparison"),
+        "baseline_comparison": verify_result.get("baseline_comparison"),
+        "decode_attachment": continuation.get("decode_attachment"),
+    }
+    payload["proof_hash"] = _sha256_json(
+        {
+            "schema_version": payload["schema_version"],
+            "prompt_token_ids": payload["prompt_token_ids"],
+            "generated_token_ids": payload["generated_token_ids"],
+            "last_registered_hash": payload["last_registered_hash"],
+            "registered_hashes": payload["registered_hashes"],
+        }
+    )
+    return payload
 
 
 def _compare_continuations(reference: dict[str, Any], actual: dict[str, Any]) -> dict[str, Any]:

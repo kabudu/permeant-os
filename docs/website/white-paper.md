@@ -14,9 +14,9 @@ PermeantOS treats agent state as portable infrastructure. Instead of binding sta
 
 ## What has been demonstrated
 
-PermeantOS has demonstrated that agents can move on the validated real-runtime path: a complex Agent Memory Graph package and live KV cache migrated from a local Apple Silicon MLX source runtime to an AWS NVIDIA vLLM target runtime.
+PermeantOS has demonstrated that agents can move on the validated real-runtime path: a complex Agent Memory Graph package and live KV cache migrated from a local Apple Silicon MLX source runtime to an AWS NVIDIA vLLM target runtime, the target continued work, the vLLM target exported its decode boundary through a reverse runtime API, MLX imported that target-advanced state and continued at the origin, and the AWS-updated graph/artifact evidence returned to the origin where work continued from that remote proof.
 
-Validated run:
+Latest validated run:
 
 | Field | Value |
 | --- | --- |
@@ -24,16 +24,25 @@ Validated run:
 | Target | AWS `g4dn.xlarge`, vLLM `0.23.0` |
 | Model | `Qwen/Qwen2.5-0.5B-Instruct` |
 | Prefix length | 2016 tokens |
-| Transfer quantization | `none` |
-| Agent Memory Graph | 27 nodes, 25 edges, 4 packaged artifacts, bound and aligned |
+| Transfer quantization | experimental `qatq` |
+| Agent Memory Graph | 27 nodes, 25 edges, 4 packaged artifacts, bound, aligned, and resumed on target |
 | Layers | 24 |
 | Hash validation | passed |
-| Slot-probe max key diff | `5.000000025123796e-09` |
-| Slot-probe max value diff | `5.000000025123796e-09` |
+| Slot-probe max key diff | `0.006696999999999065` |
+| Slot-probe max value diff | `0.000558149999999813` |
 | Prefix-cache seeded blocks | 16 |
 | Decode fidelity | exact source/post-migration match for 16 generated tokens |
+| Reverse runtime import | vLLM exported target decode boundary; MLX imported 2032-token target-advanced state and emitted proof hash `sha256:a4f0c01e5d02c9a07d6ca34fb95ce2d60232ea0a5583f88f0c45e61ae6a638d7` |
+| Agent activity | AWS target resumed pending graph work, executed approved tool activity, wrote a new artifact, and emitted a proof hash |
+| Return-home activity | origin verified the AWS graph/report/artifact and wrote a new continuation artifact from the returned state |
 
-The run proves the core path for the validated configuration: live MLX extraction, secure transport, graph/KV transaction binding, target-side vLLM KV allocation, direct KV write, prefix-cache attachment, artifact hash preservation, memory/retrieval evidence preservation, pending tool policy preservation, and post-migration continuation fidelity. It used raw/unquantized transfer, so it does not claim codec compression or speed benefits.
+The run proves the core path for the validated configuration: live MLX extraction, secure transport, graph/KV transaction binding, target-side vLLM KV allocation, direct KV write, prefix-cache attachment, artifact hash preservation, memory/retrieval evidence preservation, pending tool policy preservation, post-migration runtime continuation fidelity, reverse runtime export/import, and target-side graph activity resume. After migration, the AWS target exported its target-generated decode boundary through `/export_reverse_runtime_state` with proof hash `sha256:cc27f81da25d629d36e5b680d8986acf385b867d334ce67515912f2fbc1cce2f`. The origin MLX runtime imported that boundary, materialized MLX-native KV state for the 2032-token target-advanced prompt, and emitted proof hash `sha256:a4f0c01e5d02c9a07d6ca34fb95ce2d60232ea0a5583f88f0c45e61ae6a638d7`. The AWS target also imported the same complex Agent Memory Graph package, resumed retry-safe pending work, executed an explicitly approved publish write, wrote `reports/publish/announcement.md`, appended new graph evidence, and emitted proof hash `sha256:b066a1dba9ed250eb54e1344c8d0092d8ad2d90dfe68bbfc1a0c740d18b6969c`.
+
+The follow-up round-trip run returned the AWS-updated graph/report/artifact evidence to the origin. The origin verified the target proof hash, target graph hash, and target artifact bytes, then wrote `reports/roundtrip/origin-continuation.md` from the returned state. The origin-side round-trip proof hash is `sha256:052add6058521a13902515f759499b1350d5be4055d070d4e5428a9df0adb36d`, with final origin graph hash `sha256:35d2b4c784a1243604140b2d017343140fefb8ed3b2722952c8d05a99ba732f8`.
+
+This is a full validated round trip for the current runtime contract. The reverse path exports a canonical target decode boundary rather than copying vLLM GPU blocks byte-for-byte into MLX, because the runtimes use different physical KV layouts. MLX imports the target-generated boundary and materializes MLX-native KV state before continuing.
+
+The QATQ run transferred 6,294,528 bytes from a 49,545,216-byte uncompressed KV payload, a compression ratio of `0.12704613095238096`. QATQ is lossy at the tensor-slot level, so the claim is not numerical losslessness. The claim is bounded sampled numeric drift plus exact observed source/post-migration continuation for the configured 16-token horizon.
 
 A matched FP8 transfer-quantized run used the same source, target, model,
 prefix length, continuation horizon, and Agent Memory Graph manifest. It
@@ -94,6 +103,10 @@ PermeantOS is a research preview. It is substantial enough to release and reprod
 Current strengths:
 
 - Real complex-agent cross-runtime proof point.
+- AWS target-side proof that agent activity continues after migration, including
+  policy-governed pending tool work and new post-import graph evidence.
+- Reverse vLLM-to-MLX runtime import proof through the live target export API
+  and live origin MLX import endpoint.
 - Rust core protocol and daemon.
 - MLX and vLLM live runtime adapters.
 - Agent Memory Graph v0 schema and specification.
@@ -107,6 +120,8 @@ Current strengths:
 - Complex-agent AWS validation with artifacts, memory, retrieval evidence,
   credential rebinding, pending tool policy, exact 16-token continuation
   fidelity, and verified cleanup.
+- Experimental QATQ AWS validation with about 8x smaller transferred payload
+  than raw f32 and target-side Agent Memory Graph resume evidence.
 - Graph-attached live KV migration planning notes and acceptance criteria.
 - Repeatable AWS E2E runner with cleanup verification.
 - Conservative AWS prewarm recipe for reducing E2E bootstrap time without

@@ -40,3 +40,14 @@ def test_slot_probe_summary_accepts_quantized_sample_delta_fields():
 
     assert 'sample.get("key_max_abs_diff", sample.get("key_delta"))' in script
     assert 'sample.get("value_max_abs_diff", sample.get("value_delta"))' in script
+
+
+def test_reverse_runtime_import_uses_target_export_api():
+    script = RUNNER.read_text()
+    reverse_start = script.index("run_reverse_runtime_import() {")
+    reverse_body = script[reverse_start : script.index("\nrun_agent_activity_resume() {", reverse_start)]
+
+    assert "PERMEANT_REVERSE_RUNTIME_IMPORT" in script
+    assert "/export_reverse_runtime_state" in reverse_body
+    assert "reverse_runtime_state" in reverse_body
+    assert "source_reverse_import_url" in reverse_body

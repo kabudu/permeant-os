@@ -160,4 +160,27 @@ mod tests {
         let recon_nan_e5m2 = quant::e5m2_to_f32(nan_byte_e5m2);
         assert!(recon_nan_e5m2.is_nan());
     }
+
+    #[test]
+    fn test_qatq_i4_roundtrip_shape_and_compression() {
+        let floats = vec![-2.4, -1.2, -0.5, 0.0, 0.4, 1.1, 2.2, 3.7, -4.1, 0.9, 1.8];
+        let encoded = quant::quantize_qatq_i4(&floats);
+        let decoded = quant::dequantize_qatq_i4(&encoded, floats.len()).unwrap();
+
+        assert_eq!(decoded.len(), floats.len());
+        assert!(encoded.len() < floats.len() * 4);
+        let max_abs = floats
+            .iter()
+            .zip(decoded.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(max_abs < 0.7, "QATQ int4 error too large: {max_abs}");
+    }
+
+    #[test]
+    fn test_qatq_i4_rejects_wrong_expected_len() {
+        let encoded = quant::quantize_qatq_i4(&[1.0, 2.0, 3.0, 4.0]);
+        let err = quant::dequantize_qatq_i4(&encoded, 3).unwrap_err();
+        assert!(err.to_string().contains("length mismatch"));
+    }
 }

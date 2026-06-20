@@ -7,6 +7,36 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Experimental Quaternion-Augmented TurboQuant (`qatq`) transfer codec path
+  with quaternion-grouped int4 payload packing, target-side decode, runner
+  support, planner support, and tests.
+- AWS real-runtime QATQ validation report showing exact 16-token continuation
+  fidelity with 6,294,528 transferred bytes on the complex graph-attached
+  MLX-to-vLLM path.
+- Agent Memory Graph resume proof that imports the complex graph, resumes
+  retry-safe pending work, executes an explicitly approved publish write,
+  appends post-import activity evidence, and emits pre/post graph proof hashes.
+- AWS real-runtime agent activity continuation proof that runs QATQ KV
+  migration, validates exact 16-token vLLM continuation, resumes the same
+  complex Agent Memory Graph package on the AWS target, executes pending tool
+  work, writes a post-migration artifact, and verifies cloud cleanup.
+- Agent Memory Graph return-home proof harness and AWS runner option for
+  verifying AWS-updated graph/artifact evidence on the origin and continuing
+  from the returned state.
+- AWS real-runtime round-trip continuation proof showing QATQ origin-to-AWS KV
+  migration, exact 16-token target continuation, AWS target graph activity,
+  return of AWS-updated graph/artifact evidence, and origin-side continuation
+  from the remote proof.
+- Reverse vLLM-to-MLX runtime export/import API and AWS real-runtime proof:
+  the target exports its post-migration decode boundary through
+  `/export_reverse_runtime_state`, the origin MLX exporter imports the
+  target-advanced boundary, materializes origin KV state, and emits a new
+  origin continuation proof.
+- Production secure bidirectional transport roadmap item covering private
+  `wss://`/mTLS binary streaming and future QUIC/RDMA/UCX/NIXL evaluation.
+
 ## [0.1.27-complex-agent-e2e] - 2026-06-20
 
 ### Added

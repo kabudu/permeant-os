@@ -60,14 +60,14 @@ CODECS: dict[str, CodecDefinition] = {
     ),
     "qatq": CodecDefinition(
         name="qatq",
-        label="Quaternion-Augmented TurboQuant candidate",
+        label="Quaternion-Augmented TurboQuant experimental",
         reversible=False,
-        loss_semantics="lossy_experimental_candidate",
+        loss_semantics="lossy_experimental_i4",
         bytes_per_element=0.5,
-        runner_supported=False,
+        runner_supported=True,
         fidelity_required=True,
         manifest_value="qatq",
-        notes="Planning placeholder for future quaternion-augmented codec experiments; not executable by the current runner.",
+        notes="Experimental quaternion-grouped int4 transfer codec. Requires real-runtime fidelity evidence for claims.",
     ),
 }
 

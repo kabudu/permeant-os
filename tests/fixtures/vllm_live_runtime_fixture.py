@@ -12,6 +12,17 @@ class RecordingRuntime:
             return {"success": False, "missing_hashes": missing}
         return {"success": True}
 
+    def export_reverse_runtime_state(self, payload=None, request=None):
+        return {
+            "success": True,
+            "reverse_runtime_state": {
+                "schema_version": "permeantos-vllm-reverse-runtime-state-v0",
+                "status": "target_runtime_state_exported",
+                "generated_token_ids": [101, 102],
+                "proof_hash": "sha256:fixture",
+            },
+        }
+
 
 class RegisterOnlyRuntime:
     def __init__(self):

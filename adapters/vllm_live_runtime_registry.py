@@ -164,6 +164,10 @@ def _verify_method_name() -> str:
     return os.getenv("PERMEANT_VLLM_RUNTIME_VERIFY_METHOD", "verify_permeant_hashes")
 
 
+def _reverse_export_method_name() -> str:
+    return os.getenv("PERMEANT_VLLM_RUNTIME_REVERSE_EXPORT_METHOD", "export_reverse_runtime_state")
+
+
 def _verify_from_state(block_hashes: list[str]) -> dict[str, Any]:
     available = set(_REGISTERED_HASHES) | _load_state_hashes()
     missing = [hash_value for hash_value in block_hashes if hash_value not in available]
@@ -808,5 +812,14 @@ def runtime_hook(payload: dict[str, Any], request: dict[str, Any] | None = None)
         if direct_result is not None:
             return direct_result
         return _verify_from_state(payload.get("block_hashes", []))
+
+    if payload.get("action") == "export_reverse_runtime_state":
+        method = getattr(runtime, _reverse_export_method_name(), None)
+        if method is None:
+            return {
+                "success": False,
+                "error": "runtime does not expose export_reverse_runtime_state",
+            }
+        return _normalize_result(_invoke(method, payload, request))
 
     raise RuntimeError("unsupported payload for live target-runtime registration")

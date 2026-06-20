@@ -22,7 +22,7 @@ The JSON output uses schema version `permeantos-transfer-codec-plan-v0`.
 | `raw` | `none` | yes | reversible | not required by the codec |
 | `fp8` | `fp8` | yes | lossy quantized | required for claims |
 | `turboquant` | `turboquant` | no | lossy experimental candidate | required |
-| `qatq` | `qatq` | no | lossy experimental candidate | required |
+| `qatq` | `qatq` | yes | lossy experimental int4 | required |
 
 `qatq` is the planning identifier for Quaternion-Augmented TurboQuant candidate
 experiments.
@@ -36,8 +36,9 @@ codec. That means the current executable selection is limited to:
 - `raw`, represented in existing manifests as `transfer_quantization: none`
 - `fp8`, represented as `transfer_quantization: fp8`
 
-For example, if both runtimes advertise `qatq`, the default plan still rejects
-it with `not_supported_by_current_runner` and selects the next executable codec.
+For example, if both runtimes advertise `qatq`, the default plan can select it
+as an executable experimental codec, but any claim must be backed by
+real-runtime fidelity evidence.
 
 To plan speculative codec experiments before runner support exists, pass:
 
@@ -70,13 +71,67 @@ claims.
 
 ## Current Limitations
 
-- TurboQuant-style and Quaternion-Augmented TurboQuant codecs are planning
-  candidates only; there is no payload encoder/decoder or target rehydration
-  path yet.
+- TurboQuant-style codecs are planning candidates only; there is no payload
+  encoder/decoder or target rehydration path yet. `qatq` has an experimental
+  quaternion-grouped int4 encoder/decoder in the current runner.
 - The byte estimates are comparative planning estimates, not measured benchmark
   results.
-- The current AWS runner still accepts only `PERMEANT_TRANSFER_QUANTIZATION`
-  values of `none` and `fp8`.
+- The current AWS runner accepts `PERMEANT_TRANSFER_QUANTIZATION` values of
+  `none`, `fp8`, and experimental `qatq`.
 - Production adaptive codec selection will need runtime capability exchange,
   manifest schema updates, codec-specific validation metadata, and rollback
   behavior in the migration protocol.
+
+## First QATQ Real-Runtime Result
+
+The first experimental `qatq` AWS real-runtime run completed on June 20, 2026:
+
+- run ID: `20260620-173045`
+- manifest: `migration-20260620-173846-50882-manifest.json`
+- transferred bytes: 6,294,528
+- raw graph-attached comparison bytes: 50,331,648
+- FP8 graph-attached comparison bytes: 12,582,912
+- exact source/post-migration continuation: 16 generated tokens
+- max sampled key/value deltas: `0.006696999999999065` /
+  `0.000558149999999813`
+
+That is an 87.49 percent byte reduction relative to raw f32 transfer and a
+49.98 percent byte reduction relative to FP8. The codec is lossy; the result is
+behaviorally exact over the configured continuation horizon, not numerically
+lossless.
+
+## QATQ Viability and Lossless Semantics
+
+The current `qatq` implementation is viable as an experimental lossy transfer
+codec for the validated short-horizon migration path:
+
+- it is implemented in the CLI, runner, target decode path, planner, and tests;
+- it completed a real AWS MLX-to-vLLM QATQ migration;
+- it reduced payload bytes to about one eighth of raw f32 and about half of
+  FP8;
+- it preserved graph/KV/prompt alignment and exact 16-token continuation
+  fidelity in that run.
+
+It should not yet be treated as a production default. Acceptance should require
+longer continuation horizons, more prompts, more model families, warm-target
+benchmarks, and drift/error distribution reports.
+
+The current int4 QATQ payload cannot be made numerically lossless while keeping
+the same representation. Mapping f32/BF16 KV values into 4-bit coefficients
+throws information away. A lossless variant would need one of these designs:
+
+- `qatq+residual`: transmit the QATQ payload plus an entropy-coded residual
+  stream that exactly reconstructs the original values. This can be bit-exact,
+  but the residual may erase much of the compression benefit.
+- `lossless_raw`: keep the original representation and apply a true lossless
+  compressor such as Zstd, LZ4, or an entropy coder over delta/blocked tensor
+  layouts. This preserves exact values but will not approach int4 size on
+  high-entropy KV tensors.
+- `near_lossless_qatq`: bound maximum absolute or relative error and make the
+  tolerance explicit in the manifest. This is not lossless, but may be the right
+  production tradeoff for many migrations.
+
+Therefore the right claim is: QATQ is a promising lossy migration compression
+codec. A lossless QATQ-family codec is possible only by carrying enough residual
+information to reconstruct the original tensor exactly, and must be benchmarked
+separately from the current int4 path.

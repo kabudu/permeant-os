@@ -10,6 +10,8 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+import hashlib
+import json
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -18,7 +20,7 @@ if str(SCRIPT_DIR) not in sys.path:
 from mlx_lm import batch_generate, load
 
 from agent_graph_span_metadata import build_prompt_span_metadata, sha256_bytes
-from mlx_runtime_bridge import build_extractor_response_from_cache
+from mlx_runtime_bridge import AdapterError, build_extractor_response_from_cache
 
 
 DEFAULT_MODEL = "gpt2"
@@ -35,6 +37,7 @@ class LiveRuntime:
         self.prompt_text = prompt_text
         self.prompt_tokens = prompt_tokens
         self.caches = caches
+        self.last_reverse_import: dict[str, Any] | None = None
 
 
 _RUNTIME: LiveRuntime | None = None
@@ -93,6 +96,11 @@ def _decode_prompt_tokens(tokenizer: Any, prompt_tokens: list[int]) -> str | Non
     if isinstance(decoded, str):
         return decoded
     return None
+
+
+def _sha256_json(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
 def _build_prompt_text(tokenizer: Any, minimum_tokens: int) -> tuple[str, list[int]]:
@@ -163,6 +171,88 @@ def _extract_first_output_token_ids(response: Any, tokenizer: Any, generated_tex
     return _encode_prompt(tokenizer, generated_text)
 
 
+def _materialize_reverse_runtime_state(request: dict[str, Any]) -> dict[str, Any]:
+    global _RUNTIME
+
+    runtime = get_live_runtime()
+    state = request.get("reverse_runtime_state", request)
+    if not isinstance(state, dict):
+        raise AdapterError("reverse runtime import request must contain a JSON object")
+
+    target_text = state.get("generated_text")
+    advanced_prompt = state.get("advanced_prompt")
+    base_prompt = state.get("prompt")
+    if not isinstance(target_text, str) or target_text == "":
+        raise AdapterError("reverse runtime state is missing target generated_text")
+    if not isinstance(advanced_prompt, str) or advanced_prompt == "":
+        if not isinstance(base_prompt, str) or base_prompt == "":
+            raise AdapterError("reverse runtime state is missing prompt/advanced_prompt")
+        advanced_prompt = base_prompt + target_text
+
+    advanced_tokens = _encode_prompt(runtime.tokenizer, advanced_prompt)
+    caches = _prefill_prompt(runtime.model, runtime.tokenizer, advanced_tokens)
+    _RUNTIME = LiveRuntime(
+        model=runtime.model,
+        tokenizer=runtime.tokenizer,
+        prompt_text=advanced_prompt,
+        prompt_tokens=advanced_tokens,
+        caches=caches,
+    )
+
+    response = batch_generate(
+        _RUNTIME.model,
+        _RUNTIME.tokenizer,
+        prompts=[advanced_tokens],
+        max_tokens=_continuation_max_tokens(),
+        verbose=False,
+    )
+    origin_text = _extract_first_output_text(response, advanced_prompt)
+    origin_token_ids = _extract_first_output_token_ids(response, _RUNTIME.tokenizer, origin_text)
+
+    target_generated_token_ids = state.get("generated_token_ids")
+    target_generated_token_count = len(target_generated_token_ids) if isinstance(target_generated_token_ids, list) else None
+    report = {
+        "schema_version": "permeantos-reverse-runtime-import-v0",
+        "status": "reverse_runtime_imported",
+        "reverse_runtime_imported": True,
+        "model_id": _model_id(),
+        "source_runtime": "mlx-live-runtime",
+        "target_runtime": state.get("target_runtime"),
+        "target_model_id": state.get("model_id"),
+        "target_proof_hash": state.get("proof_hash"),
+        "target_prompt_token_count": state.get("prompt_token_count"),
+        "target_generated_token_count": target_generated_token_count,
+        "origin_advanced_prompt_token_count": len(advanced_tokens),
+        "origin_continuation": {
+            "prompt": advanced_prompt,
+            "text": origin_text,
+            "token_ids": origin_token_ids,
+            "token_count": len(origin_token_ids),
+            "max_tokens": _continuation_max_tokens(),
+        },
+        "import_boundary": {
+            "target_generated_text": target_text,
+            "advanced_prompt_sha256": "sha256:" + hashlib.sha256(advanced_prompt.encode("utf-8")).hexdigest(),
+        },
+    }
+    report["proof_hash"] = _sha256_json(
+        {
+            "schema_version": report["schema_version"],
+            "target_proof_hash": report["target_proof_hash"],
+            "advanced_prompt_sha256": report["import_boundary"]["advanced_prompt_sha256"],
+            "origin_continuation_token_ids": origin_token_ids,
+        }
+    )
+    _RUNTIME.last_reverse_import = report
+
+    output_path = request.get("output_path") or os.getenv("PERMEANT_REVERSE_IMPORT_REPORT_FILE")
+    if output_path:
+        path = Path(str(output_path)).expanduser()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return report
+
+
 def _maybe_write_source_continuation(runtime: LiveRuntime) -> None:
     output_path = _source_continuation_file()
     prompt = runtime.prompt_text if os.getenv("PERMEANT_SOURCE_CONTINUATION_USE_PREFILL_PROMPT", "0") == "1" else _continuation_prompt()
@@ -228,6 +318,9 @@ def get_live_runtime() -> LiveRuntime:
 
 
 def provider(request: dict[str, Any]) -> dict[str, Any]:
+    if request.get("action") == "import_reverse_runtime_state":
+        return _materialize_reverse_runtime_state(request)
+
     minimum_tokens = int(request.get("seq_len") or _target_seq_len())
     runtime = _ensure_runtime(minimum_tokens)
     _maybe_write_source_continuation(runtime)

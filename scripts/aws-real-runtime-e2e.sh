@@ -17,12 +17,16 @@ Environment overrides:
   PERMEANT_MODEL                     default: Qwen/Qwen2.5-0.5B-Instruct
   PERMEANT_SEQ_LEN                   default: 2016
   PERMEANT_VLLM_MAX_MODEL_LEN        default: 2048
-  PERMEANT_TRANSFER_QUANTIZATION     default: none
+  PERMEANT_TRANSFER_QUANTIZATION     default: none (none, fp8, qatq)
   PERMEANT_CONTINUATION_MAX_TOKENS   default: 16
   PERMEANT_FIDELITY_HORIZONS         default: 16,32,64,128
   PERMEANT_SOURCE_URL                default: http://127.0.0.1:29101
   PERMEANT_SOURCE_CONTINUATION_FILE  default: /tmp/permeant-source-continuation.json
   PERMEANT_AGENT_GRAPH_MANIFEST      optional local Agent Memory Graph manifest
+  PERMEANT_AGENT_ACTIVITY_RESUME     default: 0; run Agent Memory Graph resume proof on target
+  PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH default: 0; approve gated local publish proof
+  PERMEANT_AGENT_ACTIVITY_RETURN_HOME default: 0; verify AWS-updated graph and continue on origin
+  PERMEANT_REVERSE_RUNTIME_IMPORT    default: 0; import vLLM target decode boundary back into MLX origin
   PERMEANT_LOCAL_TUNNEL_PORT         default: 39099
   PERMEANT_STATE_DIR                 default: .permeant-e2e/aws
   PERMEANT_PREFLIGHT_SKIP_AWS        default: 0
@@ -50,6 +54,10 @@ PERMEANT_FIDELITY_HORIZONS="${PERMEANT_FIDELITY_HORIZONS:-16,32,64,128}"
 PERMEANT_SOURCE_URL="${PERMEANT_SOURCE_URL:-http://127.0.0.1:29101}"
 PERMEANT_SOURCE_CONTINUATION_FILE="${PERMEANT_SOURCE_CONTINUATION_FILE:-/tmp/permeant-source-continuation.json}"
 PERMEANT_AGENT_GRAPH_MANIFEST="${PERMEANT_AGENT_GRAPH_MANIFEST:-}"
+PERMEANT_AGENT_ACTIVITY_RESUME="${PERMEANT_AGENT_ACTIVITY_RESUME:-0}"
+PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH="${PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH:-0}"
+PERMEANT_AGENT_ACTIVITY_RETURN_HOME="${PERMEANT_AGENT_ACTIVITY_RETURN_HOME:-0}"
+PERMEANT_REVERSE_RUNTIME_IMPORT="${PERMEANT_REVERSE_RUNTIME_IMPORT:-0}"
 PERMEANT_LOCAL_TUNNEL_PORT="${PERMEANT_LOCAL_TUNNEL_PORT:-39099}"
 PERMEANT_STATE_DIR="${PERMEANT_STATE_DIR:-$ROOT_DIR/.permeant-e2e/aws}"
 PERMEANT_PREFLIGHT_SKIP_AWS="${PERMEANT_PREFLIGHT_SKIP_AWS:-0}"
@@ -68,6 +76,16 @@ REMOTE_START_SCRIPT=""
 TARGET_PROBE_LOCAL=""
 TARGET_LOG_DIR=""
 TUNNEL_PID_FILE=""
+TARGET_AGENT_GRAPH_PACKAGE="/home/ubuntu/permeant-agent-graph-package"
+TARGET_AGENT_ACTIVITY_WORKSPACE="/tmp/permeant-agent-activity-workspace"
+TARGET_AGENT_ACTIVITY_REPORT_LOCAL=""
+TARGET_AGENT_ACTIVITY_GRAPH_LOCAL=""
+TARGET_AGENT_ACTIVITY_ARTIFACT_LOCAL=""
+ORIGIN_ROUNDTRIP_WORKSPACE=""
+ORIGIN_ROUNDTRIP_REPORT_LOCAL=""
+ORIGIN_ROUNDTRIP_GRAPH_LOCAL=""
+TARGET_REVERSE_RUNTIME_STATE_LOCAL=""
+ORIGIN_REVERSE_IMPORT_REPORT_LOCAL=""
 
 log() {
   printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"
@@ -129,6 +147,14 @@ source_extract_url() {
   fi
 }
 
+source_reverse_import_url() {
+  local base="${PERMEANT_SOURCE_URL%/}"
+  if [[ "$base" == */extract ]]; then
+    base="${base%/extract}"
+  fi
+  printf '%s/import-reverse-state\n' "$base"
+}
+
 validate_source_continuation_file() {
   python3 - "$PERMEANT_SOURCE_CONTINUATION_FILE" "$PERMEANT_SEQ_LEN" <<'PY'
 import json
@@ -185,6 +211,14 @@ load_state() {
   TARGET_PROBE_LOCAL="$(json_get "$STATE_FILE" target_probe_local)"
   TUNNEL_PID_FILE="$RUN_DIR/tunnel.pid"
   TARGET_LOG_DIR="$RUN_DIR/target-logs"
+  TARGET_AGENT_ACTIVITY_REPORT_LOCAL="$(json_get "$STATE_FILE" target_agent_activity_report_local)"
+  TARGET_AGENT_ACTIVITY_GRAPH_LOCAL="$(json_get "$STATE_FILE" target_agent_activity_graph_local)"
+  TARGET_AGENT_ACTIVITY_ARTIFACT_LOCAL="$(json_get "$STATE_FILE" target_agent_activity_artifact_local)"
+  ORIGIN_ROUNDTRIP_WORKSPACE="$(json_get "$STATE_FILE" origin_roundtrip_workspace)"
+  ORIGIN_ROUNDTRIP_REPORT_LOCAL="$(json_get "$STATE_FILE" origin_roundtrip_report_local)"
+  ORIGIN_ROUNDTRIP_GRAPH_LOCAL="$(json_get "$STATE_FILE" origin_roundtrip_graph_local)"
+  TARGET_REVERSE_RUNTIME_STATE_LOCAL="$(json_get "$STATE_FILE" target_reverse_runtime_state_local)"
+  ORIGIN_REVERSE_IMPORT_REPORT_LOCAL="$(json_get "$STATE_FILE" origin_reverse_import_report_local)"
 }
 
 instance_id() {
@@ -264,6 +298,14 @@ create_state() {
   TARGET_PROBE_LOCAL="$RUN_DIR/vllm-runtime-probe.json"
   TARGET_LOG_DIR="$RUN_DIR/target-logs"
   TUNNEL_PID_FILE="$RUN_DIR/tunnel.pid"
+  TARGET_AGENT_ACTIVITY_REPORT_LOCAL="$RUN_DIR/agent-activity-resume-report.json"
+  TARGET_AGENT_ACTIVITY_GRAPH_LOCAL="$RUN_DIR/agent-activity-resumed-graph.json"
+  TARGET_AGENT_ACTIVITY_ARTIFACT_LOCAL="$RUN_DIR/agent-activity-publish-announcement.md"
+  ORIGIN_ROUNDTRIP_WORKSPACE="$RUN_DIR/origin-roundtrip-workspace"
+  ORIGIN_ROUNDTRIP_REPORT_LOCAL="$ORIGIN_ROUNDTRIP_WORKSPACE/reports/roundtrip/roundtrip-report.json"
+  ORIGIN_ROUNDTRIP_GRAPH_LOCAL="$ORIGIN_ROUNDTRIP_WORKSPACE/reports/roundtrip/returned-home-graph.json"
+  TARGET_REVERSE_RUNTIME_STATE_LOCAL="$RUN_DIR/vllm-reverse-runtime-state.json"
+  ORIGIN_REVERSE_IMPORT_REPORT_LOCAL="$RUN_DIR/mlx-reverse-import-report.json"
   mkdir -p "$TARGET_LOG_DIR"
 
   python3 - "$STATE_FILE" <<PY
@@ -284,12 +326,24 @@ data = {
   "source_url": "$PERMEANT_SOURCE_URL",
   "source_continuation_file": "$PERMEANT_SOURCE_CONTINUATION_FILE",
   "agent_graph_manifest": "$PERMEANT_AGENT_GRAPH_MANIFEST",
+  "agent_activity_resume": "$PERMEANT_AGENT_ACTIVITY_RESUME",
+  "agent_activity_approve_publish": "$PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH",
+  "agent_activity_return_home": "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME",
+  "reverse_runtime_import": "$PERMEANT_REVERSE_RUNTIME_IMPORT",
   "local_tunnel_port": "$PERMEANT_LOCAL_TUNNEL_PORT",
   "run_dir": "$RUN_DIR",
   "key_name": "$KEY_NAME",
   "pem_file": "$PEM_FILE",
   "known_hosts_file": "$KNOWN_HOSTS_FILE",
-  "target_probe_local": "$TARGET_PROBE_LOCAL"
+  "target_probe_local": "$TARGET_PROBE_LOCAL",
+  "target_agent_activity_report_local": "$TARGET_AGENT_ACTIVITY_REPORT_LOCAL",
+  "target_agent_activity_graph_local": "$TARGET_AGENT_ACTIVITY_GRAPH_LOCAL",
+  "target_agent_activity_artifact_local": "$TARGET_AGENT_ACTIVITY_ARTIFACT_LOCAL",
+  "origin_roundtrip_workspace": "$ORIGIN_ROUNDTRIP_WORKSPACE",
+  "origin_roundtrip_report_local": "$ORIGIN_ROUNDTRIP_REPORT_LOCAL",
+  "origin_roundtrip_graph_local": "$ORIGIN_ROUNDTRIP_GRAPH_LOCAL",
+  "target_reverse_runtime_state_local": "$TARGET_REVERSE_RUNTIME_STATE_LOCAL",
+  "origin_reverse_import_report_local": "$ORIGIN_REVERSE_IMPORT_REPORT_LOCAL"
 }
 with open("$STATE_FILE", "w") as f:
     json.dump(data, f, indent=2, sort_keys=True)
@@ -372,10 +426,50 @@ preflight_cmd() {
     check_status fail "configuration:numeric" "invalid numeric configuration or vLLM max model length does not exceed migrated sequence length" >> "$checks_file"
   fi
 
-  if [[ "$PERMEANT_TRANSFER_QUANTIZATION" == "none" || "$PERMEANT_TRANSFER_QUANTIZATION" == "fp8" ]]; then
+  if [[ "$PERMEANT_TRANSFER_QUANTIZATION" == "none" || "$PERMEANT_TRANSFER_QUANTIZATION" == "fp8" || "$PERMEANT_TRANSFER_QUANTIZATION" == "qatq" ]]; then
     check_status pass "configuration:transfer_quantization" "$PERMEANT_TRANSFER_QUANTIZATION is supported by the current runner" >> "$checks_file"
   else
     check_status fail "configuration:transfer_quantization" "unsupported PERMEANT_TRANSFER_QUANTIZATION: $PERMEANT_TRANSFER_QUANTIZATION" >> "$checks_file"
+  fi
+
+  if [[ "$PERMEANT_AGENT_ACTIVITY_RESUME" == "0" || "$PERMEANT_AGENT_ACTIVITY_RESUME" == "1" ]]; then
+    check_status pass "configuration:agent_activity_resume" "$PERMEANT_AGENT_ACTIVITY_RESUME" >> "$checks_file"
+  else
+    check_status fail "configuration:agent_activity_resume" "PERMEANT_AGENT_ACTIVITY_RESUME must be 0 or 1" >> "$checks_file"
+  fi
+
+  if [[ "$PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH" == "0" || "$PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH" == "1" ]]; then
+    check_status pass "configuration:agent_activity_approve_publish" "$PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH" >> "$checks_file"
+  else
+    check_status fail "configuration:agent_activity_approve_publish" "PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH must be 0 or 1" >> "$checks_file"
+  fi
+
+  if [[ "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME" == "0" || "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME" == "1" ]]; then
+    check_status pass "configuration:agent_activity_return_home" "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME" >> "$checks_file"
+  else
+    check_status fail "configuration:agent_activity_return_home" "PERMEANT_AGENT_ACTIVITY_RETURN_HOME must be 0 or 1" >> "$checks_file"
+  fi
+
+  if [[ "$PERMEANT_REVERSE_RUNTIME_IMPORT" == "0" || "$PERMEANT_REVERSE_RUNTIME_IMPORT" == "1" ]]; then
+    check_status pass "configuration:reverse_runtime_import" "$PERMEANT_REVERSE_RUNTIME_IMPORT" >> "$checks_file"
+  else
+    check_status fail "configuration:reverse_runtime_import" "PERMEANT_REVERSE_RUNTIME_IMPORT must be 0 or 1" >> "$checks_file"
+  fi
+
+  if [[ "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME" == "1" && "$PERMEANT_AGENT_ACTIVITY_RESUME" != "1" ]]; then
+    check_status fail "configuration:agent_activity_return_home_requires_resume" "return-home proof requires PERMEANT_AGENT_ACTIVITY_RESUME=1" >> "$checks_file"
+  elif [[ "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME" == "1" ]]; then
+    check_status pass "configuration:agent_activity_return_home_requires_resume" "target resume is enabled" >> "$checks_file"
+  else
+    check_status skip "configuration:agent_activity_return_home_requires_resume" "PERMEANT_AGENT_ACTIVITY_RETURN_HOME=0" >> "$checks_file"
+  fi
+
+  if [[ "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME" == "1" && "$PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH" != "1" ]]; then
+    check_status fail "configuration:agent_activity_return_home_requires_publish" "return-home proof requires PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH=1 so a target artifact exists" >> "$checks_file"
+  elif [[ "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME" == "1" ]]; then
+    check_status pass "configuration:agent_activity_return_home_requires_publish" "target publish artifact will be produced" >> "$checks_file"
+  else
+    check_status skip "configuration:agent_activity_return_home_requires_publish" "PERMEANT_AGENT_ACTIVITY_RETURN_HOME=0" >> "$checks_file"
   fi
 
   if [[ "$PERMEANT_PREFLIGHT_SKIP_BUILD" == "1" ]]; then
@@ -408,6 +502,22 @@ preflight_cmd() {
     check_status pass "source:agent_graph_manifest" "$PERMEANT_AGENT_GRAPH_MANIFEST exists" >> "$checks_file"
   else
     check_status fail "source:agent_graph_manifest" "missing Agent Memory Graph manifest: $PERMEANT_AGENT_GRAPH_MANIFEST" >> "$checks_file"
+  fi
+
+  if [[ "$PERMEANT_AGENT_ACTIVITY_RESUME" == "1" ]]; then
+    if [[ -z "$PERMEANT_AGENT_GRAPH_MANIFEST" ]]; then
+      check_status fail "source:agent_activity_package" "agent activity resume requires PERMEANT_AGENT_GRAPH_MANIFEST" >> "$checks_file"
+    else
+      local graph_package_dir
+      graph_package_dir="$(cd "$(dirname "$PERMEANT_AGENT_GRAPH_MANIFEST")" 2>/dev/null && pwd || true)"
+      if [[ -f "$graph_package_dir/manifest.json" && -f "$graph_package_dir/graph.json" ]]; then
+        check_status pass "source:agent_activity_package" "$graph_package_dir contains manifest.json and graph.json" >> "$checks_file"
+      else
+        check_status fail "source:agent_activity_package" "Agent Memory Graph package must contain manifest.json and graph.json" >> "$checks_file"
+      fi
+    fi
+  else
+    check_status skip "source:agent_activity_package" "PERMEANT_AGENT_ACTIVITY_RESUME=0" >> "$checks_file"
   fi
 
   if [[ "$PERMEANT_PREFLIGHT_SKIP_AWS" == "1" ]]; then
@@ -560,6 +670,7 @@ export PERMEANT_VLLM_CAPTURE_BASELINE=1
 export PERMEANT_SOURCE_CONTINUATION_FILE=/home/ubuntu/permeant-source-continuation.json
 export PERMEANT_VLLM_RUNTIME_STATE_FILE=/tmp/permeant-vllm-runtime-state.json
 export PERMEANT_VLLM_RUNTIME_PROBE_FILE=/tmp/permeant-vllm-runtime-probe.json
+export PERMEANT_VLLM_REVERSE_EXPORT_FILE=/tmp/permeant-vllm-reverse-runtime-state.json
 export PERMEANT_VLLM_SLOT_SAMPLE_LIMIT=4
 nohup /home/ubuntu/permeant-os/.venv/bin/python /home/ubuntu/permeant-os/adapters/vllm_runtime_receiver.py --host 127.0.0.1 --port 29100 --state-dir /tmp/permeant-vllm-state >/tmp/permeant-logs/receiver.log 2>&1 &
 export PERMEANT_INJECTOR_MODE=json_command
@@ -583,6 +694,17 @@ copy_repo_and_setup() {
   scp_to_target "$REMOTE_SETUP_SCRIPT" /home/ubuntu/permeant-remote-setup.sh
   log "running target setup"
   ssh_target 'bash /home/ubuntu/permeant-remote-setup.sh'
+}
+
+copy_agent_graph_package_to_target() {
+  [[ "$PERMEANT_AGENT_ACTIVITY_RESUME" == "1" ]] || return 0
+  [[ -n "$PERMEANT_AGENT_GRAPH_MANIFEST" ]] || die "PERMEANT_AGENT_ACTIVITY_RESUME=1 requires PERMEANT_AGENT_GRAPH_MANIFEST"
+  local package_dir
+  package_dir="$(cd "$(dirname "$PERMEANT_AGENT_GRAPH_MANIFEST")" && pwd)"
+  [[ -f "$package_dir/manifest.json" && -f "$package_dir/graph.json" ]] || die "invalid Agent Memory Graph package: $package_dir"
+  log "copying Agent Memory Graph package to target"
+  tar -C "$package_dir" -cf - . | ssh_target "rm -rf '$TARGET_AGENT_GRAPH_PACKAGE' && mkdir -p '$TARGET_AGENT_GRAPH_PACKAGE' && tar -xf - -C '$TARGET_AGENT_GRAPH_PACKAGE'"
+  json_set "$STATE_FILE" target_agent_graph_package "$TARGET_AGENT_GRAPH_PACKAGE"
 }
 
 start_target() {
@@ -627,6 +749,8 @@ run_migration() {
     local quant_args=()
     if [[ "$PERMEANT_TRANSFER_QUANTIZATION" == "fp8" ]]; then
       quant_args+=(--quant)
+    elif [[ "$PERMEANT_TRANSFER_QUANTIZATION" == "qatq" ]]; then
+      quant_args+=(--transfer-codec qatq)
     elif [[ "$PERMEANT_TRANSFER_QUANTIZATION" != "none" ]]; then
       die "unsupported PERMEANT_TRANSFER_QUANTIZATION: $PERMEANT_TRANSFER_QUANTIZATION"
     fi
@@ -660,6 +784,7 @@ collect_artifacts() {
   log "collecting target artifacts"
   mkdir -p "$TARGET_LOG_DIR"
   scp_from_target /tmp/permeant-vllm-runtime-probe.json "$TARGET_PROBE_LOCAL" || true
+  scp_from_target /tmp/permeant-vllm-reverse-runtime-state.json "$TARGET_REVERSE_RUNTIME_STATE_LOCAL" || true
   scp_from_target /tmp/permeant-logs/receiver.log "$TARGET_LOG_DIR/receiver.log" || true
   scp_from_target /tmp/permeant-logs/daemon.log "$TARGET_LOG_DIR/daemon.log" || true
 }
@@ -713,6 +838,133 @@ print(json.dumps({
     "max_value_abs_diff": max_value,
     "first_failure": failures[0] if failures else None,
 }, indent=2))
+PY
+}
+
+run_reverse_runtime_import() {
+  [[ "$PERMEANT_REVERSE_RUNTIME_IMPORT" == "1" ]] || return 0
+  log "exporting vLLM target decode boundary through reverse runtime API"
+  ssh_target "curl -fsS -H 'Content-Type: application/json' --data '{}' http://127.0.0.1:29100/export_reverse_runtime_state" \
+    | tee "$TARGET_REVERSE_RUNTIME_STATE_LOCAL"
+  python3 - "$TARGET_REVERSE_RUNTIME_STATE_LOCAL" <<'PY'
+import json, sys
+from pathlib import Path
+payload = json.loads(Path(sys.argv[1]).read_text())
+if payload.get("success") is not True:
+    raise SystemExit(f"reverse runtime export API failed: {payload}")
+state = payload.get("reverse_runtime_state")
+if not isinstance(state, dict):
+    raise SystemExit(f"reverse runtime export API did not return reverse_runtime_state: {payload}")
+if state.get("status") != "target_runtime_state_exported":
+    raise SystemExit(f"reverse runtime state has unexpected status: {state}")
+if not state.get("generated_token_ids"):
+    raise SystemExit(f"reverse runtime state contains no generated tokens: {state}")
+print(json.dumps({
+    "status": state.get("status"),
+    "proof_hash": state.get("proof_hash"),
+    "generated_token_count": state.get("generated_token_count"),
+    "last_registered_hash": state.get("last_registered_hash"),
+}, indent=2, sort_keys=True))
+PY
+  log "importing vLLM target decode boundary back into live MLX origin"
+  curl -fsS \
+    --max-time 900 \
+    -H 'Content-Type: application/json' \
+    --data-binary "@$TARGET_REVERSE_RUNTIME_STATE_LOCAL" \
+    "$(source_reverse_import_url)" | tee "$ORIGIN_REVERSE_IMPORT_REPORT_LOCAL"
+  json_set "$STATE_FILE" target_reverse_runtime_state_local "$TARGET_REVERSE_RUNTIME_STATE_LOCAL"
+  json_set "$STATE_FILE" origin_reverse_import_report_local "$ORIGIN_REVERSE_IMPORT_REPORT_LOCAL"
+  python3 - "$ORIGIN_REVERSE_IMPORT_REPORT_LOCAL" <<'PY'
+import json, sys
+from pathlib import Path
+report = json.loads(Path(sys.argv[1]).read_text())
+if report.get("status") != "reverse_runtime_imported" or report.get("reverse_runtime_imported") is not True:
+    raise SystemExit(f"reverse runtime import did not continue: {report}")
+continuation = report.get("origin_continuation") or {}
+if not continuation.get("token_ids"):
+    raise SystemExit(f"reverse runtime import produced no origin continuation tokens: {report}")
+print(json.dumps({
+    "status": report.get("status"),
+    "reverse_runtime_imported": report.get("reverse_runtime_imported"),
+    "target_proof_hash": report.get("target_proof_hash"),
+    "origin_advanced_prompt_token_count": report.get("origin_advanced_prompt_token_count"),
+    "origin_continuation_token_count": continuation.get("token_count"),
+    "proof_hash": report.get("proof_hash"),
+}, indent=2, sort_keys=True))
+PY
+}
+
+run_agent_activity_resume() {
+  [[ "$PERMEANT_AGENT_ACTIVITY_RESUME" == "1" ]] || return 0
+  log "running Agent Memory Graph resume proof on target"
+  local approve_arg=""
+  if [[ "$PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH" == "1" ]]; then
+    approve_arg="--approve-publish"
+  fi
+  ssh_target "cd /home/ubuntu/permeant-os && python3 examples/agent-memory-graph/local_agent.py resume --input '$TARGET_AGENT_GRAPH_PACKAGE' --workspace '$TARGET_AGENT_ACTIVITY_WORKSPACE' $approve_arg" \
+    | tee "$RUN_DIR/agent-activity-resume.stdout.json"
+  json_set "$STATE_FILE" target_agent_activity_workspace "$TARGET_AGENT_ACTIVITY_WORKSPACE"
+  scp_from_target "$TARGET_AGENT_ACTIVITY_WORKSPACE/reports/resume/resume-report.json" "$TARGET_AGENT_ACTIVITY_REPORT_LOCAL"
+  scp_from_target "$TARGET_AGENT_ACTIVITY_WORKSPACE/reports/resume/resumed-graph.json" "$TARGET_AGENT_ACTIVITY_GRAPH_LOCAL"
+  json_set "$STATE_FILE" target_agent_activity_report_local "$TARGET_AGENT_ACTIVITY_REPORT_LOCAL"
+  json_set "$STATE_FILE" target_agent_activity_graph_local "$TARGET_AGENT_ACTIVITY_GRAPH_LOCAL"
+  if [[ "$PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH" == "1" ]]; then
+    scp_from_target "$TARGET_AGENT_ACTIVITY_WORKSPACE/reports/publish/announcement.md" "$TARGET_AGENT_ACTIVITY_ARTIFACT_LOCAL"
+    json_set "$STATE_FILE" target_agent_activity_artifact_local "$TARGET_AGENT_ACTIVITY_ARTIFACT_LOCAL"
+  fi
+  python3 - "$TARGET_AGENT_ACTIVITY_REPORT_LOCAL" <<'PY'
+import json, sys
+from pathlib import Path
+report = json.loads(Path(sys.argv[1]).read_text())
+if report.get("status") != "continued" or report.get("activity_continued") is not True:
+    raise SystemExit(f"agent activity resume did not continue: {report}")
+print(json.dumps({
+    "status": report.get("status"),
+    "activity_continued": report.get("activity_continued"),
+    "pre_resume_graph_hash": report.get("pre_resume_graph_hash"),
+    "post_resume_graph_hash": report.get("post_resume_graph_hash"),
+    "proof_hash": report.get("proof_hash"),
+    "executed_tools": [entry.get("node_id") for entry in report.get("executed_tools", [])],
+    "written_artifacts": report.get("written_artifacts", []),
+}, indent=2, sort_keys=True))
+PY
+}
+
+run_agent_activity_return_home() {
+  [[ "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME" == "1" ]] || return 0
+  log "running origin return-home proof against AWS-updated Agent Memory Graph"
+  local package_dir
+  package_dir="$(cd "$(dirname "$PERMEANT_AGENT_GRAPH_MANIFEST")" && pwd)"
+  local target_artifact_args=()
+  if [[ -f "$TARGET_AGENT_ACTIVITY_ARTIFACT_LOCAL" ]]; then
+    target_artifact_args=(--target-artifact "$TARGET_AGENT_ACTIVITY_ARTIFACT_LOCAL")
+  fi
+  python3 "$ROOT_DIR/examples/agent-memory-graph/local_agent.py" return-home \
+    --original-package "$package_dir" \
+    --target-resumed-graph "$TARGET_AGENT_ACTIVITY_GRAPH_LOCAL" \
+    --target-resume-report "$TARGET_AGENT_ACTIVITY_REPORT_LOCAL" \
+    "${target_artifact_args[@]}" \
+    --workspace "$ORIGIN_ROUNDTRIP_WORKSPACE" \
+    | tee "$RUN_DIR/origin-return-home.stdout.json"
+  json_set "$STATE_FILE" origin_roundtrip_workspace "$ORIGIN_ROUNDTRIP_WORKSPACE"
+  json_set "$STATE_FILE" origin_roundtrip_report_local "$ORIGIN_ROUNDTRIP_REPORT_LOCAL"
+  json_set "$STATE_FILE" origin_roundtrip_graph_local "$ORIGIN_ROUNDTRIP_GRAPH_LOCAL"
+  python3 - "$ORIGIN_ROUNDTRIP_REPORT_LOCAL" <<'PY'
+import json, sys
+from pathlib import Path
+report = json.loads(Path(sys.argv[1]).read_text())
+if report.get("status") != "round_trip_continued" or report.get("round_trip_continued") is not True:
+    raise SystemExit(f"origin return-home proof did not continue: {report}")
+print(json.dumps({
+    "status": report.get("status"),
+    "round_trip_continued": report.get("round_trip_continued"),
+    "origin_pre_graph_hash": report.get("origin_pre_graph_hash"),
+    "target_post_graph_hash": report.get("target_post_graph_hash"),
+    "origin_post_graph_hash": report.get("origin_post_graph_hash"),
+    "target_proof_hash": report.get("target_proof_hash"),
+    "proof_hash": report.get("proof_hash"),
+    "origin_written_artifacts": report.get("origin_written_artifacts", []),
+}, indent=2, sort_keys=True))
 PY
 }
 
@@ -796,11 +1048,15 @@ run_cmd() {
   provision
   trap 'collect_artifacts || true; cleanup_cmd "$STATE_FILE" || true' EXIT
   copy_repo_and_setup
+  copy_agent_graph_package_to_target
   start_target
   start_tunnel
   run_migration
   collect_artifacts
   analyze_artifacts
+  run_reverse_runtime_import
+  run_agent_activity_resume
+  run_agent_activity_return_home
   cleanup_cmd "$STATE_FILE"
   trap - EXIT
   log "run complete: $RUN_DIR"

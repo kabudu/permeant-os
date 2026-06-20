@@ -43,6 +43,27 @@ def test_runtime_hook_falls_back_to_state_verification(tmp_path, monkeypatch):
     }
 
 
+def test_runtime_hook_exports_reverse_runtime_state(monkeypatch):
+    monkeypatch.setenv("PERMEANT_VLLM_RUNTIME_TARGET", f"{FIXTURE_MODULE}:get_recording_runtime")
+    module = _reload_module()
+
+    result = module.runtime_hook({"action": "export_reverse_runtime_state"})
+
+    assert result["success"] is True
+    assert result["reverse_runtime_state"]["status"] == "target_runtime_state_exported"
+    assert result["reverse_runtime_state"]["generated_token_ids"] == [101, 102]
+
+
+def test_runtime_hook_reports_missing_reverse_runtime_export(monkeypatch):
+    monkeypatch.setenv("PERMEANT_VLLM_RUNTIME_TARGET", f"{FIXTURE_MODULE}:get_register_only_runtime")
+    module = _reload_module()
+
+    assert module.runtime_hook({"action": "export_reverse_runtime_state"}) == {
+        "success": False,
+        "error": "runtime does not expose export_reverse_runtime_state",
+    }
+
+
 def test_runtime_hook_writes_directly_into_vllm_style_kv_cache(tmp_path, monkeypatch):
     fixture = importlib.import_module(FIXTURE_MODULE)
     fixture.reset_tensor_backed_runtime()

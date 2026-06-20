@@ -14,7 +14,7 @@ planner = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(planner)
 
 
-def test_selects_fp8_when_experimental_codecs_are_not_runner_supported():
+def test_selects_qatq_when_experimental_codec_is_runner_supported():
     plan = planner.build_plan(
         sequence_lengths=[32768],
         source_codecs=["raw", "fp8", "turboquant", "qatq"],
@@ -30,14 +30,17 @@ def test_selects_fp8_when_experimental_codecs_are_not_runner_supported():
 
     point = plan["points"][0]
     assert plan["schema_version"] == "permeantos-transfer-codec-plan-v0"
-    assert point["selected_codec"] == "fp8"
-    assert point["selected_manifest_transfer_quantization"] == "fp8"
+    assert point["selected_codec"] == "qatq"
+    assert point["selected_manifest_transfer_quantization"] == "qatq"
     assert point["requires_fidelity_evidence"] is True
     qatq = next(candidate for candidate in point["candidates"] if candidate["codec"] == "qatq")
     assert qatq["capability_supported"] is True
-    assert qatq["runner_supported"] is False
-    assert qatq["executable"] is False
-    assert qatq["rejection_reason"] == "not_supported_by_current_runner"
+    assert qatq["runner_supported"] is True
+    assert qatq["executable"] is True
+    assert qatq["runner_env"] == {
+        "PERMEANT_SEQ_LEN": "32768",
+        "PERMEANT_TRANSFER_QUANTIZATION": "qatq",
+    }
 
 
 def test_falls_back_to_raw_when_preferred_codec_is_not_mutually_supported():
@@ -87,12 +90,12 @@ def test_falls_back_to_re_prefill_when_no_transfer_codec_is_mutual():
     assert point["fallback_action"] == "fallback_re_prefill"
 
 
-def test_can_explicitly_plan_unimplemented_candidate_codecs():
+def test_can_explicitly_plan_unimplemented_turboquant_candidate():
     plan = planner.build_plan(
         sequence_lengths=[32768],
-        source_codecs=["raw", "qatq"],
-        target_codecs=["raw", "qatq"],
-        preference_order=["qatq", "raw"],
+        source_codecs=["raw", "turboquant"],
+        target_codecs=["raw", "turboquant"],
+        preference_order=["turboquant", "raw"],
         n_layers=24,
         n_kv_heads=2,
         head_dim=64,
@@ -102,7 +105,7 @@ def test_can_explicitly_plan_unimplemented_candidate_codecs():
     )
 
     point = plan["points"][0]
-    assert point["selected_codec"] == "qatq"
+    assert point["selected_codec"] == "turboquant"
     assert point["requires_fidelity_evidence"] is True
     selected = point["candidates"][0]
     assert selected["executable"] is True
