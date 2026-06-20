@@ -1102,15 +1102,13 @@ async fn run_sim_migrate(
     let checksum =
         "sha256:0000000000000000000000000000000000000000000000000000000000000000".to_string();
 
-    let transfer_quant = if let Some(scheme) = transfer_codec.header_scheme() {
-        Some(usxf_core::QuantizationInfo {
+    let transfer_quant = transfer_codec
+        .header_scheme()
+        .map(|scheme| usxf_core::QuantizationInfo {
             scheme: scheme.to_string(),
             group_size: None,
             scales: None,
-        })
-    } else {
-        None
-    };
+        });
 
     let header = UsxfHeader {
         usxf_version: "1.1".to_string(),

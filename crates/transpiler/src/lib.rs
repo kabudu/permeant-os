@@ -163,9 +163,7 @@ mod tests {
 
     #[test]
     fn test_qatq_i4_roundtrip_shape_and_compression() {
-        let floats = vec![
-            -2.4, -1.2, -0.5, 0.0, 0.4, 1.1, 2.2, 3.7, -4.1, 0.9, 1.8,
-        ];
+        let floats = vec![-2.4, -1.2, -0.5, 0.0, 0.4, 1.1, 2.2, 3.7, -4.1, 0.9, 1.8];
         let encoded = quant::quantize_qatq_i4(&floats);
         let decoded = quant::dequantize_qatq_i4(&encoded, floats.len()).unwrap();
 
