@@ -10,8 +10,8 @@ and this project uses release tags compatible with semantic versioning.
 ### Added
 
 - Fresh E2E validation checkpoint documenting current local migration passes,
-  AWS real-runtime structural KV migration, cleanup verification, and the
-  remaining source-exact decode-fidelity gap.
+  AWS real-runtime structural KV migration, source-exact follow-up fidelity,
+  and cleanup verification.
 
 ### Fixed
 
@@ -19,6 +19,16 @@ and this project uses release tags compatible with semantic versioning.
   `GET /health`.
 - AWS real-runtime E2E runner now handles default unquantized transfer without
   expanding an unset Bash array.
+- AWS real-runtime E2E runner now refreshes and validates the live source
+  continuation artifact before provisioning or copying it to the target, so
+  vLLM prefix-cache seeding does not use a stale short prompt.
+- Live MLX source extraction now rewrites the source continuation artifact for
+  every extraction request.
+
+### Changed
+
+- Marked the fresh AWS real-runtime E2E validation horizon complete after the
+  follow-up run restored exact source/post-migration continuation fidelity.
 
 ## [0.1.24-versioning-policy] - 2026-06-20
 

@@ -93,10 +93,10 @@ The run proves that a fresh AWS host can be provisioned, receive the live MLX
 KV cache, write matching vLLM slots, validate target hashes, commit the
 migration, and clean up its disposable resources.
 
-## Fidelity Caveat
+## Fidelity Follow-Up
 
-The successful AWS run did not prove source-exact continuation fidelity. The
-post-migration continuation matched the target baseline exactly for the
+The first successful AWS run did not prove source-exact continuation fidelity.
+The post-migration continuation matched the target baseline exactly for the
 16-token captured horizon, while source-vs-post-migration diverged after the
 first shared token.
 
@@ -109,19 +109,36 @@ The analyzer reported:
 - `matches_target_baseline_exactly: true`
 - `migrated_decode_attachment_supported: false`
 
-The recorded reason was that the continuation prompt did not provide full vLLM
-hash blocks for the target-side prefix-cache attachment path. The next
-validation-focused task should fix or explicitly configure the continuation
-prompt/prefix-cache seeding path, then rerun the AWS real-runtime E2E until
-source-vs-post-migration continuation fidelity is exact again for the selected
-horizon.
+The root cause was a stale local source-continuation file copied to the target
+before the live MLX exporter refreshed it for the current 2016-token prefill.
+That stale file contained a one-token prompt, so vLLM could not compute full
+prefix-cache hash blocks for the migrated prompt.
+
+The follow-up fix refreshed and validated the source continuation before AWS
+provisioning, then rewrote the source continuation on every live MLX extraction.
+The follow-up AWS run completed successfully:
+
+```text
+.permeant-e2e/aws/20260620-144337/
+```
+
+Key evidence from the follow-up run:
+
+- Migration manifest: `migration-20260620-145109-95872-manifest.json`
+- Cleanup verification timestamp: `2026-06-20T15:02:55Z`
+- `hash_validation_success: true`
+- `matches_source_exactly: true`
+- `matches_target_baseline_exactly: true`
+- `migrated_decode_attachment_supported: true`
+- `vllm_prefix_cache_seed_success: true`
+- `vllm_prefix_cache_seeded_block_count: 16`
+- `post_migration_prompt_token_count: 2016`
+- `source_shared_prefix_token_count: 16`
+- Slot-probe validation: pass for every layer
 
 ## Decision
 
 The project now has fresh local E2E evidence and fresh AWS real-runtime
-structural E2E evidence for KV migration, target hash validation, slot writes,
-and cleanup verification.
-
-Further roadmap work can continue, but source-exact AWS decode fidelity should
-be treated as an open validation gap rather than a completed behavioral
-equivalence claim.
+source-exact E2E evidence for KV migration, target hash validation, slot writes,
+prefix-cache attachment, 16-token continuation fidelity, and cleanup
+verification.

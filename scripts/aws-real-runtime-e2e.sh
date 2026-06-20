@@ -118,6 +118,59 @@ with open(path, "w") as f:
 PY
 }
 
+source_extract_url() {
+  local base="${PERMEANT_SOURCE_URL%/}"
+  if [[ "$base" == */extract ]]; then
+    printf '%s\n' "$base"
+  else
+    printf '%s/extract\n' "$base"
+  fi
+}
+
+validate_source_continuation_file() {
+  python3 - "$PERMEANT_SOURCE_CONTINUATION_FILE" "$PERMEANT_SEQ_LEN" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+required_tokens = int(sys.argv[2])
+try:
+    payload = json.loads(path.read_text())
+except FileNotFoundError:
+    raise SystemExit(f"missing source continuation file: {path}")
+except json.JSONDecodeError as exc:
+    raise SystemExit(f"invalid source continuation JSON at {path}: {exc}")
+
+prompt = payload.get("prompt")
+prompt_token_count = payload.get("prompt_token_count")
+prompt_token_ids = payload.get("prompt_token_ids")
+if not isinstance(prompt, str) or not prompt:
+    raise SystemExit("source continuation file does not contain a non-empty prompt")
+if not isinstance(prompt_token_count, int):
+    raise SystemExit("source continuation file does not contain integer prompt_token_count")
+if prompt_token_count < required_tokens:
+    raise SystemExit(
+        f"source continuation prompt_token_count {prompt_token_count} is below required seq_len {required_tokens}"
+    )
+if not isinstance(prompt_token_ids, list) or len(prompt_token_ids) < required_tokens:
+    raise SystemExit(
+        f"source continuation prompt_token_ids length is below required seq_len {required_tokens}"
+    )
+print(f"source continuation ready: prompt_token_count={prompt_token_count}")
+PY
+}
+
+refresh_source_continuation() {
+  log "refreshing source continuation from live exporter"
+  curl -fsS \
+    --max-time 900 \
+    -H 'Content-Type: application/json' \
+    --data "{\"seq_len\":$PERMEANT_SEQ_LEN}" \
+    "$(source_extract_url)" >/dev/null
+  validate_source_continuation_file
+}
+
 load_state() {
   STATE_FILE="${1:-$STATE_FILE}"
   [[ -f "$STATE_FILE" ]] || die "state file not found: $STATE_FILE"
@@ -721,6 +774,7 @@ run_cmd() {
   rm -f "$PERMEANT_STATE_DIR/latest"
   ln -s "$RUN_DIR" "$PERMEANT_STATE_DIR/latest"
   log "state file: $STATE_FILE"
+  refresh_source_continuation
   discover_network
   write_remote_scripts
   provision

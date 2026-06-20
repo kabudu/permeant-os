@@ -230,6 +230,7 @@ def get_live_runtime() -> LiveRuntime:
 def provider(request: dict[str, Any]) -> dict[str, Any]:
     minimum_tokens = int(request.get("seq_len") or _target_seq_len())
     runtime = _ensure_runtime(minimum_tokens)
+    _maybe_write_source_continuation(runtime)
     response = build_extractor_response_from_cache(
         runtime.caches,
         seq_len=minimum_tokens,
