@@ -7,6 +7,8 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.21-transfer-quantization-comparison] - 2026-06-20
+
 ### Added
 
 - Transfer quantization comparison tooling for paired raw-vs-quantized
@@ -279,7 +281,8 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.20-larger-context-matrix...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.21-transfer-quantization-comparison...HEAD
+[0.1.21-transfer-quantization-comparison]: https://github.com/kabudu/permeant-os/compare/v0.1.20-larger-context-matrix...v0.1.21-transfer-quantization-comparison
 [0.1.20-larger-context-matrix]: https://github.com/kabudu/permeant-os/compare/v0.1.19-fidelity-horizon-suite...v0.1.20-larger-context-matrix
 [0.1.19-fidelity-horizon-suite]: https://github.com/kabudu/permeant-os/compare/v0.1.18-reliability-benchmark-pack...v0.1.19-fidelity-horizon-suite
 [0.1.18-reliability-benchmark-pack]: https://github.com/kabudu/permeant-os/compare/v0.1.17-graph-security-policy...v0.1.18-reliability-benchmark-pack
