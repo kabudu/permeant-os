@@ -400,6 +400,10 @@ must reject unknown core node or edge types.
 Writers must set `graph_version` to the lowest schema version that can represent
 the exported graph.
 
+The full public versioning and compatibility policy for USXF, Agent Memory
+Graph, script report schemas, and lightweight release tags is in
+`docs/versioning-policy.md`.
+
 ## Minimal Example
 
 See `tests/fixtures/agent_memory_graph_v0.json` for a complete fixture covering

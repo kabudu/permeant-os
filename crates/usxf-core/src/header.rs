@@ -4,7 +4,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct UsxfHeader {
-    pub usxf_version: String, // Must be "1.1"
+    pub usxf_version: String, // Must match version::USXF_VERSION
     pub model_architecture: String,
     pub model_identity: ModelIdentity,
     pub attention_type: AttentionType,

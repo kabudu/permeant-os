@@ -63,6 +63,8 @@ What is still experimental:
 
 - `ROADMAP.md`: full roadmap, including Agent Memory Graph migration phases.
 - `docs/agent-memory-graph.md`: Agent Memory Graph v0 schema specification.
+- `docs/versioning-policy.md`: USXF, Agent Memory Graph, report schema, and
+  lightweight release versioning policy.
 - `docs/agent-memory-graph-threat-model.md`: local graph import threat model and Phase 8 security controls.
 - `docs/schemas/agent-memory-graph-v0.schema.json`: machine-readable JSON Schema for the graph envelope.
 - `docs/agent-framework-adapters.md`: Agent Memory Graph adapter capability manifest, compatibility matrix, and conformance rules.
@@ -204,6 +206,8 @@ Completed:
 - Agent Memory Graph v0 schema and specification.
 - Machine-readable JSON Schema with validation fixture and contract tests.
 - Published schema identifier: `https://www.permeantos.org/schemas/agent-memory-graph-v0.schema.json`.
+- Public versioning policy for USXF, Agent Memory Graph, report schemas, and
+  lightweight roadmap releases.
 - Minimal local graph export/import harness with deterministic prompt reconstruction, artifact hash verification, prompt token hash capture, and simulated KV hash validation.
 - Optional graph hash, artifact hash, prompt hash, and simulated KV hash fields in migration manifests.
 - Optional graph-to-KV span metadata in migration manifests when an Agent Memory Graph package is supplied.

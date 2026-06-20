@@ -7,6 +7,21 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Public versioning policy for USXF, Agent Memory Graph, script report schemas,
+  compatibility rules, and lightweight roadmap release tags.
+- Public USXF and Agent Memory Graph version constants in the Rust USXF core
+  crate and Python SDK.
+- Versioning policy tests that pin current schema identifiers and report schema
+  strings against documentation and source.
+
+### Changed
+
+- Marked the Phase 10 USXF/Agent Memory Graph versioning policy and
+  manifest/schema compatibility guarantee items complete for the documented
+  policy and pinned public version surfaces.
+
 ## [0.1.23-aws-e2e-preflight-validation] - 2026-06-20
 
 ### Added
