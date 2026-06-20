@@ -272,9 +272,10 @@ Deliverables:
   2k tokens.
 - [x] Transfer quantization comparison tooling for paired real-runtime
   benchmark manifests, with explicit fidelity-evidence gating.
-- [ ] Adaptive KV transfer codec experiments: capability-negotiated raw, FP8,
-  TurboQuant-style, and Quaternion-Augmented TurboQuant candidate codecs, with
-  explicit reversible/lossy semantics and fallback to raw transfer or re-prefill.
+- [x] Adaptive KV transfer codec experiment planning: capability-negotiated
+  raw, FP8, TurboQuant-style, and Quaternion-Augmented TurboQuant candidate
+  codecs, with explicit reversible/lossy semantics and fallback to raw transfer
+  or re-prefill.
 - [x] Failure-injection tests for interrupted graph and KV migration at the
   transport frame boundary.
 - [x] Structured benchmark output suitable for paper updates, including JSON
@@ -399,6 +400,9 @@ Scope:
   context-window requirements.
 - [x] Add paired transfer-quantization comparison tooling for raw-vs-quantized
   manifest batches with explicit fidelity-evidence gating.
+- [x] Add adaptive transfer codec experiment planning for raw, FP8,
+  TurboQuant-style, and Quaternion-Augmented TurboQuant candidate modes with
+  explicit fallback semantics.
 - [x] Prototype graph-attached migration manifest extensions and analyzer
   checks behind the existing Agent Memory Graph manifest path.
 - [x] Add content-addressed artifact packaging and restored-workspace

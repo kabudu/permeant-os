@@ -40,6 +40,7 @@ Current limitations:
 - Paper-ready numbers still require controlled real-runtime batches, including
   repeated runs, hardware/runtime version records, and model/runtime warm-state
   notes.
-- Adaptive codec experiments such as FP8, TurboQuant-style, and
-  Quaternion-Augmented TurboQuant candidates still need runtime implementations
-  before they can produce comparable manifest batches.
+- TurboQuant-style and Quaternion-Augmented TurboQuant candidates still need
+  runtime implementations before they can produce comparable manifest batches;
+  use `scripts/plan-transfer-codecs.py` for explicit experiment planning and
+  fallback decisions.

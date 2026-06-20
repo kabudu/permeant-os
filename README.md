@@ -45,6 +45,9 @@ What is still experimental:
 - Longer-horizon and larger-context benchmark tooling now exists, and
   transfer-quantization comparison tooling can analyze paired benchmark
   manifests; new cloud batches are still needed for broader real-runtime claims.
+- Adaptive transfer codec planning exists for raw, FP8, TurboQuant-style, and
+  Quaternion-Augmented TurboQuant candidate modes; only raw and FP8 are
+  executable in the current runner.
 
 ## Repository layout
 
@@ -71,6 +74,7 @@ What is still experimental:
 - `docs/fidelity-horizon-suite.md`: multi-horizon decode-fidelity comparison tooling.
 - `docs/context-benchmark-matrix.md`: larger-than-2k context benchmark planning.
 - `docs/transfer-quantization-comparison.md`: paired raw-vs-quantized manifest comparison tooling.
+- `docs/adaptive-transfer-codecs.md`: adaptive transfer codec planning, semantics, and fallback behavior.
 - `docs/aws-real-runtime-e2e-runner.md`: repeatable AWS real-runtime E2E runner and cleanup/resume runbook.
 - `docs/aws-prewarm-image.md`: conservative AWS image/container prewarm recipe and cost guardrails.
 - `docs/graph-attached-kv-migration-plan.md`: Phase 3 graph-attached live KV migration plan and acceptance criteria.
@@ -165,6 +169,13 @@ Compare paired raw and transfer-quantized benchmark manifests:
 ```bash
 scripts/compare-transfer-quantization.py benchmark-manifests/<run-label> \
   --markdown-out benchmark-manifests/<run-label>/transfer-quantization.md
+```
+
+Plan adaptive transfer codec experiments and fallbacks:
+
+```bash
+scripts/plan-transfer-codecs.py \
+  --markdown-out benchmark-manifests/transfer-codec-plan.md
 ```
 
 ## Benchmark snapshot

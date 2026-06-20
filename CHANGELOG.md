@@ -7,6 +7,20 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Adaptive transfer codec experiment planner for raw, FP8, TurboQuant-style,
+  and Quaternion-Augmented TurboQuant candidate modes, including capability
+  negotiation, reversible/lossy semantics, transfer estimates, and fallback
+  behavior.
+- Documentation for current codec support boundaries, speculative codec
+  planning, and fidelity-evidence requirements for lossy transfer claims.
+
+### Changed
+
+- Marked the Phase 9 adaptive KV transfer codec experiment item complete for
+  the explicit planning and fallback-semantics scope.
+
 ## [0.1.21-transfer-quantization-comparison] - 2026-06-20
 
 ### Added
