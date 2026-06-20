@@ -40,6 +40,11 @@ objects. It is intentionally an exchange schema: it can represent the durable
 state needed for migration without prescribing a single retrieval algorithm,
 database layout, or agent control loop.
 
+The first adapter conformance mappings are documented in
+`docs/agent-framework-adapters.md`. They exercise the schema against
+LangGraph-style durable state and MCP-backed tool/resource sessions without
+adding third-party runtime dependencies to CI.
+
 ## Goals
 
 - Represent a simple chat, tool, and artifact session as a portable graph.

@@ -92,7 +92,7 @@ def test_local_agent_graph_export_import_roundtrip():
                 "score_breakdown": [
                     {
                         "name": "semantic",
-                        "score": manifest["vector_memory"]["expected_results"][0]["score"],
+                        "value": manifest["vector_memory"]["expected_results"][0]["score"],
                         "weight": 1.0,
                     }
                 ],

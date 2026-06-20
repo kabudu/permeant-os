@@ -7,6 +7,20 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Agent Memory Graph framework adapter conformance layer with dependency-free
+  LangGraph-style durable-state and MCP-backed tool/resource session mappings.
+- Adapter capability manifest, compatibility matrix, export/import
+  conformance CLI, and JSON Schema-backed adapter tests.
+
+### Changed
+
+- Marked Phase 7 runtime adapters for real agent frameworks complete for the
+  conformance-mapping scope.
+- Aligned the local harness retrieval score breakdown payload with the published
+  Agent Memory Graph schema.
+
 ## [0.1.15-vector-retrieval-memory] - 2026-06-20
 
 ### Added
