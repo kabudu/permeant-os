@@ -115,11 +115,142 @@ def test_local_agent_graph_import_rejects_unsafe_package_blob_path():
             raise AssertionError("unsafe package blob path should have failed")
 
 
+def test_local_agent_graph_redacted_artifact_requires_rebind_without_blob():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        workspace_dir = pathlib.Path(temp_dir) / "workspace"
+        policy = harness.ArtifactExportPolicy(redact_paths={"reports/result.json"})
+        manifest = harness.export_session(package_dir, policy)
+        result = harness.import_session(package_dir, workspace_dir)
+        graph = harness.read_json(package_dir / "graph.json")
+        artifact = manifest["artifacts"][0]
+        artifact_node = next(node for node in graph["nodes"] if node["id"] == "artifact:report")
+
+        assert artifact["restore_policy"] == "external_rebind"
+        assert artifact["rebind_required"] is True
+        assert artifact["packaging"] == "redacted"
+        assert "blob_path" not in artifact
+        assert not (package_dir / "artifacts").exists()
+        assert manifest["artifact_policy"]["redacted_artifacts"] == [
+            {"path": "reports/result.json", "reason": "export_policy"}
+        ]
+        assert artifact_node["redaction_state"] == "redacted"
+        assert artifact_node["restore_policy"] == "external_rebind"
+        assert result["verified_artifacts"] == [
+            {
+                "path": "reports/result.json",
+                "sha256": artifact["sha256"],
+                "status": "rebind_required",
+                "policy": "external_rebind",
+            }
+        ]
+        assert result["restore_report"] == [
+            {
+                "path": "reports/result.json",
+                "status": "rebind_required",
+                "policy": "external_rebind",
+                "sha256": artifact["sha256"],
+            }
+        ]
+        assert not (workspace_dir / "reports" / "result.json").exists()
+
+
+def test_local_agent_graph_excluded_artifact_requires_rebind_without_blob():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        policy = harness.ArtifactExportPolicy(exclude_paths={"reports/result.json"})
+        manifest = harness.export_session(package_dir, policy)
+        graph = harness.read_json(package_dir / "graph.json")
+        artifact = manifest["artifacts"][0]
+        artifact_node = next(node for node in graph["nodes"] if node["id"] == "artifact:report")
+
+        assert artifact["restore_policy"] == "external_rebind"
+        assert artifact["rebind_required"] is True
+        assert artifact["packaging"] == "excluded"
+        assert "blob_path" not in artifact
+        assert not (package_dir / "artifacts").exists()
+        assert manifest["artifact_policy"]["excluded_artifacts"] == [
+            {"path": "reports/result.json", "reason": "export_policy"}
+        ]
+        assert artifact_node["redaction_state"] == "external_only"
+        assert artifact_node["artifact_kind"] == "external"
+
+
+def test_local_agent_graph_import_rejects_unresolved_artifact_without_rebind_policy():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        manifest = harness.export_session(package_dir)
+        manifest["artifacts"][0].pop("blob_path")
+        harness.write_json(package_dir / "manifest.json", manifest)
+
+        try:
+            harness.import_session(package_dir)
+        except harness.ImportVerificationError as exc:
+            assert "unresolved artifact is not explicitly rebindable" in str(exc)
+        else:
+            raise AssertionError("unresolved non-rebindable artifact should have failed")
+
+
+def test_local_agent_graph_import_rejects_rebind_artifact_without_explicit_marker():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        policy = harness.ArtifactExportPolicy(redact_paths={"reports/result.json"})
+        manifest = harness.export_session(package_dir, policy)
+        manifest["artifacts"][0].pop("rebind_required")
+        harness.write_json(package_dir / "manifest.json", manifest)
+
+        try:
+            harness.import_session(package_dir)
+        except harness.ImportVerificationError as exc:
+            assert "explicitly marked rebindable" in str(exc)
+        else:
+            raise AssertionError("external artifact without rebind marker should have failed")
+
+
+def test_local_agent_graph_restores_large_artifact_blob():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        workspace_dir = pathlib.Path(temp_dir) / "workspace"
+        manifest = harness.export_session(package_dir)
+        artifact = manifest["artifacts"][0]
+        large_payload = b"permeant-large-artifact\n" * 100_000
+        large_hash = harness.sha256_bytes(large_payload)
+        large_blob_path = harness.content_addressed_blob_path(large_hash, artifact["path"])
+        large_blob = package_dir / large_blob_path
+        large_blob.parent.mkdir(parents=True, exist_ok=True)
+        large_blob.write_bytes(large_payload)
+        old_blob = package_dir / artifact["blob_path"]
+        old_blob.unlink()
+
+        artifact["blob_path"] = large_blob_path
+        artifact["sha256"] = large_hash
+        artifact["size_bytes"] = len(large_payload)
+        manifest["deterministic_next_response"] = harness.deterministic_continue(
+            harness.reconstruct_prompt(harness.read_json(package_dir / "graph.json")),
+            large_hash,
+        )
+        harness.write_json(package_dir / "manifest.json", manifest)
+
+        result = harness.import_session(package_dir, workspace_dir)
+        restored = workspace_dir / artifact["target_path"]
+
+        assert restored.exists()
+        assert restored.stat().st_size == len(large_payload)
+        assert harness.file_sha256_and_size(restored) == (large_hash, len(large_payload))
+        assert result["restore_report"][0]["size_bytes"] == len(large_payload)
+
+
 def test_local_agent_graph_prompt_reconstruction_is_deterministic():
     harness = load_harness()
     session = harness.run_reference_session()
     prompt_a = harness.reconstruct_prompt_from_messages(session.messages)
-    graph = harness.build_graph(session, harness.sha256_bytes(session.artifact_bytes), prompt_a)
+    artifact_record = harness.build_artifact_record(session, harness.ArtifactExportPolicy())
+    graph = harness.build_graph(session, artifact_record, prompt_a)
     prompt_b = harness.reconstruct_prompt(graph)
 
     assert prompt_a == prompt_b

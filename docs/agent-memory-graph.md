@@ -202,10 +202,13 @@ The local reference harness packages file artifacts in a content-addressed blob
 store under `artifacts/sha256/<prefix>/<digest>/`. Import first verifies the
 manifest hash, graph hash, artifact hash, and artifact size, then restores each
 required artifact into a target workspace using a preserve-relative-path policy.
-Absolute paths and `..` traversal are rejected before any target file is
-written. Missing or mismatched required artifacts fail import; external
-artifacts should use explicit rebind policy metadata before unresolved graph
-references are accepted.
+Artifact verification and restore use streaming hash/copy helpers so large blobs
+do not need to be loaded as one in-memory buffer. Absolute paths and `..`
+traversal are rejected before any target file is written. Missing or mismatched
+required artifacts fail import. Redacted or excluded artifact bytes may be
+omitted from a package only when the manifest marks the artifact with
+`restore_policy: "external_rebind"` and `rebind_required: true`; unresolved
+artifact references without that explicit rebind policy fail import.
 
 ### Memory Nodes
 

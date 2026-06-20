@@ -14,6 +14,10 @@ The harness:
 - imports the package and verifies every recorded hash before restoring files;
 - restores artifact files into a target workspace under a preserve-relative-path
   policy;
+- supports export-time artifact redaction/exclusion rules that omit local blob
+  bytes and force explicit target rebind before use;
+- verifies and restores artifact blobs with streaming hash/copy helpers so large
+  files do not need to be loaded into memory as one buffer;
 - reconstructs the prompt byte-for-byte; and
 - produces the same deterministic continuation after import.
 
@@ -49,7 +53,20 @@ python3 examples/agent-memory-graph/local_agent.py import \
 
 The importer rejects absolute paths and `..` path traversal before writing
 restored artifacts. Required artifacts fail import on missing blobs or hash
-mismatch; future external artifacts can use rebind or quarantine policies.
+mismatch. Unresolved artifacts are rejected unless they use
+`restore_policy: "external_rebind"` and `rebind_required: true`.
+
+To omit artifact bytes from the exported package while preserving an explicit
+rebind requirement:
+
+```bash
+python3 examples/agent-memory-graph/local_agent.py export \
+  --output /tmp/permeant-agent-graph-redacted \
+  --redact-artifact reports/result.json
+```
+
+`--exclude-artifact reports/result.json` follows the same safety boundary but
+records the omission as an exclusion instead of a redaction.
 
 This validates graph-only migration. Live KV-cache attachment remains a later
 roadmap item.

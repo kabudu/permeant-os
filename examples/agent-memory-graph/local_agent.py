@@ -18,7 +18,7 @@ import copy
 import hashlib
 import json
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +33,7 @@ RUNTIME_ID = "examples/agent-memory-graph"
 TOKENIZER_HASH = "sha256:" + hashlib.sha256(b"permeant-local-byte-tokenizer-v0").hexdigest()
 ARTIFACT_STORE_VERSION = "content-addressed-v0"
 RESTORE_POLICY_VERSION = "workspace-relative-v0"
+STREAM_CHUNK_SIZE = 1024 * 1024
 
 
 class ImportVerificationError(ValueError):
@@ -47,6 +48,34 @@ class LocalSession:
     deterministic_response: str
 
 
+@dataclass(frozen=True)
+class ArtifactExportPolicy:
+    """Controls whether local artifact bytes may be packaged."""
+
+    exclude_paths: set[str] = field(default_factory=set)
+    redact_paths: set[str] = field(default_factory=set)
+
+    def disposition_for(self, path: str) -> str:
+        if path in self.exclude_paths:
+            return "excluded"
+        if path in self.redact_paths:
+            return "redacted"
+        return "packaged"
+
+
+@dataclass(frozen=True)
+class ArtifactRecord:
+    path: str
+    content_hash: str
+    size_bytes: int
+    media_type: str
+    disposition: str
+    blob_path: str | None
+    restore_policy: str
+    target_path: str
+    rebind_required: bool = False
+
+
 def sha256_bytes(data: bytes) -> str:
     return "sha256:" + hashlib.sha256(data).hexdigest()
 
@@ -58,6 +87,28 @@ def sha256_json(value: Any) -> str:
 
 def sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def file_sha256_and_size(path: Path) -> tuple[str, int]:
+    hasher = hashlib.sha256()
+    size = 0
+    with path.open("rb") as handle:
+        while chunk := handle.read(STREAM_CHUNK_SIZE):
+            size += len(chunk)
+            hasher.update(chunk)
+    return "sha256:" + hasher.hexdigest(), size
+
+
+def copy_file_streaming_with_hash(source: Path, target: Path) -> tuple[str, int]:
+    hasher = hashlib.sha256()
+    size = 0
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with source.open("rb") as source_handle, target.open("wb") as target_handle:
+        while chunk := source_handle.read(STREAM_CHUNK_SIZE):
+            size += len(chunk)
+            hasher.update(chunk)
+            target_handle.write(chunk)
+    return "sha256:" + hasher.hexdigest(), size
 
 
 def write_json(path: Path, value: Any) -> None:
@@ -187,7 +238,63 @@ def base_node(node_id: str, node_type: str, payload: dict[str, Any]) -> dict[str
     return node
 
 
-def build_graph(session: LocalSession, artifact_hash: str, prompt: str) -> dict[str, Any]:
+def build_artifact_record(session: LocalSession, policy: ArtifactExportPolicy) -> ArtifactRecord:
+    artifact_hash = sha256_bytes(session.artifact_bytes)
+    disposition = policy.disposition_for(session.artifact_path)
+    if disposition == "packaged":
+        blob_path = content_addressed_blob_path(artifact_hash, session.artifact_path)
+        restore_policy = "required"
+        rebind_required = False
+    else:
+        blob_path = None
+        restore_policy = "external_rebind"
+        rebind_required = True
+
+    return ArtifactRecord(
+        path=session.artifact_path,
+        content_hash=artifact_hash,
+        size_bytes=len(session.artifact_bytes),
+        media_type="application/json",
+        disposition=disposition,
+        blob_path=blob_path,
+        restore_policy=restore_policy,
+        target_path=session.artifact_path,
+        rebind_required=rebind_required,
+    )
+
+
+def artifact_node_payload(record: ArtifactRecord) -> dict[str, Any]:
+    payload = {
+        "actor_id": TOOL_ID,
+        "memory_scope": "thread",
+        "memory_tier": "archival",
+        "sensitivity": "internal",
+        "retention": "durable",
+        "redaction_state": "none",
+        "artifact_kind": "file",
+        "path": record.path,
+        "uri": f"artifact://local/{record.path}",
+        "sha256": record.content_hash.removeprefix("sha256:"),
+        "size_bytes": record.size_bytes,
+        "media_type": record.media_type,
+        "root_ref": "artifact-root:local-export",
+        "restore_policy": "required",
+    }
+    if record.disposition != "packaged":
+        payload.update(
+            {
+                "redaction_state": "redacted" if record.disposition == "redacted" else "external_only",
+                "artifact_kind": "external",
+                "uri": f"artifact://{record.disposition}/{record.path}",
+                "restore_policy": "external_rebind",
+                "rebind_required": True,
+                "packaging": record.disposition,
+            }
+        )
+    return payload
+
+
+def build_graph(session: LocalSession, artifact_record: ArtifactRecord, prompt: str) -> dict[str, Any]:
     prompt_tokens = tokenize_prompt(prompt)
     nodes: list[dict[str, Any]] = [
         base_node(
@@ -244,7 +351,9 @@ def build_graph(session: LocalSession, artifact_hash: str, prompt: str) -> dict[
                     "name": "fs.write_file",
                     "provider": "local-reference",
                     "call_id": "call:write-report",
-                    "arguments_hash": sha256_json({"path": session.artifact_path, "content_sha256": artifact_hash}),
+                    "arguments_hash": sha256_json(
+                        {"path": session.artifact_path, "content_sha256": artifact_record.content_hash}
+                    ),
                     "input_schema_hash": sha256_json({"path": "string", "content": "string"}),
                     "idempotency_key": "local-reference-write-report",
                     "side_effect": "external_write",
@@ -264,7 +373,9 @@ def build_graph(session: LocalSession, artifact_hash: str, prompt: str) -> dict[
                     "sensitivity": "internal",
                     "retention": "durable",
                     "redaction_state": "none",
-                    "result_hash": sha256_json({"path": session.artifact_path, "sha256": artifact_hash}),
+                    "result_hash": sha256_json(
+                        {"path": session.artifact_path, "sha256": artifact_record.content_hash}
+                    ),
                     "output_schema_hash": sha256_json({"path": "string", "sha256": "string"}),
                     "is_error": False,
                     "resource_refs": [f"artifact:{session.artifact_path}"],
@@ -274,22 +385,7 @@ def build_graph(session: LocalSession, artifact_hash: str, prompt: str) -> dict[
             base_node(
                 "artifact:report",
                 "artifact",
-                {
-                    "actor_id": TOOL_ID,
-                    "memory_scope": "thread",
-                    "memory_tier": "archival",
-                    "sensitivity": "internal",
-                    "retention": "durable",
-                    "redaction_state": "none",
-                    "artifact_kind": "file",
-                    "path": session.artifact_path,
-                    "uri": f"artifact://local/{session.artifact_path}",
-                    "sha256": artifact_hash.removeprefix("sha256:"),
-                    "size_bytes": len(session.artifact_bytes),
-                    "media_type": "application/json",
-                    "root_ref": "artifact-root:local-export",
-                    "restore_policy": "required",
-                },
+                artifact_node_payload(artifact_record),
             ),
             base_node(
                 "memory:report-fact",
@@ -422,10 +518,31 @@ def build_graph(session: LocalSession, artifact_hash: str, prompt: str) -> dict[
     return graph
 
 
-def build_manifest(graph: dict[str, Any], session: LocalSession, prompt: str) -> dict[str, Any]:
+def manifest_artifact(record: ArtifactRecord) -> dict[str, Any]:
+    artifact = {
+        "path": record.path,
+        "sha256": record.content_hash,
+        "size_bytes": record.size_bytes,
+        "media_type": record.media_type,
+        "restore_policy": record.restore_policy,
+        "target_path": record.target_path,
+        "packaging": record.disposition,
+    }
+    if record.blob_path is not None:
+        artifact["blob_path"] = record.blob_path
+    if record.rebind_required:
+        artifact["rebind_required"] = True
+    return artifact
+
+
+def artifact_policy_entries(record: ArtifactRecord, disposition: str) -> list[dict[str, str]]:
+    if record.disposition != disposition:
+        return []
+    return [{"path": record.path, "reason": "export_policy"}]
+
+
+def build_manifest(graph: dict[str, Any], session: LocalSession, prompt: str, artifact_record: ArtifactRecord) -> dict[str, Any]:
     prompt_tokens = tokenize_prompt(prompt)
-    artifact_hash = sha256_bytes(session.artifact_bytes)
-    artifact_blob_path = content_addressed_blob_path(artifact_hash, session.artifact_path)
     return {
         "manifest_version": "0.1",
         "created_at": CREATED_AT,
@@ -442,6 +559,7 @@ def build_manifest(graph: dict[str, Any], session: LocalSession, prompt: str) ->
             "path_mapping": "preserve-relative-path",
             "on_hash_mismatch": "fail",
             "on_missing_required": "fail",
+            "on_unresolved_external": "require_explicit_rebind",
         },
         "prompt": {
             "reconstruction": "permeant-local-reference-template-v0",
@@ -456,33 +574,33 @@ def build_manifest(graph: dict[str, Any], session: LocalSession, prompt: str) ->
             "kv_hash": simulated_kv_hash(prompt_tokens),
         },
         "kv_spans": graph["kv_spans"],
-        "artifacts": [
-            {
-                "path": session.artifact_path,
-                "blob_path": artifact_blob_path,
-                "sha256": artifact_hash,
-                "size_bytes": len(session.artifact_bytes),
-                "media_type": "application/json",
-                "restore_policy": "required",
-                "target_path": session.artifact_path,
-            }
-        ],
+        "artifact_policy": {
+            "version": "artifact-export-policy-v0",
+            "excluded_artifacts": artifact_policy_entries(artifact_record, "excluded"),
+            "redacted_artifacts": artifact_policy_entries(artifact_record, "redacted"),
+        },
+        "artifacts": [manifest_artifact(artifact_record)],
         "deterministic_next_response": session.deterministic_response,
     }
 
 
-def export_session(output_dir: Path) -> dict[str, Any]:
+def export_session(
+    output_dir: Path,
+    artifact_policy: ArtifactExportPolicy | None = None,
+) -> dict[str, Any]:
+    artifact_policy = artifact_policy or ArtifactExportPolicy()
     session = run_reference_session()
     prompt = reconstruct_prompt_from_messages(session.messages)
-    artifact_hash = sha256_bytes(session.artifact_bytes)
-    graph = build_graph(session, artifact_hash, prompt)
-    manifest = build_manifest(graph, session, prompt)
+    artifact_record = build_artifact_record(session, artifact_policy)
+    graph = build_graph(session, artifact_record, prompt)
+    manifest = build_manifest(graph, session, prompt, artifact_record)
 
     if output_dir.exists():
         shutil.rmtree(output_dir)
-    artifact_file = output_dir / manifest["artifacts"][0]["blob_path"]
-    artifact_file.parent.mkdir(parents=True, exist_ok=True)
-    artifact_file.write_bytes(session.artifact_bytes)
+    if artifact_record.blob_path is not None:
+        artifact_file = output_dir / artifact_record.blob_path
+        artifact_file.parent.mkdir(parents=True, exist_ok=True)
+        artifact_file.write_bytes(session.artifact_bytes)
     write_json(output_dir / "graph.json", graph)
     write_json(output_dir / "manifest.json", manifest)
     return manifest
@@ -496,23 +614,48 @@ def verify_graph(graph: dict[str, Any], expected_hash: str) -> None:
         raise ImportVerificationError("graph hash field does not match manifest")
 
 
+def validate_artifact_manifest_entry(artifact: dict[str, Any]) -> None:
+    policy = artifact.get("restore_policy", "required")
+    has_blob = bool(artifact.get("blob_path"))
+    if not artifact.get("sha256"):
+        raise ImportVerificationError(f"artifact is missing sha256 evidence: {artifact.get('path', '<unknown>')}")
+    if policy == "external_rebind":
+        if has_blob:
+            raise ImportVerificationError(f"external rebind artifact must not include a blob path: {artifact['path']}")
+        if artifact.get("rebind_required") is not True:
+            raise ImportVerificationError(f"external artifact must be explicitly marked rebindable: {artifact['path']}")
+        return
+    if not has_blob:
+        raise ImportVerificationError(
+            f"unresolved artifact is not explicitly rebindable: {artifact.get('path', '<unknown>')}"
+        )
+
+
 def verify_artifacts(package_dir: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
     verified = []
     for artifact in manifest["artifacts"]:
+        validate_artifact_manifest_entry(artifact)
+        if artifact.get("restore_policy") == "external_rebind":
+            verified.append(
+                {
+                    "path": artifact["path"],
+                    "sha256": artifact.get("sha256"),
+                    "status": "rebind_required",
+                    "policy": "external_rebind",
+                }
+            )
+            continue
         blob = package_dir / safe_package_relative_path(artifact["blob_path"])
         if not blob.exists():
             raise ImportVerificationError(f"missing artifact blob: {artifact['blob_path']}")
-        data = blob.read_bytes()
-        actual_hash = sha256_bytes(data)
+        actual_hash, actual_size = file_sha256_and_size(blob)
         if actual_hash != artifact["sha256"]:
             raise ImportVerificationError(
                 f"artifact hash mismatch for {artifact['path']}: expected {artifact['sha256']}, got {actual_hash}"
             )
-        if len(data) != artifact["size_bytes"]:
+        if actual_size != artifact["size_bytes"]:
             raise ImportVerificationError(f"artifact size mismatch for {artifact['path']}")
-        verified.append(
-            {"path": artifact["path"], "blob_path": artifact["blob_path"], "sha256": actual_hash}
-        )
+        verified.append({"path": artifact["path"], "blob_path": artifact["blob_path"], "sha256": actual_hash})
     return verified
 
 
@@ -530,7 +673,7 @@ def restore_artifacts(
                     "path": artifact["path"],
                     "status": "rebind_required",
                     "policy": policy,
-                    "sha256": artifact["sha256"],
+                    "sha256": artifact.get("sha256"),
                 }
             )
             continue
@@ -540,20 +683,19 @@ def restore_artifacts(
             artifact.get("target_path", artifact["path"])
         )
         target = workspace_dir / target_relative
-        data = source.read_bytes()
-        actual_hash = sha256_bytes(data)
+        actual_hash, actual_size = file_sha256_and_size(source)
         if actual_hash != artifact["sha256"]:
             if policy == "quarantine_on_mismatch":
                 quarantine = workspace_dir / ".permeantos-quarantine" / target_relative
-                quarantine.parent.mkdir(parents=True, exist_ok=True)
-                quarantine.write_bytes(data)
+                quarantine_hash, quarantine_size = copy_file_streaming_with_hash(source, quarantine)
                 report.append(
                     {
                         "path": artifact["path"],
                         "target_path": str(quarantine),
                         "status": "quarantined",
                         "policy": policy,
-                        "sha256": actual_hash,
+                        "sha256": quarantine_hash,
+                        "size_bytes": quarantine_size,
                     }
                 )
                 continue
@@ -561,16 +703,15 @@ def restore_artifacts(
                 f"artifact hash mismatch while restoring {artifact['path']}: "
                 f"expected {artifact['sha256']}, got {actual_hash}"
             )
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        restored_hash, restored_size = copy_file_streaming_with_hash(source, target)
         report.append(
             {
                 "path": artifact["path"],
                 "target_path": str(target_relative),
                 "status": "restored",
                 "policy": policy,
-                "sha256": actual_hash,
-                "size_bytes": len(data),
+                "sha256": restored_hash,
+                "size_bytes": restored_size,
             }
         )
     return report
@@ -618,7 +759,11 @@ def import_session(package_dir: Path, workspace_dir: Path | None = None) -> dict
 
 
 def command_export(args: argparse.Namespace) -> None:
-    manifest = export_session(Path(args.output))
+    artifact_policy = ArtifactExportPolicy(
+        exclude_paths=set(args.exclude_artifact),
+        redact_paths=set(args.redact_artifact),
+    )
+    manifest = export_session(Path(args.output), artifact_policy)
     print(json.dumps({"exported": str(args.output), "graph_hash": manifest["graph_hash"]}, sort_keys=True))
 
 
@@ -649,6 +794,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     export_parser = subcommands.add_parser("export", help="export the deterministic local session")
     export_parser.add_argument("--output", required=True, help="output package directory")
+    export_parser.add_argument(
+        "--exclude-artifact",
+        action="append",
+        default=[],
+        help="artifact path whose bytes must be omitted and imported through explicit rebind",
+    )
+    export_parser.add_argument(
+        "--redact-artifact",
+        action="append",
+        default=[],
+        help="artifact path whose bytes must be redacted and imported through explicit rebind",
+    )
     export_parser.set_defaults(func=command_export)
 
     import_parser = subcommands.add_parser("import", help="import and verify a package")

@@ -148,8 +148,8 @@ Deliverables:
 
 - [x] Content-addressed artifact store for the local Agent Memory Graph package.
 - [x] Path mapping policy for target workspaces in the local import path.
-- [ ] Redaction/exclusion rules.
-- [ ] Large-file streaming support.
+- [x] Redaction/exclusion rules.
+- [x] Large-file streaming support.
 - [x] Artifact restore report for restored local files.
 
 Validation:
@@ -164,7 +164,7 @@ Exit criteria:
 - [x] File artifacts are reproducibly restored by the local harness.
 - [x] Local graph references fail import when required blobs are missing or
   invalid.
-- [ ] External artifacts are explicitly marked rebindable before graph
+- [x] External artifacts are explicitly marked rebindable before graph
   references may remain unresolved.
 
 ## Phase 5: Tool-call replay and side-effect safety

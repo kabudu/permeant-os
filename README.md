@@ -26,6 +26,7 @@ What works today:
 - Exact short-horizon MLX-to-vLLM continuation fidelity for one validated Qwen run.
 - Agent Memory Graph v0 schema and specification for portable conversation, tool, artifact, memory, checkpoint, provenance, and KV-span state.
 - Minimal local Agent Memory Graph export/import harness with deterministic prompt reconstruction, content-addressed artifact packaging, artifact hash verification, and restored-workspace validation.
+- Local artifact migration safety policies for redacted/excluded artifacts, explicit external rebind requirements, and streaming artifact verification/restoration.
 - Optional Agent Memory Graph hash metadata in migration manifests.
 
 What is still experimental:
@@ -144,6 +145,7 @@ Completed:
 - Optional graph hash, artifact hash, prompt hash, and simulated KV hash fields in migration manifests.
 - Optional graph-to-KV span metadata in migration manifests when an Agent Memory Graph package is supplied.
 - Content-addressed artifact packaging and restored-workspace verification in the local graph harness.
+- Artifact redaction/exclusion policies, explicit external rebind validation, and streaming large-file artifact verification/restoration in the local graph harness.
 - Adapter-side graph span metadata emitted by the MLX live runtime and validated against the vLLM target tokenizer view before target ingest.
 - Daemon transaction binding for manifest-referenced graph packages, rejected before commit when required graph/KV evidence is incomplete or does not match the migrated KV header.
 - Analyzer reporting for prompt, graph, graph/KV span, and KV alignment in fidelity summaries.
