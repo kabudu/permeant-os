@@ -7,6 +7,8 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.28-qatq-reverse-runtime-e2e] - 2026-06-20
+
 ### Added
 
 - Experimental Quaternion-Augmented TurboQuant (`qatq`) transfer codec path
@@ -432,7 +434,8 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.27-complex-agent-e2e...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.28-qatq-reverse-runtime-e2e...HEAD
+[0.1.28-qatq-reverse-runtime-e2e]: https://github.com/kabudu/permeant-os/compare/v0.1.27-complex-agent-e2e...v0.1.28-qatq-reverse-runtime-e2e
 [0.1.27-complex-agent-e2e]: https://github.com/kabudu/permeant-os/compare/v0.1.26-graph-attached-fp8-e2e...v0.1.27-complex-agent-e2e
 [0.1.26-graph-attached-fp8-e2e]: https://github.com/kabudu/permeant-os/compare/v0.1.25-aws-source-exact-e2e...v0.1.26-graph-attached-fp8-e2e
 [0.1.25-aws-source-exact-e2e]: https://github.com/kabudu/permeant-os/compare/v0.1.24-versioning-policy...v0.1.25-aws-source-exact-e2e
