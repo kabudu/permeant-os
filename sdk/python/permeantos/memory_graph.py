@@ -2,6 +2,11 @@ import hashlib
 import json
 import time
 
+USXF_VERSION = "1.1"
+AGENT_MEMORY_GRAPH_SCHEMA_ID = "https://www.permeantos.org/schemas/agent-memory-graph-v0.schema.json"
+AGENT_MEMORY_GRAPH_GRAPH_VERSION = "0.1"
+
+
 class AgentMemoryGraph:
     """
     Tracks agent convo turn history, token ID lists, role tags, and turn boundaries.
@@ -63,7 +68,7 @@ class AgentMemoryGraph:
             block_hashes.append(f"sha256:{hasher.hexdigest()}")
             
         return {
-            "usxf_version": "1.1",
+            "usxf_version": USXF_VERSION,
             "model_architecture": model_arch,
             "model_identity": {
                 "config_hash": f"sha256:{config_hash}",

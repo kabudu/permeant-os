@@ -1,12 +1,14 @@
 use crate::header::{AttentionType, UsxfHeader};
+use crate::version::USXF_VERSION;
 use anyhow::{bail, Result};
 use sha2::{Digest, Sha256};
 
-/// Validates the structure and constraints of the USXF v1.1 Header
+/// Validates the structure and constraints of the current USXF header version.
 pub fn validate_header(header: &UsxfHeader) -> Result<()> {
-    if header.usxf_version != "1.1" {
+    if header.usxf_version != USXF_VERSION {
         bail!(
-            "Invalid USXF version: expected '1.1', found '{}'",
+            "Invalid USXF version: expected '{}', found '{}'",
+            USXF_VERSION,
             header.usxf_version
         );
     }

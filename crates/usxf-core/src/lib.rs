@@ -1,10 +1,12 @@
 pub mod crypto;
 pub mod header;
 pub mod validation;
+pub mod version;
 
 pub use crypto::*;
 pub use header::*;
 pub use validation::*;
+pub use version::*;
 
 #[cfg(test)]
 mod tests {
@@ -19,7 +21,7 @@ mod tests {
         assert_eq!(block_hashes.len(), 3);
 
         let header = UsxfHeader {
-            usxf_version: "1.1".to_string(),
+            usxf_version: USXF_VERSION.to_string(),
             model_architecture: "Llama-3.1-8B".to_string(),
             model_identity: ModelIdentity {
                 config_hash:

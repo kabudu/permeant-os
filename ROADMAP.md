@@ -297,7 +297,7 @@ Turn research prototype surfaces into documented integration points.
 
 Deliverables:
 
-- Stable USXF/Agent Memory Graph versioning policy.
+- [x] Stable USXF/Agent Memory Graph versioning policy.
 - Rust crates API documentation.
 - Python adapter SDK documentation.
 - Example applications.
@@ -305,7 +305,7 @@ Deliverables:
 - Pull request CI for Rust and Python validation.
 - Tag and release validation workflow once binaries, crates, or GitHub Releases
   become part of the release process.
-- Compatibility guarantees for manifests and graph schemas.
+- [x] Compatibility guarantees for manifests and graph schemas.
 
 Exit criteria:
 

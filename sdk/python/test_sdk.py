@@ -8,7 +8,13 @@ import threading
 # Add sdk/python directory to python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from permeantos import AgentMemoryGraph, PermeantClient
+from permeantos import (
+    AGENT_MEMORY_GRAPH_GRAPH_VERSION,
+    AGENT_MEMORY_GRAPH_SCHEMA_ID,
+    USXF_VERSION,
+    AgentMemoryGraph,
+    PermeantClient,
+)
 
 def test_memory_graph_and_metadata():
     print("Testing AgentMemoryGraph...")
@@ -25,7 +31,10 @@ def test_memory_graph_and_metadata():
     assert chat_state["turn_boundaries"] == [0, 4, 7, 11]
     
     header = mg.serialize_metadata_header("Llama-3.1-8B-Instruct", "7f8e9a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f")
-    assert header["usxf_version"] == "1.1"
+    assert USXF_VERSION == "1.1"
+    assert AGENT_MEMORY_GRAPH_GRAPH_VERSION == "0.1"
+    assert AGENT_MEMORY_GRAPH_SCHEMA_ID == "https://www.permeantos.org/schemas/agent-memory-graph-v0.schema.json"
+    assert header["usxf_version"] == USXF_VERSION
     assert header["seq_len"] == 11
     assert header["batch_size"] == 1
     assert len(header["block_hashes"]) == 1
