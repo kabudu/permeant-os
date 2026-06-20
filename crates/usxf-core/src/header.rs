@@ -4,7 +4,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct UsxfHeader {
-    pub usxf_version: String,                    // Must be "1.1"
+    pub usxf_version: String, // Must be "1.1"
     pub model_architecture: String,
     pub model_identity: ModelIdentity,
     pub attention_type: AttentionType,
@@ -15,22 +15,22 @@ pub struct UsxfHeader {
     pub chat_state: Option<ChatState>,
     pub token_ids: Vec<u32>,
     pub seq_len: usize,
-    pub batch_size: u32,                         // Currently must be 1
+    pub batch_size: u32, // Currently must be 1
     pub dtype: ExchangeDtype,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_quantization: Option<QuantizationInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transfer_quantization: Option<QuantizationInfo>,
     pub block_size: usize,
-    pub block_hashes: Vec<String>,               // "sha256:..."
+    pub block_hashes: Vec<String>, // "sha256:..."
     #[serde(skip_serializing_if = "Option::is_none")]
     pub position_ids: Option<Vec<usize>>,
     #[serde(default)]
     pub extra: HashMap<String, serde_json::Value>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub extractor_id: String,
-    pub checksum: String,                        // "sha256:..."
-    pub signature: String,                       // "ed25519:..."
+    pub checksum: String,  // "sha256:..."
+    pub signature: String, // "ed25519:..."
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -48,7 +48,7 @@ pub enum AttentionType {
 #[serde(rename_all = "snake_case")]
 pub enum ExchangeDtype {
     Float16,
-    Bfloat16,      // Recommended default
+    Bfloat16, // Recommended default
     Float32,
 }
 
@@ -86,7 +86,7 @@ pub struct ChatState {
     pub template_name: String,
     pub template_hash: String,
     pub turn_boundaries: Vec<usize>,
-    pub roles: Vec<String>,                    // "system", "user", etc.
+    pub roles: Vec<String>, // "system", "user", etc.
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

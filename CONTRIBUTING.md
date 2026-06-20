@@ -28,6 +28,16 @@ Before opening a pull request:
 cargo build
 ```
 
+Before opening a pull request, run the same core checks as PR CI:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked
+python -m pytest tests
+python sdk/python/test_sdk.py
+```
+
 Run the local simulated daemon and migration in separate terminals:
 
 ```bash

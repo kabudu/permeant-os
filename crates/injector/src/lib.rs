@@ -6,6 +6,7 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 #[derive(Debug, Clone)]
+#[allow(non_camel_case_types)]
 pub struct KVConnectorBase_V1 {
     block_size: usize,
     backend: InjectorBackend,
@@ -53,8 +54,8 @@ impl KVConnectorBase_V1 {
     pub fn new(block_size: usize) -> Self {
         let backend = match std::env::var("PERMEANT_INJECTOR_MODE") {
             Ok(value) if value.eq_ignore_ascii_case("json_command") => {
-                let command = std::env::var("PERMEANT_INJECTOR_CMD")
-                    .unwrap_or_else(|_| "".to_string());
+                let command =
+                    std::env::var("PERMEANT_INJECTOR_CMD").unwrap_or_else(|_| "".to_string());
                 InjectorBackend::JsonCommand { command }
             }
             _ => InjectorBackend::Mock {
@@ -62,7 +63,10 @@ impl KVConnectorBase_V1 {
             },
         };
 
-        Self { block_size, backend }
+        Self {
+            block_size,
+            backend,
+        }
     }
 
     pub fn inject_block_tensors(
@@ -77,7 +81,9 @@ impl KVConnectorBase_V1 {
             }
             InjectorBackend::JsonCommand { command } => {
                 if command.trim().is_empty() {
-                    bail!("PERMEANT_INJECTOR_CMD must be set when PERMEANT_INJECTOR_MODE=json_command");
+                    bail!(
+                        "PERMEANT_INJECTOR_CMD must be set when PERMEANT_INJECTOR_MODE=json_command"
+                    );
                 }
 
                 let request = InjectorRequest::InjectBlock {
@@ -114,7 +120,9 @@ impl KVConnectorBase_V1 {
             }
             InjectorBackend::JsonCommand { command } => {
                 if command.trim().is_empty() {
-                    bail!("PERMEANT_INJECTOR_CMD must be set when PERMEANT_INJECTOR_MODE=json_command");
+                    bail!(
+                        "PERMEANT_INJECTOR_CMD must be set when PERMEANT_INJECTOR_MODE=json_command"
+                    );
                 }
 
                 let request = InjectorRequest::VerifyContinuation {
@@ -145,7 +153,9 @@ fn run_injector_command(command: &str, request: &InjectorRequest) -> Result<()> 
             .context("Failed to write injector request to stdin")?;
     }
 
-    let output = child.wait_with_output().context("Failed to wait for injector command")?;
+    let output = child
+        .wait_with_output()
+        .context("Failed to wait for injector command")?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         bail!("Injector command failed: {}", stderr.trim());
@@ -169,7 +179,9 @@ fn run_injector_command(command: &str, request: &InjectorRequest) -> Result<()> 
     } else {
         bail!(
             "Injector command reported failure: {}",
-            response.error.unwrap_or_else(|| "unknown error".to_string())
+            response
+                .error
+                .unwrap_or_else(|| "unknown error".to_string())
         )
     }
 }

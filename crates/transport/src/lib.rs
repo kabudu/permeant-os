@@ -1,7 +1,7 @@
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use anyhow::{Result, Context, bail};
-use tokio::net::TcpStream;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 use usxf_core::crypto::EncryptedEnvelope;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -79,8 +79,14 @@ const FRAME_KIND_PAYLOAD_CHUNK: u8 = 1;
 pub async fn send_message(stream: &mut TcpStream, msg: &MigrationMessage) -> Result<()> {
     let serialized = encode_message(msg).context("Serialization failed")?;
     let len = serialized.len() as u32;
-    stream.write_all(&len.to_be_bytes()).await.context("Failed to write frame length")?;
-    stream.write_all(&serialized).await.context("Failed to write frame content")?;
+    stream
+        .write_all(&len.to_be_bytes())
+        .await
+        .context("Failed to write frame length")?;
+    stream
+        .write_all(&serialized)
+        .await
+        .context("Failed to write frame content")?;
     stream.flush().await.context("Failed to flush stream")?;
     Ok(())
 }
@@ -88,17 +94,23 @@ pub async fn send_message(stream: &mut TcpStream, msg: &MigrationMessage) -> Res
 /// Helper to read a frame-length prefixed JSON-serialized message from a TcpStream.
 pub async fn recv_message(stream: &mut TcpStream) -> Result<MigrationMessage> {
     let mut len_bytes = [0u8; 4];
-    stream.read_exact(&mut len_bytes).await.context("Failed to read frame length")?;
+    stream
+        .read_exact(&mut len_bytes)
+        .await
+        .context("Failed to read frame length")?;
     let len = u32::from_be_bytes(len_bytes) as usize;
-    
+
     // Safety check for massive messages
     if len > 500 * 1024 * 1024 {
         bail!("Frame size too large: {} bytes", len);
     }
-    
+
     let mut buffer = vec![0u8; len];
-    stream.read_exact(&mut buffer).await.context("Failed to read frame content")?;
-    
+    stream
+        .read_exact(&mut buffer)
+        .await
+        .context("Failed to read frame content")?;
+
     decode_message(&buffer).context("Deserialization failed")
 }
 

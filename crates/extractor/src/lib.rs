@@ -136,7 +136,9 @@ fn extract_via_command(
             .context("Failed to write extractor request to stdin")?;
     }
 
-    let output = child.wait_with_output().context("Failed to wait for extractor command")?;
+    let output = child
+        .wait_with_output()
+        .context("Failed to wait for extractor command")?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         bail!("Extractor command failed: {}", stderr.trim());
@@ -159,7 +161,10 @@ fn extract_via_command(
         for suffix in ["key", "value"] {
             let name = format!("layer.{}.{}", layer_idx, suffix);
             if !extracted.contains_key(&name) {
-                bail!("Extractor command output is missing required tensor '{}'", name);
+                bail!(
+                    "Extractor command output is missing required tensor '{}'",
+                    name
+                );
             }
         }
     }

@@ -1,26 +1,32 @@
-use crate::header::{UsxfHeader, AttentionType};
-use sha2::{Sha256, Digest};
-use anyhow::{Result, bail};
+use crate::header::{AttentionType, UsxfHeader};
+use anyhow::{bail, Result};
+use sha2::{Digest, Sha256};
 
 /// Validates the structure and constraints of the USXF v1.1 Header
 pub fn validate_header(header: &UsxfHeader) -> Result<()> {
     if header.usxf_version != "1.1" {
-        bail!("Invalid USXF version: expected '1.1', found '{}'", header.usxf_version);
+        bail!(
+            "Invalid USXF version: expected '1.1', found '{}'",
+            header.usxf_version
+        );
     }
-    
+
     if header.batch_size != 1 {
-        bail!("USXF v1.1 supports only single-sequence migration (batch_size must be 1). Found batch_size: {}", header.batch_size);
+        bail!(
+            "USXF v1.1 supports only single-sequence migration (batch_size must be 1). Found batch_size: {}",
+            header.batch_size
+        );
     }
-    
+
     if header.seq_len == 0 {
         bail!("seq_len must be greater than 0");
     }
-    
+
     if header.block_size == 0 {
         bail!("block_size must be greater than 0");
     }
-    
-    let expected_blocks = (header.seq_len + header.block_size - 1) / header.block_size;
+
+    let expected_blocks = header.seq_len.div_ceil(header.block_size);
     if header.block_hashes.len() != expected_blocks {
         bail!(
             "Mismatch in block_hashes size. seq_len: {}, block_size: {}, expected {} hashes, found {}",
@@ -30,20 +36,20 @@ pub fn validate_header(header: &UsxfHeader) -> Result<()> {
             header.block_hashes.len()
         );
     }
-    
+
     if header.attention_type == AttentionType::Mla && header.mla_spec.is_none() {
         bail!("mla_spec is required when attention_type is 'mla'");
     }
-    
+
     // Check that config_hash is a valid hex sha256 hash
     if !header.model_identity.config_hash.starts_with("sha256:") {
         bail!("model_identity.config_hash must start with 'sha256:'");
     }
-    
+
     if !header.checksum.starts_with("sha256:") {
         bail!("checksum must start with 'sha256:'");
     }
-    
+
     Ok(())
 }
 
@@ -61,7 +67,7 @@ pub fn compute_token_block_hashes(tokens: &[u32], block_size: usize) -> Vec<Stri
         .map(|chunk| {
             let mut hasher = Sha256::new();
             for token in chunk {
-                hasher.update(&token.to_be_bytes());
+                hasher.update(token.to_be_bytes());
             }
             format!("sha256:{:x}", hasher.finalize())
         })

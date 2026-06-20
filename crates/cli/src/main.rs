@@ -1,16 +1,25 @@
+use anyhow::{bail, Context, Result};
+use chrono::Utc;
 use clap::{Parser, Subcommand};
-use anyhow::{Result, Context, bail};
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use tokio::net::{TcpListener, TcpStream};
-use chrono::Utc;
 
-use usxf_core::{UsxfHeader, ModelIdentity, ModelCacheSpec, AttentionType, ExchangeDtype, seal_packet, open_packet, validate_header, compute_token_block_hashes, compute_sha256};
-use permeant_transpiler::{Tensor, canonical_to_vllm_block_key, canonical_to_vllm_block_value, quantize_e4m3_scaled, dequantize_e4m3_scaled, compute_optimal_scale};
-use permeant_transport::{AgentGraphBinding, AgentGraphBindingArtifact, AgentGraphBindingKvSpan, MigrationMessage, send_message, recv_message, compute_crc32, verify_chunk_crc32};
-use permeant_orchestrator::{MigrationOrchestrator, ResourcePolicy};
 use permeant_extractor::extract_kv_cache;
 use permeant_injector::KVConnectorBase_V1;
+use permeant_orchestrator::{MigrationOrchestrator, ResourcePolicy};
+use permeant_transpiler::{
+    canonical_to_vllm_block_key, canonical_to_vllm_block_value, compute_optimal_scale,
+    dequantize_e4m3_scaled, quantize_e4m3_scaled, Tensor,
+};
+use permeant_transport::{
+    compute_crc32, recv_message, send_message, verify_chunk_crc32, AgentGraphBinding,
+    AgentGraphBindingArtifact, AgentGraphBindingKvSpan, MigrationMessage,
+};
+use usxf_core::{
+    compute_sha256, compute_token_block_hashes, open_packet, seal_packet, validate_header,
+    AttentionType, ExchangeDtype, ModelCacheSpec, ModelIdentity, UsxfHeader,
+};
 
 #[derive(Parser, Debug)]
 #[command(name = "permeantos-cli")]
@@ -48,46 +57,58 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    
+
     match cli.command {
         Commands::Daemon { addr } => {
             println!("Starting PermeantOS Hypervisor Daemon on {}...", addr);
             run_daemon(&addr).await?;
         }
-        Commands::SimMigrate { target_addr, seq_len, quant, agent_graph_manifest } => {
-            println!("Starting end-to-end migration simulation to {} (Context: {} tokens, FP8 Quantization: {})...", target_addr, seq_len, quant);
-            run_sim_migrate(&target_addr, seq_len, quant, agent_graph_manifest.as_deref()).await?;
+        Commands::SimMigrate {
+            target_addr,
+            seq_len,
+            quant,
+            agent_graph_manifest,
+        } => {
+            println!(
+                "Starting end-to-end migration simulation to {} (Context: {} tokens, FP8 Quantization: {})...",
+                target_addr, seq_len, quant
+            );
+            run_sim_migrate(
+                &target_addr,
+                seq_len,
+                quant,
+                agent_graph_manifest.as_deref(),
+            )
+            .await?;
         }
         Commands::Inspect { file } => {
             run_inspect(&file)?;
         }
     }
-    
+
     Ok(())
 }
 
 async fn run_daemon(addr_str: &str) -> Result<()> {
     let addr: SocketAddr = addr_str.parse().context("Invalid socket address")?;
-    let listener = TcpListener::bind(addr).await.context("Failed to bind socket")?;
-    
+    let listener = TcpListener::bind(addr)
+        .await
+        .context("Failed to bind socket")?;
+
     let mut orchestrator = MigrationOrchestrator::new(ResourcePolicy::default());
     let mut injector = KVConnectorBase_V1::new(256); // 256 token block size
-    
+
     // Hardcoded keys for simulation purposes
     let aes_key = [7u8; 32];
-    
+
     println!("Daemon listening for migration requests. Press Ctrl+C to stop.");
-    
+
     loop {
         let (mut socket, peer) = listener.accept().await?;
         println!("\n[Daemon] Incoming connection from {:?}", peer);
-        if let Err(err) = handle_migration_connection(
-            &mut socket,
-            &mut orchestrator,
-            &mut injector,
-            &aes_key,
-        )
-        .await
+        if let Err(err) =
+            handle_migration_connection(&mut socket, &mut orchestrator, &mut injector, &aes_key)
+                .await
         {
             eprintln!(
                 "[Daemon] Connection {:?} ended without commit: {}",
@@ -104,14 +125,24 @@ async fn handle_migration_connection(
     aes_key: &[u8; 32],
 ) -> Result<()> {
     let msg = recv_message(socket).await?;
-    if let MigrationMessage::CapabilityRequest { model_architecture, attention_type, seq_len } = msg {
-        println!("[Daemon] Received migration capability request for: {}, Attn: {}, SeqLen: {}", model_architecture, attention_type, seq_len);
-        
+    if let MigrationMessage::CapabilityRequest {
+        model_architecture,
+        attention_type,
+        seq_len,
+    } = msg
+    {
+        println!(
+            "[Daemon] Received migration capability request for: {}, Attn: {}, SeqLen: {}",
+            model_architecture, attention_type, seq_len
+        );
+
         let target_device = describe_runtime_target_device();
         let response = if seq_len > 131072 {
             MigrationMessage::CapabilityResponse {
                 accepted: false,
-                error_message: Some("Context size exceeds hypervisor hardware memory limits".to_string()),
+                error_message: Some(
+                    "Context size exceeds hypervisor hardware memory limits".to_string(),
+                ),
                 target_device: target_device.clone(),
             }
         } else {
@@ -121,43 +152,67 @@ async fn handle_migration_connection(
                 target_device,
             }
         };
-        
+
         send_message(socket, &response).await?;
-        if let MigrationMessage::CapabilityResponse { accepted: false, .. } = response {
+        if let MigrationMessage::CapabilityResponse {
+            accepted: false, ..
+        } = response
+        {
             println!("[Daemon] Rejected migration capability (context too large)");
             return Ok(());
         }
     } else {
         bail!("Protocol violation: Expected CapabilityRequest");
     }
-    
+
     let msg = recv_message(socket).await?;
     let header = if let MigrationMessage::HeaderEnvelope(envelope) = msg {
-        println!("[Daemon] Received encrypted USXF header envelope. Verifying signature & decrypting...");
-        let plaintext = open_packet(&envelope, aes_key).context("Header decryption or signature failed")?;
-        let header: UsxfHeader = serde_json::from_slice(&plaintext).context("Failed to deserialize USXF header")?;
-        
+        println!(
+            "[Daemon] Received encrypted USXF header envelope. Verifying signature & decrypting..."
+        );
+        let plaintext =
+            open_packet(&envelope, aes_key).context("Header decryption or signature failed")?;
+        let header: UsxfHeader =
+            serde_json::from_slice(&plaintext).context("Failed to deserialize USXF header")?;
+
         validate_header(&header).context("USXF metadata validation failed")?;
-        println!("[Daemon] Header verified. Model Identity: {}. Config Hash: {}", header.model_architecture, header.model_identity.config_hash);
-        
+        println!(
+            "[Daemon] Header verified. Model Identity: {}. Config Hash: {}",
+            header.model_architecture, header.model_identity.config_hash
+        );
+
         send_message(socket, &MigrationMessage::HeaderAck { accepted: true }).await?;
         header
     } else {
         bail!("Protocol violation: Expected HeaderEnvelope");
     };
-    
+
     println!("[Daemon] Streaming payload chunks starting...");
-    let expected_blocks = (header.seq_len + header.block_size - 1) / header.block_size;
+    let expected_blocks = header.seq_len.div_ceil(header.block_size);
     let mut accumulated_blocks: HashMap<String, HashMap<String, Tensor>> = HashMap::new();
-    
+    let mut received_chunks: HashSet<(u32, u32, String)> = HashSet::new();
+
     for _ in 0..(header.model_cache_spec.n_layers * 2 * expected_blocks) {
         let chunk_msg = recv_message(socket).await?;
         if !verify_chunk_crc32(&chunk_msg)? {
             bail!("Payload chunk CRC32 checksum mismatch!");
         }
-        
-        if let MigrationMessage::PayloadChunk { chunk_index, layer_index: _, tensor_name, data, .. } = chunk_msg {
-            let block_hash = header.block_hashes[chunk_index as usize].clone();
+
+        if let MigrationMessage::PayloadChunk {
+            chunk_index,
+            layer_index,
+            tensor_name,
+            data,
+            ..
+        } = chunk_msg
+        {
+            let block_hash = validate_payload_chunk_metadata(
+                &header,
+                chunk_index,
+                layer_index,
+                &tensor_name,
+                &mut received_chunks,
+            )?;
             let decrypted_data = if let Some(_quant) = &header.transfer_quantization {
                 dequantize_e4m3_scaled(&data, 0.1)
             } else {
@@ -168,41 +223,63 @@ async fn handle_migration_connection(
                 }
                 floats
             };
-            
+
             let shape = if tensor_name.ends_with(".key") {
-                vec![1, header.model_cache_spec.n_kv_heads, header.model_cache_spec.head_dim, header.block_size]
+                vec![
+                    1,
+                    header.model_cache_spec.n_kv_heads,
+                    header.model_cache_spec.head_dim,
+                    header.block_size,
+                ]
             } else {
-                vec![1, header.model_cache_spec.n_kv_heads, header.block_size, header.model_cache_spec.head_dim]
+                vec![
+                    1,
+                    header.model_cache_spec.n_kv_heads,
+                    header.block_size,
+                    header.model_cache_spec.head_dim,
+                ]
             };
-            
+
             let block_tensor = Tensor::new(decrypted_data, shape);
             accumulated_blocks
                 .entry(block_hash.clone())
-                .or_insert_with(HashMap::new)
+                .or_default()
                 .insert(tensor_name, block_tensor);
             send_message(socket, &MigrationMessage::ChunkAck { chunk_index }).await?;
         } else {
             bail!("Protocol violation: Expected PayloadChunk");
         }
     }
-    
-    println!("[Daemon] All layers and blocks streamed. Waiting for graph binding or commit request...");
+
+    println!(
+        "[Daemon] All layers and blocks streamed. Waiting for graph binding or commit request..."
+    );
     let mut msg = recv_message(socket).await?;
     if let MigrationMessage::AgentGraphBinding(binding) = msg {
-        println!("[Daemon] Received Agent Memory Graph binding. Validating graph/KV transaction evidence...");
+        println!(
+            "[Daemon] Received Agent Memory Graph binding. Validating graph/KV transaction evidence..."
+        );
         if let Err(error) = validate_agent_graph_binding(&binding, &header) {
             let error_message = error.to_string();
-            send_message(socket, &MigrationMessage::AgentGraphBindingAck {
-                accepted: false,
-                error_message: Some(error_message.clone()),
-            }).await?;
+            send_message(
+                socket,
+                &MigrationMessage::AgentGraphBindingAck {
+                    accepted: false,
+                    error_message: Some(error_message.clone()),
+                },
+            )
+            .await?;
             orchestrator.record_failure();
             bail!("Agent Memory Graph binding rejected: {}", error_message);
         }
-        send_message(socket, &MigrationMessage::AgentGraphBindingAck {
-            accepted: true,
-            error_message: None,
-        }).await?;
+        send_message(
+            socket,
+            &MigrationMessage::AgentGraphBindingAck {
+                accepted: true,
+                error_message: None,
+            },
+        )
+        .await?;
         println!(
             "[Daemon] Agent Memory Graph binding verified for {} KV span(s).",
             binding.kv_spans.len()
@@ -218,15 +295,72 @@ async fn handle_migration_connection(
     if let MigrationMessage::CommitRequest = msg {
         println!("[Daemon] Commit requested. Running numerical continuation validation...");
         injector.verify_continuation(&header.block_hashes)?;
-        
+
         println!("[Daemon] Validation passed. Committing migration state.");
-        send_message(socket, &MigrationMessage::CommitResponse { success: true, error_message: None }).await?;
+        send_message(
+            socket,
+            &MigrationMessage::CommitResponse {
+                success: true,
+                error_message: None,
+            },
+        )
+        .await?;
         orchestrator.record_success();
         println!("[Daemon] Migration COMMITTED successfully!");
         Ok(())
     } else {
         bail!("Protocol violation: Expected CommitRequest");
     }
+}
+
+fn validate_payload_chunk_metadata(
+    header: &UsxfHeader,
+    chunk_index: u32,
+    layer_index: u32,
+    tensor_name: &str,
+    received_chunks: &mut HashSet<(u32, u32, String)>,
+) -> Result<String> {
+    let block_hash = header
+        .block_hashes
+        .get(chunk_index as usize)
+        .with_context(|| {
+            format!(
+                "Payload chunk index {} exceeds advertised block count {}",
+                chunk_index,
+                header.block_hashes.len()
+            )
+        })?
+        .clone();
+
+    if layer_index as usize >= header.model_cache_spec.n_layers {
+        bail!(
+            "Payload chunk layer index {} exceeds advertised layer count {}",
+            layer_index,
+            header.model_cache_spec.n_layers
+        );
+    }
+
+    let expected_key_name = format!("layer.{}.key", layer_index);
+    let expected_value_name = format!("layer.{}.value", layer_index);
+    if tensor_name != expected_key_name && tensor_name != expected_value_name {
+        bail!(
+            "Payload chunk tensor name {} does not match layer {}",
+            tensor_name,
+            layer_index
+        );
+    }
+
+    let chunk_key = (chunk_index, layer_index, tensor_name.to_string());
+    if !received_chunks.insert(chunk_key) {
+        bail!(
+            "Duplicate payload chunk for block {}, layer {}, tensor {}",
+            chunk_index,
+            layer_index,
+            tensor_name
+        );
+    }
+
+    Ok(block_hash)
 }
 
 #[derive(serde::Serialize)]
@@ -311,19 +445,27 @@ impl AgentGraphManifest {
             prompt_token_hash: self.prompt_token_hash.clone(),
             tokenizer_hash: self.tokenizer_hash.clone(),
             kv_hash: self.kv_hash.clone(),
-            kv_spans: self.kv_spans.iter().map(|span| AgentGraphBindingKvSpan {
-                node_id: span.node_id.clone(),
-                token_start: span.token_start,
-                token_end: span.token_end,
-                cache_ref: span.cache_ref.clone(),
-                tokenizer_hash: span.tokenizer_hash.clone(),
-                block_hashes: block_hashes_for_span(header, span.token_start, span.token_end),
-            }).collect(),
-            artifacts: self.artifacts.iter().map(|artifact| AgentGraphBindingArtifact {
-                path: artifact.path.clone(),
-                sha256: artifact.sha256.clone(),
-                size_bytes: artifact.size_bytes,
-            }).collect(),
+            kv_spans: self
+                .kv_spans
+                .iter()
+                .map(|span| AgentGraphBindingKvSpan {
+                    node_id: span.node_id.clone(),
+                    token_start: span.token_start,
+                    token_end: span.token_end,
+                    cache_ref: span.cache_ref.clone(),
+                    tokenizer_hash: span.tokenizer_hash.clone(),
+                    block_hashes: block_hashes_for_span(header, span.token_start, span.token_end),
+                })
+                .collect(),
+            artifacts: self
+                .artifacts
+                .iter()
+                .map(|artifact| AgentGraphBindingArtifact {
+                    path: artifact.path.clone(),
+                    sha256: artifact.sha256.clone(),
+                    size_bytes: artifact.size_bytes,
+                })
+                .collect(),
         }
     }
 }
@@ -449,12 +591,18 @@ fn validate_optional_sha256(field_name: &str, value: Option<&String>) -> Result<
     Ok(())
 }
 
-fn validate_agent_graph_kv_span(span: AgentGraphPackageKvSpan, index: usize) -> Result<AgentGraphKvSpan> {
+fn validate_agent_graph_kv_span(
+    span: AgentGraphPackageKvSpan,
+    index: usize,
+) -> Result<AgentGraphKvSpan> {
     if span.node_id.trim().is_empty() {
         bail!("agent_graph.kv_spans[{}].node_id must not be empty", index);
     }
     if span.cache_ref.trim().is_empty() {
-        bail!("agent_graph.kv_spans[{}].cache_ref must not be empty", index);
+        bail!(
+            "agent_graph.kv_spans[{}].cache_ref must not be empty",
+            index
+        );
     }
     if span.token_end <= span.token_start {
         bail!(
@@ -513,7 +661,10 @@ fn load_agent_graph_manifest(path: Option<&str>) -> Result<Option<AgentGraphMani
     if let Some(prompt) = &package.prompt {
         validate_optional_sha256("agent_graph.prompt.byte_hash", prompt.byte_hash.as_ref())?;
         validate_optional_sha256("agent_graph.prompt.token_hash", prompt.token_hash.as_ref())?;
-        validate_optional_sha256("agent_graph.prompt.tokenizer_hash", prompt.tokenizer_hash.as_ref())?;
+        validate_optional_sha256(
+            "agent_graph.prompt.tokenizer_hash",
+            prompt.tokenizer_hash.as_ref(),
+        )?;
     }
     if let Some(kv) = &package.kv {
         validate_optional_sha256("agent_graph.kv.kv_hash", kv.kv_hash.as_ref())?;
@@ -538,9 +689,18 @@ fn load_agent_graph_manifest(path: Option<&str>) -> Result<Option<AgentGraphMani
         manifest_path: path.to_string(),
         graph_path: package.graph_path,
         graph_hash: package.graph_hash,
-        prompt_byte_hash: package.prompt.as_ref().and_then(|prompt| prompt.byte_hash.clone()),
-        prompt_token_hash: package.prompt.as_ref().and_then(|prompt| prompt.token_hash.clone()),
-        tokenizer_hash: package.prompt.as_ref().and_then(|prompt| prompt.tokenizer_hash.clone()),
+        prompt_byte_hash: package
+            .prompt
+            .as_ref()
+            .and_then(|prompt| prompt.byte_hash.clone()),
+        prompt_token_hash: package
+            .prompt
+            .as_ref()
+            .and_then(|prompt| prompt.token_hash.clone()),
+        tokenizer_hash: package
+            .prompt
+            .as_ref()
+            .and_then(|prompt| prompt.tokenizer_hash.clone()),
         kv_hash: package.kv.as_ref().and_then(|kv| kv.kv_hash.clone()),
         kv_spans,
         artifacts,
@@ -555,9 +715,18 @@ fn validate_agent_graph_binding(binding: &AgentGraphBinding, header: &UsxfHeader
         bail!("agent graph binding graph_path must not be empty");
     }
     ensure_sha256_field("agent_graph.graph_hash", &binding.graph_hash)?;
-    validate_optional_sha256("agent_graph.prompt_byte_hash", binding.prompt_byte_hash.as_ref())?;
-    validate_optional_sha256("agent_graph.prompt_token_hash", binding.prompt_token_hash.as_ref())?;
-    validate_optional_sha256("agent_graph.tokenizer_hash", binding.tokenizer_hash.as_ref())?;
+    validate_optional_sha256(
+        "agent_graph.prompt_byte_hash",
+        binding.prompt_byte_hash.as_ref(),
+    )?;
+    validate_optional_sha256(
+        "agent_graph.prompt_token_hash",
+        binding.prompt_token_hash.as_ref(),
+    )?;
+    validate_optional_sha256(
+        "agent_graph.tokenizer_hash",
+        binding.tokenizer_hash.as_ref(),
+    )?;
     validate_optional_sha256("agent_graph.kv_hash", binding.kv_hash.as_ref())?;
 
     if binding.prompt_token_hash.is_none() {
@@ -579,7 +748,10 @@ fn validate_agent_graph_binding(binding: &AgentGraphBinding, header: &UsxfHeader
             bail!("agent_graph.kv_spans[{}].node_id must not be empty", index);
         }
         if span.cache_ref.trim().is_empty() {
-            bail!("agent_graph.kv_spans[{}].cache_ref must not be empty", index);
+            bail!(
+                "agent_graph.kv_spans[{}].cache_ref must not be empty",
+                index
+            );
         }
         if span.token_end <= span.token_start {
             bail!(
@@ -598,15 +770,22 @@ fn validate_agent_graph_binding(binding: &AgentGraphBinding, header: &UsxfHeader
             &format!("agent_graph.kv_spans[{}].tokenizer_hash", index),
             span.tokenizer_hash.as_ref(),
         )?;
-        if let (Some(span_tokenizer), Some(binding_tokenizer)) =
-            (span.tokenizer_hash.as_ref(), binding.tokenizer_hash.as_ref())
-        {
+        if let (Some(span_tokenizer), Some(binding_tokenizer)) = (
+            span.tokenizer_hash.as_ref(),
+            binding.tokenizer_hash.as_ref(),
+        ) {
             if span_tokenizer != binding_tokenizer {
-                bail!("agent_graph.kv_spans[{}].tokenizer_hash does not match binding tokenizer_hash", index);
+                bail!(
+                    "agent_graph.kv_spans[{}].tokenizer_hash does not match binding tokenizer_hash",
+                    index
+                );
             }
         }
         if span.block_hashes.is_empty() {
-            bail!("agent_graph.kv_spans[{}].block_hashes must not be empty", index);
+            bail!(
+                "agent_graph.kv_spans[{}].block_hashes must not be empty",
+                index
+            );
         }
         for block_hash in &span.block_hashes {
             ensure_sha256_field(
@@ -626,7 +805,10 @@ fn validate_agent_graph_binding(binding: &AgentGraphBinding, header: &UsxfHeader
         if artifact.path.trim().is_empty() {
             bail!("agent_graph.artifacts[{}].path must not be empty", index);
         }
-        ensure_sha256_field(&format!("agent_graph.artifacts[{}].sha256", index), &artifact.sha256)?;
+        ensure_sha256_field(
+            &format!("agent_graph.artifacts[{}].sha256", index),
+            &artifact.sha256,
+        )?;
     }
 
     Ok(())
@@ -653,7 +835,9 @@ fn configured_model_config_hash(model_architecture: &str, model_identity: &str) 
     std::env::var("PERMEANT_MODEL_CONFIG_HASH")
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| compute_sha256(format!("{}|{}", model_architecture, model_identity).as_bytes()))
+        .unwrap_or_else(|| {
+            compute_sha256(format!("{}|{}", model_architecture, model_identity).as_bytes())
+        })
 }
 
 fn configured_extractor_id() -> String {
@@ -693,34 +877,18 @@ fn configured_model_q_heads(model_architecture: &str, model_identity: &str) -> u
         })
 }
 
-fn configured_model_kv_heads(model_architecture: &str, model_identity: &str) -> usize {
+fn configured_model_kv_heads(_model_architecture: &str, _model_identity: &str) -> usize {
     std::env::var("PERMEANT_MODEL_KV_HEADS")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
-        .unwrap_or_else(|| {
-            if model_architecture == "Qwen/Qwen2.5-0.5B-Instruct"
-                || model_identity == "Qwen/Qwen2.5-0.5B-Instruct"
-            {
-                2
-            } else {
-                2
-            }
-        })
+        .unwrap_or(2)
 }
 
-fn configured_model_head_dim(model_architecture: &str, model_identity: &str) -> usize {
+fn configured_model_head_dim(_model_architecture: &str, _model_identity: &str) -> usize {
     std::env::var("PERMEANT_MODEL_HEAD_DIM")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
-        .unwrap_or_else(|| {
-            if model_architecture == "Qwen/Qwen2.5-0.5B-Instruct"
-                || model_identity == "Qwen/Qwen2.5-0.5B-Instruct"
-            {
-                64
-            } else {
-                64
-            }
-        })
+        .unwrap_or(64)
 }
 
 fn configured_model_hidden_size(model_architecture: &str, model_identity: &str) -> usize {
@@ -763,16 +931,28 @@ fn normalize_canonical_kv_tensor(tensor_name: &str, tensor: &Tensor) -> Result<T
     }
 }
 
-async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool, agent_graph_manifest_path: Option<&str>) -> Result<()> {
+async fn run_sim_migrate(
+    target_addr_str: &str,
+    seq_len: usize,
+    quantize: bool,
+    agent_graph_manifest_path: Option<&str>,
+) -> Result<()> {
     let total_start = std::time::Instant::now();
-    let run_id = format!("migration-{}-{}", Utc::now().format("%Y%m%d-%H%M%S"), std::process::id());
+    let run_id = format!(
+        "migration-{}-{}",
+        Utc::now().format("%Y%m%d-%H%M%S"),
+        std::process::id()
+    );
     let source_environment = collect_environment_snapshot();
     let model_architecture = configured_model_architecture();
     let model_identity = configured_model_identity();
     let model_config_hash = configured_model_config_hash(&model_architecture, &model_identity);
     let agent_graph_manifest = load_agent_graph_manifest(agent_graph_manifest_path)?;
     if let Some(agent_graph) = &agent_graph_manifest {
-        println!("Loaded Agent Memory Graph manifest: {}", agent_graph.graph_hash);
+        println!(
+            "Loaded Agent Memory Graph manifest: {}",
+            agent_graph.graph_hash
+        );
     }
 
     // 1. Model Configuration
@@ -782,46 +962,68 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool, 
     let head_dim = configured_model_head_dim(&model_architecture, &model_identity);
     let hidden_size = configured_model_hidden_size(&model_architecture, &model_identity);
     let block_size = configured_model_block_size();
-    
+
     println!("Step 1: Extracting local agent KV cache state...");
     let extracted_cache = extract_kv_cache(seq_len, n_layers, n_kv_heads, head_dim)?;
-    println!("Extracted cache: {} tensors (Layers 0-{} keys/values)", extracted_cache.len(), n_layers - 1);
-    
+    println!(
+        "Extracted cache: {} tensors (Layers 0-{} keys/values)",
+        extracted_cache.len(),
+        n_layers - 1
+    );
+
     // Let's connect to target daemon
     println!("Connecting to target daemon at {}...", target_addr_str);
-    let mut socket = TcpStream::connect(target_addr_str).await.context("Failed to connect to migration daemon. Make sure to run 'daemon' subcommand first.")?;
-    
+    let mut socket = TcpStream::connect(target_addr_str).await.context(
+        "Failed to connect to migration daemon. Make sure to run 'daemon' subcommand first.",
+    )?;
+
     // 2. Capability Exchange
     println!("Step 2: Performing Capability Exchange...");
     let handshake_start = std::time::Instant::now();
-    send_message(&mut socket, &MigrationMessage::CapabilityRequest {
-        model_architecture: model_architecture.clone(),
-        attention_type: "gqa".to_string(),
-        seq_len,
-    }).await?;
-    
+    send_message(
+        &mut socket,
+        &MigrationMessage::CapabilityRequest {
+            model_architecture: model_architecture.clone(),
+            attention_type: "gqa".to_string(),
+            seq_len,
+        },
+    )
+    .await?;
+
     let resp = recv_message(&mut socket).await?;
-    let target_device_name = if let MigrationMessage::CapabilityResponse { accepted, error_message, target_device } = resp {
+    let target_device_name = if let MigrationMessage::CapabilityResponse {
+        accepted,
+        error_message,
+        target_device,
+    } = resp
+    {
         if !accepted {
-            bail!("Target daemon rejected migration capacity: {:?}", error_message);
+            bail!(
+                "Target daemon rejected migration capacity: {:?}",
+                error_message
+            );
         }
-        println!("Target accepted capability request. Device: {}", target_device);
+        println!(
+            "Target accepted capability request. Device: {}",
+            target_device
+        );
         target_device
     } else {
         bail!("Unexpected handshake response");
     };
     let handshake_time = handshake_start.elapsed().as_secs_f64() * 1000.0;
-    
+
     // 3. Build USXF Header
     println!("Step 3: Building USXF Header...");
     let header_start = std::time::Instant::now();
     let dummy_tokens = vec![42u32; seq_len];
     let block_hashes = compute_token_block_hashes(&dummy_tokens, block_size);
     let block_hash_count = block_hashes.len();
-    
+
     // Compute a dummy checksum of the payload data
-    let checksum = "sha256:0000000000000000000000000000000000000000000000000000000000000000".to_string();
-    
+    let checksum =
+        "sha256:0000000000000000000000000000000000000000000000000000000000000000".to_string();
+
     let transfer_quant = if quantize {
         Some(usxf_core::QuantizationInfo {
             scheme: "fp8".to_string(),
@@ -831,7 +1033,7 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool, 
     } else {
         None
     };
-    
+
     let header = UsxfHeader {
         usxf_version: "1.1".to_string(),
         model_architecture: model_architecture.clone(),
@@ -867,19 +1069,19 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool, 
         checksum,
         signature: "".to_string(), // will be updated/signed
     };
-    
+
     // Sign and Encrypt Header
     let aes_key = [7u8; 32];
     // Generate temporary signing key
     let mut csprng = rand::rngs::OsRng;
     let signing_key = usxf_core::crypto::SigningKey::generate(&mut csprng);
-    
+
     let serialized_header = serde_json::to_vec(&header)?;
     let envelope = seal_packet(&serialized_header, &aes_key, &signing_key)?;
-    
+
     println!("Sending encrypted USXF header...");
     send_message(&mut socket, &MigrationMessage::HeaderEnvelope(envelope)).await?;
-    
+
     let ack = recv_message(&mut socket).await?;
     if let MigrationMessage::HeaderAck { accepted } = ack {
         if !accepted {
@@ -890,24 +1092,26 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool, 
         bail!("Unexpected header response");
     }
     let header_time = header_start.elapsed().as_secs_f64() * 1000.0;
-    
+
     // 4. Stream payload blocks
     println!("Step 4: Transpiling and streaming payload layers block-by-block...");
-    let expected_blocks = (seq_len + block_size - 1) / block_size;
+    let expected_blocks = seq_len.div_ceil(block_size);
     let mut total_transferred_bytes = 0u64;
     let mut chunks_sent = 0u64;
     let transfer_start = std::time::Instant::now();
-    
+
     for layer_idx in 0..n_layers {
         let key_name = format!("layer.{}.key", layer_idx);
         let value_name = format!("layer.{}.value", layer_idx);
-        let key_tensor = normalize_canonical_kv_tensor(&key_name, extracted_cache.get(&key_name).unwrap())?;
-        let value_tensor = normalize_canonical_kv_tensor(&value_name, extracted_cache.get(&value_name).unwrap())?;
-        
+        let key_tensor =
+            normalize_canonical_kv_tensor(&key_name, extracted_cache.get(&key_name).unwrap())?;
+        let value_tensor =
+            normalize_canonical_kv_tensor(&value_name, extracted_cache.get(&value_name).unwrap())?;
+
         // Transpile to vLLM blocks
         let vllm_key = canonical_to_vllm_block_key(&key_tensor, block_size)?;
         let vllm_value = canonical_to_vllm_block_value(&value_tensor, block_size)?;
-        
+
         // Stream each block
         for block_idx in 0..expected_blocks {
             // Extract single block slice from vLLM key/value tensors
@@ -915,22 +1119,22 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool, 
             // Value shape: [num_blocks, num_kv_heads, block_size, head_dim]
             let k_block_size = n_kv_heads * head_dim * block_size;
             let v_block_size = n_kv_heads * block_size * head_dim;
-            
+
             let k_start = block_idx * k_block_size;
             let k_data = &vllm_key.data[k_start..(k_start + k_block_size)];
-            
+
             let v_start = block_idx * v_block_size;
             let v_data = &vllm_value.data[v_start..(v_start + v_block_size)];
-            
+
             // Format data payload (with optional quantization)
             let (k_payload, v_payload) = if quantize {
                 // Quantize to FP8 (simulate compression)
                 let scale = compute_optimal_scale(k_data, 448.0);
                 let k_quant = quantize_e4m3_scaled(k_data, scale);
-                
+
                 let scale_v = compute_optimal_scale(v_data, 448.0);
                 let v_quant = quantize_e4m3_scaled(v_data, scale_v);
-                
+
                 (k_quant, v_quant)
             } else {
                 // Raw f32 bytes
@@ -944,30 +1148,38 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool, 
                 }
                 (k_bytes, v_bytes)
             };
-            
+
             total_transferred_bytes += (k_payload.len() + v_payload.len()) as u64;
-            
+
             // Send Key chunk
             let crc32_k = compute_crc32(&k_payload);
-            send_message(&mut socket, &MigrationMessage::PayloadChunk {
-                chunk_index: block_idx as u32,
-                layer_index: layer_idx as u32,
-                tensor_name: format!("layer.{}.key", layer_idx),
-                data: k_payload,
-                crc32: crc32_k,
-            }).await?;
+            send_message(
+                &mut socket,
+                &MigrationMessage::PayloadChunk {
+                    chunk_index: block_idx as u32,
+                    layer_index: layer_idx as u32,
+                    tensor_name: format!("layer.{}.key", layer_idx),
+                    data: k_payload,
+                    crc32: crc32_k,
+                },
+            )
+            .await?;
             chunks_sent += 1;
             let _ack_k = recv_message(&mut socket).await?;
-            
+
             // Send Value chunk
             let crc32_v = compute_crc32(&v_payload);
-            send_message(&mut socket, &MigrationMessage::PayloadChunk {
-                chunk_index: block_idx as u32,
-                layer_index: layer_idx as u32,
-                tensor_name: format!("layer.{}.value", layer_idx),
-                data: v_payload,
-                crc32: crc32_v,
-            }).await?;
+            send_message(
+                &mut socket,
+                &MigrationMessage::PayloadChunk {
+                    chunk_index: block_idx as u32,
+                    layer_index: layer_idx as u32,
+                    tensor_name: format!("layer.{}.value", layer_idx),
+                    data: v_payload,
+                    crc32: crc32_v,
+                },
+            )
+            .await?;
             chunks_sent += 1;
             let _ack_v = recv_message(&mut socket).await?;
         }
@@ -985,7 +1197,7 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool, 
     } else {
         0.0
     };
-    
+
     let transfer_secs = transfer_time / 1000.0;
     let effective_bandwidth_gbps = if transfer_secs > 0.0 {
         (((total_transferred_bytes * 8) as f64) / transfer_secs) / 1_000_000_000.0
@@ -995,13 +1207,20 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool, 
 
     if let Some(agent_graph) = &agent_graph_manifest {
         println!("Step 5: Binding Agent Memory Graph package to staged KV transaction...");
-        send_message(&mut socket, &MigrationMessage::AgentGraphBinding(agent_graph.to_binding(&header))).await?;
+        send_message(
+            &mut socket,
+            &MigrationMessage::AgentGraphBinding(agent_graph.to_binding(&header)),
+        )
+        .await?;
         let binding_resp = recv_message(&mut socket).await?;
         match binding_resp {
             MigrationMessage::AgentGraphBindingAck { accepted: true, .. } => {
                 println!("Target accepted Agent Memory Graph binding.");
             }
-            MigrationMessage::AgentGraphBindingAck { accepted: false, error_message } => {
+            MigrationMessage::AgentGraphBindingAck {
+                accepted: false,
+                error_message,
+            } => {
                 let error_text = format!("{:?}", error_message);
                 let total_time = total_start.elapsed().as_secs_f64() * 1000.0;
                 let manifest = MigrationManifest {
@@ -1026,7 +1245,11 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool, 
                     block_hash_count,
                     dtype: "float32".to_string(),
                     source_quantization: "none".to_string(),
-                    transfer_quantization: if quantize { "fp8".to_string() } else { "none".to_string() },
+                    transfer_quantization: if quantize {
+                        "fp8".to_string()
+                    } else {
+                        "none".to_string()
+                    },
                     uncompressed_bytes,
                     transferred_bytes: total_transferred_bytes,
                     compression_ratio,
@@ -1045,7 +1268,10 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool, 
                 };
                 let filename = write_migration_manifest(&manifest)?;
                 println!("Saved failed migration benchmark manifest: {}", filename);
-                bail!("Target daemon rejected Agent Memory Graph binding: {}", error_text);
+                bail!(
+                    "Target daemon rejected Agent Memory Graph binding: {}",
+                    error_text
+                );
             }
             _ => bail!("Unexpected Agent Memory Graph binding response"),
         }
@@ -1057,15 +1283,19 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool, 
     println!("Step 6: Invoking Two-Phase Commit...");
     let commit_start = std::time::Instant::now();
     send_message(&mut socket, &MigrationMessage::CommitRequest).await?;
-    
+
     let commit_resp = recv_message(&mut socket).await?;
     let commit_time = commit_start.elapsed().as_secs_f64() * 1000.0;
-    
+
     let total_time = total_start.elapsed().as_secs_f64() * 1000.0;
-    if let MigrationMessage::CommitResponse { success, error_message } = commit_resp {
+    if let MigrationMessage::CommitResponse {
+        success,
+        error_message,
+    } = commit_resp
+    {
         if success {
             println!("\nMigration completed successfully! All layers injected and verified.");
-            
+
             let manifest = MigrationManifest {
                 manifest_version: "1.0".to_string(),
                 run_id,
@@ -1088,7 +1318,11 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool, 
                 block_hash_count,
                 dtype: "float32".to_string(),
                 source_quantization: "none".to_string(),
-                transfer_quantization: if quantize { "fp8".to_string() } else { "none".to_string() },
+                transfer_quantization: if quantize {
+                    "fp8".to_string()
+                } else {
+                    "none".to_string()
+                },
                 uncompressed_bytes,
                 transferred_bytes: total_transferred_bytes,
                 compression_ratio,
@@ -1105,7 +1339,7 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool, 
                 error_message: None,
                 agent_graph: agent_graph_manifest.clone(),
             };
-            
+
             let filename = write_migration_manifest(&manifest)?;
             println!("Saved migration benchmark manifest: {}", filename);
         } else {
@@ -1132,7 +1366,11 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool, 
                 block_hash_count,
                 dtype: "float32".to_string(),
                 source_quantization: "none".to_string(),
-                transfer_quantization: if quantize { "fp8".to_string() } else { "none".to_string() },
+                transfer_quantization: if quantize {
+                    "fp8".to_string()
+                } else {
+                    "none".to_string()
+                },
                 uncompressed_bytes,
                 transferred_bytes: total_transferred_bytes,
                 compression_ratio,
@@ -1156,15 +1394,16 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool, 
     } else {
         bail!("Unexpected commit response");
     }
-    
+
     Ok(())
 }
 
 fn run_inspect(file_path: &str) -> Result<()> {
     println!("Inspecting USXF packet at: {}", file_path);
     let bytes = std::fs::read(file_path).context("Failed to read file")?;
-    let header: UsxfHeader = serde_json::from_slice(&bytes).context("Failed to parse USXF metadata")?;
-    
+    let header: UsxfHeader =
+        serde_json::from_slice(&bytes).context("Failed to parse USXF metadata")?;
+
     println!("\nUSXF Metadata Inspection:");
     println!("--------------------------");
     println!("USXF Version:      {}", header.usxf_version);
@@ -1202,7 +1441,9 @@ mod tests {
             usxf_version: "1.1".to_string(),
             model_architecture: "test-model".to_string(),
             model_identity: ModelIdentity {
-                config_hash: "sha256:1111111111111111111111111111111111111111111111111111111111111111".to_string(),
+                config_hash:
+                    "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                        .to_string(),
                 weights_revision: "test".to_string(),
             },
             attention_type: AttentionType::Gqa,
@@ -1230,7 +1471,8 @@ mod tests {
             extra: HashMap::new(),
             created_at: Utc::now(),
             extractor_id: "test-extractor".to_string(),
-            checksum: "sha256:0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            checksum: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                .to_string(),
             signature: "".to_string(),
         }
     }
@@ -1239,22 +1481,39 @@ mod tests {
         AgentGraphBinding {
             manifest_path: "manifest.json".to_string(),
             graph_path: "graph.json".to_string(),
-            graph_hash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
-            prompt_byte_hash: Some("sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string()),
-            prompt_token_hash: Some("sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".to_string()),
-            tokenizer_hash: Some("sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".to_string()),
-            kv_hash: Some("sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string()),
+            graph_hash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                .to_string(),
+            prompt_byte_hash: Some(
+                "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                    .to_string(),
+            ),
+            prompt_token_hash: Some(
+                "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                    .to_string(),
+            ),
+            tokenizer_hash: Some(
+                "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                    .to_string(),
+            ),
+            kv_hash: Some(
+                "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+                    .to_string(),
+            ),
             kv_spans: vec![AgentGraphBindingKvSpan {
                 node_id: "checkpoint:prompt".to_string(),
                 token_start: 0,
                 token_end: 8,
                 cache_ref: "kv:prefix:0".to_string(),
-                tokenizer_hash: Some("sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".to_string()),
+                tokenizer_hash: Some(
+                    "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                        .to_string(),
+                ),
                 block_hashes: vec![block_hash.to_string()],
             }],
             artifacts: vec![AgentGraphBindingArtifact {
                 path: "reports/result.json".to_string(),
-                sha256: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string(),
+                sha256: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                    .to_string(),
                 size_bytes: Some(42),
             }],
         }
@@ -1264,21 +1523,124 @@ mod tests {
         AgentGraphManifest {
             manifest_path: "manifest.json".to_string(),
             graph_path: "graph.json".to_string(),
-            graph_hash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
-            prompt_byte_hash: Some("sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string()),
-            prompt_token_hash: Some("sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".to_string()),
-            tokenizer_hash: Some("sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".to_string()),
-            kv_hash: Some("sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string()),
+            graph_hash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                .to_string(),
+            prompt_byte_hash: Some(
+                "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                    .to_string(),
+            ),
+            prompt_token_hash: Some(
+                "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                    .to_string(),
+            ),
+            tokenizer_hash: Some(
+                "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                    .to_string(),
+            ),
+            kv_hash: Some(
+                "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+                    .to_string(),
+            ),
             kv_spans: vec![AgentGraphKvSpan {
                 node_id: "checkpoint:prompt".to_string(),
                 token_start: 0,
                 token_end: 8,
                 cache_ref: "kv:prefix:0".to_string(),
-                tokenizer_hash: Some("sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".to_string()),
+                tokenizer_hash: Some(
+                    "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                        .to_string(),
+                ),
                 block_hashes: vec![original_block_hash.to_string()],
             }],
             artifacts: vec![],
         }
+    }
+
+    #[test]
+    fn validates_payload_chunk_metadata() {
+        let block_hash = "sha256:9999999999999999999999999999999999999999999999999999999999999999";
+        let header = test_header(vec![block_hash.to_string()], 8);
+        let mut received_chunks = HashSet::new();
+
+        let validated_hash =
+            validate_payload_chunk_metadata(&header, 0, 0, "layer.0.key", &mut received_chunks)
+                .unwrap();
+
+        assert_eq!(validated_hash, block_hash);
+    }
+
+    #[test]
+    fn rejects_payload_chunk_with_out_of_range_block_index() {
+        let header = test_header(
+            vec![
+                "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+                    .to_string(),
+            ],
+            8,
+        );
+        let mut received_chunks = HashSet::new();
+
+        let error =
+            validate_payload_chunk_metadata(&header, 1, 0, "layer.0.key", &mut received_chunks)
+                .expect_err("out-of-range chunk index should fail");
+
+        assert!(error.to_string().contains("exceeds advertised block count"));
+    }
+
+    #[test]
+    fn rejects_payload_chunk_with_mismatched_tensor_name() {
+        let header = test_header(
+            vec![
+                "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+                    .to_string(),
+            ],
+            8,
+        );
+        let mut received_chunks = HashSet::new();
+
+        let error =
+            validate_payload_chunk_metadata(&header, 0, 0, "layer.1.key", &mut received_chunks)
+                .expect_err("mismatched tensor name should fail");
+
+        assert!(error.to_string().contains("does not match layer"));
+    }
+
+    #[test]
+    fn rejects_payload_chunk_with_out_of_range_layer_index() {
+        let header = test_header(
+            vec![
+                "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+                    .to_string(),
+            ],
+            8,
+        );
+        let mut received_chunks = HashSet::new();
+
+        let error =
+            validate_payload_chunk_metadata(&header, 0, 1, "layer.1.key", &mut received_chunks)
+                .expect_err("out-of-range layer index should fail");
+
+        assert!(error.to_string().contains("exceeds advertised layer count"));
+    }
+
+    #[test]
+    fn rejects_duplicate_payload_chunk_metadata() {
+        let header = test_header(
+            vec![
+                "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+                    .to_string(),
+            ],
+            8,
+        );
+        let mut received_chunks = HashSet::new();
+
+        validate_payload_chunk_metadata(&header, 0, 0, "layer.0.key", &mut received_chunks)
+            .unwrap();
+        let error =
+            validate_payload_chunk_metadata(&header, 0, 0, "layer.0.key", &mut received_chunks)
+                .expect_err("duplicate chunk should fail");
+
+        assert!(error.to_string().contains("Duplicate payload chunk"));
     }
 
     #[test]
@@ -1389,7 +1751,9 @@ mod tests {
 
         let error = load_agent_graph_manifest(Some(path.to_str().unwrap()))
             .expect_err("invalid KV span range should fail");
-        assert!(error.to_string().contains("agent_graph.kv_spans[0].token_end"));
+        assert!(error
+            .to_string()
+            .contains("agent_graph.kv_spans[0].token_end"));
 
         let _ = fs::remove_file(path);
     }
@@ -1405,21 +1769,28 @@ mod tests {
 
     #[test]
     fn graph_binding_uses_migrated_header_block_hashes_for_spans() {
-        let header_block_hash = "sha256:9999999999999999999999999999999999999999999999999999999999999999";
+        let header_block_hash =
+            "sha256:9999999999999999999999999999999999999999999999999999999999999999";
         let simulated_manifest_block_hash =
             "sha256:7777777777777777777777777777777777777777777777777777777777777777";
         let header = test_header(vec![header_block_hash.to_string()], 8);
         let manifest = test_agent_graph_manifest(simulated_manifest_block_hash);
         let binding = manifest.to_binding(&header);
 
-        assert_eq!(binding.kv_spans[0].block_hashes, vec![header_block_hash.to_string()]);
+        assert_eq!(
+            binding.kv_spans[0].block_hashes,
+            vec![header_block_hash.to_string()]
+        );
         validate_agent_graph_binding(&binding, &header).unwrap();
     }
 
     #[test]
     fn rejects_agent_graph_binding_with_unmigrated_block_hash() {
         let header = test_header(
-            vec!["sha256:9999999999999999999999999999999999999999999999999999999999999999".to_string()],
+            vec![
+                "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+                    .to_string(),
+            ],
             8,
         );
         let binding = test_graph_binding(
@@ -1428,7 +1799,9 @@ mod tests {
 
         let error = validate_agent_graph_binding(&binding, &header)
             .expect_err("binding with an unmigrated block hash should fail");
-        assert!(error.to_string().contains("not present in the migrated KV header"));
+        assert!(error
+            .to_string()
+            .contains("not present in the migrated KV header"));
     }
 
     #[test]
