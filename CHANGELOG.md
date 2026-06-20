@@ -7,6 +7,20 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Transfer quantization comparison tooling for paired raw-vs-quantized
+  benchmark manifests, including performance deltas, failure accounting,
+  Markdown output, and optional fidelity-horizon evidence gating.
+- Documentation for using the comparison tool with larger-context matrix runs
+  and for separating performance-only evidence from real-runtime fidelity
+  claims.
+
+### Changed
+
+- Marked the Phase 9 transfer-quantization comparison roadmap item complete
+  for the paired-manifest tooling scope.
+
 ## [0.1.20-larger-context-matrix] - 2026-06-20
 
 ### Added

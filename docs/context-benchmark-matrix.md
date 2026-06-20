@@ -35,6 +35,17 @@ PERMEANT_FIDELITY_HORIZONS=16 \
 scripts/aws-real-runtime-e2e.sh run
 ```
 
+After collecting paired `none` and `fp8` manifests for a run label, generate a
+raw-vs-quantized comparison table:
+
+```bash
+scripts/compare-transfer-quantization.py benchmark-manifests/<run-label> \
+  --markdown-out benchmark-manifests/<run-label>/transfer-quantization.md
+```
+
+See `docs/transfer-quantization-comparison.md` for fidelity-evidence gating and
+limitations.
+
 Before running the AWS runner, the source MLX runtime must be started with the
 matching source environment from the matrix:
 

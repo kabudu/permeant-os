@@ -270,7 +270,8 @@ Deliverables:
   baseline, and post-migration continuations.
 - [x] Larger context benchmark matrix planning and runner configuration beyond
   2k tokens.
-- [ ] Transfer quantization comparison for real-runtime fidelity.
+- [x] Transfer quantization comparison tooling for paired real-runtime
+  benchmark manifests, with explicit fidelity-evidence gating.
 - [ ] Adaptive KV transfer codec experiments: capability-negotiated raw, FP8,
   TurboQuant-style, and Quaternion-Augmented TurboQuant candidate codecs, with
   explicit reversible/lossy semantics and fallback to raw transfer or re-prefill.
@@ -396,6 +397,8 @@ Scope:
   integration for captured continuation artifacts.
 - [x] Add larger-than-2k context benchmark matrix planning with checked target
   context-window requirements.
+- [x] Add paired transfer-quantization comparison tooling for raw-vs-quantized
+  manifest batches with explicit fidelity-evidence gating.
 - [x] Prototype graph-attached migration manifest extensions and analyzer
   checks behind the existing Agent Memory Graph manifest path.
 - [x] Add content-addressed artifact packaging and restored-workspace

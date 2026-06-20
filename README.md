@@ -42,8 +42,9 @@ What is still experimental:
 - The vLLM attachment path uses implementation details that may change between vLLM versions.
 - Fidelity has been validated for one model family and a 16-token continuation horizon.
 - Cloud validation is expensive and slow on cold hosts unless a prewarmed image is used.
-- Longer-horizon, larger-context, and transfer-quantization fidelity batches are
-  still future benchmark work.
+- Longer-horizon and larger-context benchmark tooling now exists, and
+  transfer-quantization comparison tooling can analyze paired benchmark
+  manifests; new cloud batches are still needed for broader real-runtime claims.
 
 ## Repository layout
 
@@ -69,6 +70,7 @@ What is still experimental:
 - `docs/benchmark-summary-tooling.md`: structured manifest summary and paper-table tooling.
 - `docs/fidelity-horizon-suite.md`: multi-horizon decode-fidelity comparison tooling.
 - `docs/context-benchmark-matrix.md`: larger-than-2k context benchmark planning.
+- `docs/transfer-quantization-comparison.md`: paired raw-vs-quantized manifest comparison tooling.
 - `docs/aws-real-runtime-e2e-runner.md`: repeatable AWS real-runtime E2E runner and cleanup/resume runbook.
 - `docs/aws-prewarm-image.md`: conservative AWS image/container prewarm recipe and cost guardrails.
 - `docs/graph-attached-kv-migration-plan.md`: Phase 3 graph-attached live KV migration plan and acceptance criteria.
@@ -156,6 +158,13 @@ Plan larger-than-2k context benchmark points:
 scripts/plan-context-benchmarks.py \
   --markdown-out benchmark-manifests/context-matrix.md \
   --env-out benchmark-manifests/context-matrix.env
+```
+
+Compare paired raw and transfer-quantized benchmark manifests:
+
+```bash
+scripts/compare-transfer-quantization.py benchmark-manifests/<run-label> \
+  --markdown-out benchmark-manifests/<run-label>/transfer-quantization.md
 ```
 
 ## Benchmark snapshot
