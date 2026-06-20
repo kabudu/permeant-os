@@ -25,6 +25,10 @@ and this project uses release tags compatible with semantic versioning.
 - Agent Memory Graph return-home proof harness and AWS runner option for
   verifying AWS-updated graph/artifact evidence on the origin and continuing
   from the returned state.
+- AWS real-runtime round-trip continuation proof showing QATQ origin-to-AWS KV
+  migration, exact 16-token target continuation, AWS target graph activity,
+  return of AWS-updated graph/artifact evidence, and origin-side continuation
+  from the remote proof.
 - Production secure bidirectional transport roadmap item covering private
   `wss://`/mTLS binary streaming and future QUIC/RDMA/UCX/NIXL evaluation.
 

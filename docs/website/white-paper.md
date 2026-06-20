@@ -14,7 +14,7 @@ PermeantOS treats agent state as portable infrastructure. Instead of binding sta
 
 ## What has been demonstrated
 
-PermeantOS has demonstrated that agents can move on the validated real-runtime path: a complex Agent Memory Graph package and live KV cache migrated from a local Apple Silicon MLX source runtime to an AWS NVIDIA vLLM target runtime.
+PermeantOS has demonstrated that agents can move on the validated real-runtime path: a complex Agent Memory Graph package and live KV cache migrated from a local Apple Silicon MLX source runtime to an AWS NVIDIA vLLM target runtime, the target continued work, and the AWS-updated graph/artifact evidence returned to the origin where work continued from that remote proof.
 
 Latest validated run:
 
@@ -28,13 +28,18 @@ Latest validated run:
 | Agent Memory Graph | 27 nodes, 25 edges, 4 packaged artifacts, bound, aligned, and resumed on target |
 | Layers | 24 |
 | Hash validation | passed |
-| Slot-probe max key diff | `0.006696999999999065` |
-| Slot-probe max value diff | `0.000558149999999813` |
+| Slot-probe max key diff | `0.008929999999999438` |
+| Slot-probe max value diff | `0.0016742499999997662` |
 | Prefix-cache seeded blocks | 16 |
 | Decode fidelity | exact source/post-migration match for 16 generated tokens |
 | Agent activity | AWS target resumed pending graph work, executed approved tool activity, wrote a new artifact, and emitted a proof hash |
+| Return-home activity | origin verified the AWS graph/report/artifact and wrote a new continuation artifact from the returned state |
 
 The run proves the core path for the validated configuration: live MLX extraction, secure transport, graph/KV transaction binding, target-side vLLM KV allocation, direct KV write, prefix-cache attachment, artifact hash preservation, memory/retrieval evidence preservation, pending tool policy preservation, post-migration runtime continuation fidelity, and target-side graph activity resume. After migration, the AWS target imported the same complex Agent Memory Graph package, resumed retry-safe pending work, executed an explicitly approved publish write, wrote `reports/publish/announcement.md`, appended new graph evidence, and emitted proof hash `sha256:b066a1dba9ed250eb54e1344c8d0092d8ad2d90dfe68bbfc1a0c740d18b6969c`.
+
+The follow-up round-trip run returned the AWS-updated graph/report/artifact evidence to the origin. The origin verified the target proof hash, target graph hash, and target artifact bytes, then wrote `reports/roundtrip/origin-continuation.md` from the returned state. The origin-side round-trip proof hash is `sha256:052add6058521a13902515f759499b1350d5be4055d070d4e5428a9df0adb36d`, with final origin graph hash `sha256:35d2b4c784a1243604140b2d017343140fefb8ed3b2722952c8d05a99ba732f8`.
+
+This is not yet reverse live KV import from vLLM back into MLX. It is a round-trip proof for Agent Memory Graph state, remote artifact evidence, and origin-side continuation from remote work.
 
 The QATQ run transferred 6,294,528 bytes from a 49,545,216-byte uncompressed KV payload, a compression ratio of `0.12704613095238096`. QATQ is lossy at the tensor-slot level, so the claim is not numerical losslessness. The claim is bounded sampled numeric drift plus exact observed source/post-migration continuation for the configured 16-token horizon.
 

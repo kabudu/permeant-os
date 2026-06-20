@@ -6,7 +6,7 @@
 
 PermeantOS is an experimental state-fluid hypervisor for live AI agent migration. It currently focuses on cross-host KV-cache migration between heterogeneous runtimes, with a longer-term roadmap toward full Agent Memory Graph migration. The first graph milestone, the v0 schema and specification, is now defined.
 
-The current prototype has demonstrated that agents can move for the validated real-runtime path. In the latest complex-agent run, PermeantOS migrated a `Qwen/Qwen2.5-0.5B-Instruct` KV cache from local Apple Silicon MLX to an AWS NVIDIA vLLM target, bound a 27-node Agent Memory Graph package into the same transaction, wrote matching KV blocks into vLLM, seeded vLLM prefix-cache metadata, preserved four content-addressed artifacts, and matched the source continuation exactly for a 16-token validation horizon.
+The current prototype has demonstrated that agents can move for the validated real-runtime path. In the latest complex-agent run, PermeantOS migrated a `Qwen/Qwen2.5-0.5B-Instruct` KV cache from local Apple Silicon MLX to an AWS NVIDIA vLLM target, bound a 27-node Agent Memory Graph package into the same transaction, wrote matching KV blocks into vLLM, seeded vLLM prefix-cache metadata, preserved four content-addressed artifacts, matched the source continuation exactly for a 16-token validation horizon, resumed work on AWS, then returned the AWS-updated graph/artifact evidence to the origin and continued there.
 
 ## Status
 
@@ -27,6 +27,9 @@ What works today:
 - Multi-horizon decode-fidelity analysis over captured source, baseline, and post-migration continuations.
 - Larger-context benchmark matrix planning with checked vLLM context-window requirements.
 - Exact short-horizon graph-attached MLX-to-vLLM continuation fidelity for one validated Qwen run.
+- Round-trip Agent Memory Graph continuity proof: origin to AWS, target-side
+  work, AWS-updated graph/artifact evidence returned to origin, and origin-side
+  continuation from that returned state.
 - Agent Memory Graph v0 schema and specification for portable conversation, tool, artifact, memory, checkpoint, provenance, and KV-span state.
 - Local Agent Memory Graph export/import harness with deterministic prompt reconstruction, complex-agent package generation, content-addressed artifact packaging, artifact hash verification, and restored-workspace validation.
 - Local artifact migration safety policies for redacted/excluded artifacts, explicit external rebind requirements, and streaming artifact verification/restoration.
@@ -36,12 +39,17 @@ What works today:
 - Local Agent Memory Graph security policy gate with signed-root attestation, provenance chain checks, secret rejection, credential rebinding, and target/tool/artifact allowlists.
 - Optional Agent Memory Graph hash metadata in migration manifests.
 - Complex graph-attached AWS real-runtime E2E proof for the current MLX-to-vLLM path.
+- Production secure transport is planned but not implemented: the current AWS
+  path still uses the framed TCP daemon protocol through an SSH tunnel.
 
 What is still experimental:
 
 - Runtime adapters rely on Python because MLX and vLLM expose the needed internals through Python APIs.
 - The vLLM attachment path uses implementation details that may change between vLLM versions.
 - Fidelity has been validated for one model family and a 16-token continuation horizon, including graph-attached AWS runs and one complex-agent graph package.
+- Reverse live KV import from vLLM back into MLX has not yet been implemented;
+  the current round-trip proof covers Agent Memory Graph, artifact, and activity
+  continuity back to the origin.
 - Cloud validation is expensive and slow on cold hosts unless a prewarmed image is used.
 - Longer-horizon and larger-context benchmark tooling now exists, and
   transfer-quantization comparison tooling can analyze paired benchmark
@@ -91,6 +99,9 @@ What is still experimental:
 - `docs/aws-real-runtime-agent-activity-continuation-2026-06-20.md`: AWS
   target-side proof that QATQ migration fidelity and Agent Memory Graph
   post-import tool activity both continue on the real target.
+- `docs/aws-real-runtime-roundtrip-continuation-2026-06-20.md`: AWS
+  round-trip proof that the target-updated graph/artifact evidence returns to
+  the origin and origin-side work continues from that remote proof.
 - `docs/adaptive-transfer-codecs.md`: adaptive transfer codec planning, semantics, and fallback behavior.
 - `docs/aws-real-runtime-e2e-runner.md`: repeatable AWS real-runtime E2E runner and cleanup/resume runbook.
 - `docs/aws-prewarm-image.md`: conservative AWS image/container prewarm recipe and cost guardrails.
@@ -105,21 +116,22 @@ Latest successful fidelity run:
 
 | Field | Value |
 | --- | --- |
-| Run ID | `20260620-183853` |
-| Manifest | `migration-20260620-184608-67621-manifest.json` |
+| Run ID | `20260620-202425` |
+| Manifest | `migration-20260620-203118-94994-manifest.json` |
 | Source | local MLX on Apple Silicon |
 | Target | AWS `g4dn.xlarge`, vLLM `0.23.0` |
 | Model | `Qwen/Qwen2.5-0.5B-Instruct` |
 | Prefix length | 2016 tokens |
 | Transfer quantization | `qatq` |
-| Agent Memory Graph | 27 nodes, 25 edges, 4 packaged artifacts, bound/aligned/resumed on target |
+| Agent Memory Graph | 27 nodes, 25 edges, 4 packaged artifacts, bound/aligned/resumed on target/returned to origin |
 | Layers | 24 |
 | Hash validation | passed |
-| Slot probe max key diff | `0.006696999999999065` |
-| Slot probe max value diff | `0.000558149999999813` |
+| Slot probe max key diff | `0.008929999999999438` |
+| Slot probe max value diff | `0.0016742499999997662` |
 | Prefix-cache seeded blocks | 16 |
 | Decode fidelity | exact source/post-migration match for 16 generated tokens |
 | Agent activity continuation | AWS target resumed pending work, wrote `reports/publish/announcement.md`, emitted proof hash `sha256:b066a1dba9ed250eb54e1344c8d0092d8ad2d90dfe68bbfc1a0c740d18b6969c` |
+| Return-home continuation | origin verified the AWS graph/report/artifact, wrote `reports/roundtrip/origin-continuation.md`, emitted proof hash `sha256:052add6058521a13902515f759499b1350d5be4055d070d4e5428a9df0adb36d` |
 | Cleanup | instance, security group, and key pair deleted |
 
 The earlier apparent fidelity gap at a longer prefix was traced to target context-window exhaustion, not a KV migration defect.
@@ -211,6 +223,7 @@ scripts/plan-transfer-codecs.py \
 
 | Run | Target | Source mode | Transport | Seq len | Total time (ms) | Effective bandwidth (Gbps) | Manifest |
 | --- | --- | --- | --- | ---: | ---: | ---: | --- |
+| AWS QATQ round-trip continuation | `g4dn.xlarge` | live MLX | SSH tunnel + QATQ complex graph-bound vLLM prefix-cache attachment + target graph resume + origin return-home proof | 2016 | 383115.057833 | 0.000796456387448196 | `migration-20260620-203118-94994-manifest.json` |
 | AWS QATQ agent-activity continuation | `g4dn.xlarge` | live MLX | SSH tunnel + QATQ complex graph-bound vLLM prefix-cache attachment + target-side graph resume | 2016 | 389836.2535 | 0.0008036472740685385 | `migration-20260620-184608-67621-manifest.json` |
 | AWS QATQ complex graph-attached fidelity | `g4dn.xlarge` | live MLX | SSH tunnel + QATQ complex graph-bound vLLM prefix-cache attachment | 2016 | 386467.57175 | 0.0008050778400958065 | `migration-20260620-173846-50882-manifest.json` |
 | AWS complex graph-attached real-runtime fidelity | `g4dn.xlarge` | live MLX | SSH tunnel + complex graph-bound vLLM prefix-cache attachment | 2016 | 426187.141167 | 0.005626112414656161 | `migration-20260620-170130-37116-manifest.json` |

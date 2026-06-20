@@ -431,7 +431,7 @@ Scope:
 - [ ] Add a production secure bidirectional transport design covering private
   network identity, binary streaming frames, backpressure, resume/retry
   semantics, and a benchmark plan against the current SSH-forwarded TCP path.
-- [ ] Prove round-trip Agent Memory Graph continuity by migrating origin state
+- [x] Prove round-trip Agent Memory Graph continuity by migrating origin state
   to AWS, executing target-side work, returning the AWS-updated graph/artifact
   evidence to the origin, and requiring origin-side continuation that depends
   on the remote proof.

@@ -28,6 +28,16 @@ The state directory contains:
   KV-cache alignment status when graph metadata is present in the migration
   manifest
 - `slot-probe-summary.json`: sampled target slot equality summary
+- `agent-activity-resume-report.json`: optional target-side Agent Memory Graph
+  resume proof when `PERMEANT_AGENT_ACTIVITY_RESUME=1`
+- `agent-activity-resumed-graph.json`: optional AWS-updated graph emitted by
+  the target resume proof
+- `agent-activity-publish-announcement.md`: optional target-written artifact
+  copied back for origin verification when publish approval is enabled
+- `origin-roundtrip-workspace/reports/roundtrip/roundtrip-report.json`:
+  optional origin return-home proof when `PERMEANT_AGENT_ACTIVITY_RETURN_HOME=1`
+- `origin-roundtrip-workspace/reports/roundtrip/returned-home-graph.json`:
+  optional origin graph after verifying AWS evidence and continuing locally
 - `target-logs/receiver.log`
 - `target-logs/daemon.log`
 
@@ -52,6 +62,13 @@ The default target configuration matches the validated real-runtime runs:
 - Agent Memory Graph manifest: unset by default; set
   `PERMEANT_AGENT_GRAPH_MANIFEST=/path/to/manifest.json` to bind graph
   metadata to the staged KV transaction
+- target-side Agent Memory Graph resume: disabled by default; set
+  `PERMEANT_AGENT_ACTIVITY_RESUME=1`
+- approved target publish proof: disabled by default; set
+  `PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH=1`
+- origin return-home proof: disabled by default; set
+  `PERMEANT_AGENT_ACTIVITY_RETURN_HOME=1` together with target resume and
+  publish approval
 - local tunnel port: `39099`
 
 For faster bootstrap, a conservative prewarmed image can be supplied through
@@ -73,8 +90,15 @@ PERMEANT_TRANSFER_QUANTIZATION=none \
 PERMEANT_CONTINUATION_MAX_TOKENS=64 \
 PERMEANT_FIDELITY_HORIZONS=16,32,64 \
 PERMEANT_AGENT_GRAPH_MANIFEST=/tmp/permeant-agent-graph/manifest.json \
+PERMEANT_AGENT_ACTIVITY_RESUME=1 \
+PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH=1 \
+PERMEANT_AGENT_ACTIVITY_RETURN_HOME=1 \
 scripts/aws-real-runtime-e2e.sh run
 ```
+
+The return-home proof validates Agent Memory Graph, artifact, and activity
+continuity back on the origin. It does not perform reverse live KV import from
+vLLM back into MLX.
 
 For larger-than-2k context points, generate checked runner environment blocks
 with `scripts/plan-context-benchmarks.py`; see

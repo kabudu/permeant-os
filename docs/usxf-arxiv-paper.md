@@ -10,7 +10,7 @@
 ---
 
 ## Abstract
-Long-running autonomous AI agents require the ability to migrate dynamically across heterogeneous cloud clusters and local edge environments. However, live state migration--specifically the transmission of large Key-Value (KV) caches--is currently bottlenecked by framework-specific layouts, vendor-locked hardware runtimes (NVIDIA CUDA vs. Apple Metal), and high context-reprefill latencies. In this paper, we present **PermeantOS**, a state-fluid hypervisor, and **USXF (Unified State Exchange Format) v1.1**, an open interchange format that decouples KV cache state from underlying runtimes. USXF defines a versioned metadata schema alongside a cryptographic, compressed payload envelope. We detail the mathematical layout transformations between canonical sequential representations and blocked execution formats, evaluate transfer quantization schemes, and define a warm-start decision boundary comparing prefill complexity to network transmission capacity. In addition to analytical break-even estimates showing up to an 8x resume-latency reduction for contexts larger than 32k tokens over 25 Gbps links, we report a real cross-runtime validation: a local Apple Silicon MLX source migrated a Qwen2.5 KV cache and complex Agent Memory Graph package to an AWS NVIDIA `g4dn.xlarge` vLLM target using experimental QATQ transfer compression. The target seeded migrated KV state into vLLM prefix cache, matched the source continuation exactly for the 16-token validation horizon, then resumed the imported Agent Memory Graph and executed new policy-governed post-migration tool activity.
+Long-running autonomous AI agents require the ability to migrate dynamically across heterogeneous cloud clusters and local edge environments. However, live state migration--specifically the transmission of large Key-Value (KV) caches--is currently bottlenecked by framework-specific layouts, vendor-locked hardware runtimes (NVIDIA CUDA vs. Apple Metal), and high context-reprefill latencies. In this paper, we present **PermeantOS**, a state-fluid hypervisor, and **USXF (Unified State Exchange Format) v1.1**, an open interchange format that decouples KV cache state from underlying runtimes. USXF defines a versioned metadata schema alongside a cryptographic, compressed payload envelope. We detail the mathematical layout transformations between canonical sequential representations and blocked execution formats, evaluate transfer quantization schemes, and define a warm-start decision boundary comparing prefill complexity to network transmission capacity. In addition to analytical break-even estimates showing up to an 8x resume-latency reduction for contexts larger than 32k tokens over 25 Gbps links, we report a real cross-runtime validation: a local Apple Silicon MLX source migrated a Qwen2.5 KV cache and complex Agent Memory Graph package to an AWS NVIDIA `g4dn.xlarge` vLLM target using experimental QATQ transfer compression. The target seeded migrated KV state into vLLM prefix cache, matched the source continuation exactly for the 16-token validation horizon, resumed imported Agent Memory Graph activity, and returned AWS-updated graph/artifact evidence to the origin, where origin-side work continued from the remote proof.
 
 ---
 
@@ -220,8 +220,8 @@ The target context length was kept below the 2048-token model window to leave ro
 
 | Metric | Result |
 |---|---|
-| Run ID | `20260620-183853` |
-| Migration manifest | `migration-20260620-184608-67621-manifest.json` |
+| Run ID | `20260620-202425` |
+| Migration manifest | `migration-20260620-203118-94994-manifest.json` |
 | Source runtime | MLX, Apple Silicon laptop |
 | Target runtime | vLLM `0.23.0`, AWS `g4dn.xlarge` |
 | Model | `Qwen/Qwen2.5-0.5B-Instruct` |
@@ -230,16 +230,18 @@ The target context length was kept below the 2048-token model window to leave ro
 | Agent Memory Graph binding | 27-node complex package aligned and resumed on target |
 | Layer count | 24 |
 | Hash validation | Passed |
-| Slot-probe max key diff | `0.006696999999999065` |
-| Slot-probe max value diff | `0.000558149999999813` |
+| Slot-probe max key diff | `0.008929999999999438` |
+| Slot-probe max value diff | `0.0016742499999997662` |
 | vLLM prefix-cache seeded blocks | 16 |
 | Source vs. post-migration decode | Exact match for 16 generated tokens |
 | Target baseline vs. post-migration decode | Exact match for 16 generated tokens |
 | Target-side agent activity resume | Completed retry-safe read-only work and approved publish write |
 | Post-resume graph proof hash | `sha256:b066a1dba9ed250eb54e1344c8d0092d8ad2d90dfe68bbfc1a0c740d18b6969c` |
+| Origin return-home continuation | Verified AWS graph/report/artifact evidence and wrote origin continuation |
+| Round-trip proof hash | `sha256:052add6058521a13902515f759499b1350d5be4055d070d4e5428a9df0adb36d` |
 | Cleanup | AWS instance, security group, and key pair deleted |
 
-These results validate the core live migration chain: MLX extraction, USXF transport, complex Agent Memory Graph transaction binding, target allocation, target KV write, hash validation, prefix-cache attachment, post-migration decode reuse, and target-side graph activity resume. The result is intentionally scoped: it demonstrates exact fidelity for one model family and a 16-token continuation horizon using experimental lossy QATQ transfer. The migrated graph package contained 27 nodes, 25 edges, four packaged artifacts, memory/retrieval state, credential rebinding requirements, and pending tool policy. After migration, the AWS target imported the same graph package, resumed retry-safe pending work, executed an explicitly approved publish write, wrote a new artifact, appended post-import graph evidence, and emitted a proof hash.
+These results validate the core live migration chain: MLX extraction, USXF transport, complex Agent Memory Graph transaction binding, target allocation, target KV write, hash validation, prefix-cache attachment, post-migration decode reuse, target-side graph activity resume, and origin return-home graph continuation. The result is intentionally scoped: it demonstrates exact fidelity for one model family and a 16-token continuation horizon using experimental lossy QATQ transfer. The migrated graph package contained 27 nodes, 25 edges, four packaged artifacts, memory/retrieval state, credential rebinding requirements, and pending tool policy. After migration, the AWS target imported the same graph package, resumed retry-safe pending work, executed an explicitly approved publish write, wrote a new artifact, appended post-import graph evidence, and emitted a proof hash. The origin then verified the AWS-updated graph/report/artifact evidence, wrote a new continuation artifact from that returned state, and emitted a round-trip proof hash. This proves graph/artifact/activity continuity back to the origin; reverse live KV import from vLLM back into MLX remains future runtime-adapter work.
 
 A matched FP8 transfer-quantized run on the same MLX-to-AWS-vLLM graph-attached
 path reduced transferred bytes from 50,331,648 to 12,582,912 while preserving
@@ -254,10 +256,11 @@ delta of 0.0125.
 The latest QATQ run reduced transferred bytes further to 6,294,528 from a
 49,545,216-byte uncompressed KV payload, a compression ratio of
 0.12704613095238096. QATQ is not numerically lossless: sampled slot probes
-reported maximum key/value deltas of 0.006696999999999065 and
-0.000558149999999813 respectively. The validation claim is therefore bounded
+reported maximum key/value deltas of 0.008929999999999438 and
+0.0016742499999997662 respectively in the round-trip run. The validation claim is therefore bounded
 lossy transfer with exact observed decode fidelity over the configured
-short-horizon continuation, plus target-side agent activity continuation.
+short-horizon continuation, plus target-side and origin return-home Agent
+Memory Graph activity continuation.
 
 ### 7.3 Engineering Finding: Context Window Accounting
 
@@ -274,10 +277,11 @@ This research builds upon several disaggregated caching and optimization framewo
 ---
 
 ## 9. Conclusion & Future Work
-We have presented USXF v1.1 and the PermeantOS hypervisor stack. By decoupling the KV cache from vendor-locked runtimes and wrapping it in a secure, layout-agnostic structure, PermeantOS enables cross-hardware agent migration. The latest end-to-end validation demonstrates that this is not only a wire-format proposal: a real MLX source cache and complex Agent Memory Graph package can be migrated to a real vLLM target, registered into target KV storage, attached through prefix-cache metadata, decoded with exact short-horizon source fidelity, and resumed on the AWS target with new policy-governed agent activity.
+We have presented USXF v1.1 and the PermeantOS hypervisor stack. By decoupling the KV cache from vendor-locked runtimes and wrapping it in a secure, layout-agnostic structure, PermeantOS enables cross-hardware agent migration. The latest end-to-end validation demonstrates that this is not only a wire-format proposal: a real MLX source cache and complex Agent Memory Graph package can be migrated to a real vLLM target, registered into target KV storage, attached through prefix-cache metadata, decoded with exact short-horizon source fidelity, resumed on the AWS target with new policy-governed agent activity, returned to the origin as graph/artifact evidence, and continued on the origin from that remote proof.
 
 Future research directions include:
 1. **Speculative Migration:** Initiating network streaming of prefix blocks before the active reasoning loop completes.
 2. **Multi-Hop Provenance:** Embedding signing chains within the metadata header to allow verified routing across multiple intermediate nodes.
 3. **Durable Agent Graph Sessions:** Persisting resumed Agent Memory Graph state in target-side durable stores rather than only emitting proof artefacts.
-4. **Broader Fidelity Evaluation:** Repeating the MLX-to-vLLM validation across longer continuation horizons, larger contexts, additional model families, additional transfer codecs, and prewarmed cloud images to separate steady-state migration cost from cold infrastructure setup.
+4. **Reverse Runtime Attachment:** Implementing reverse live KV import from vLLM back into MLX so the current graph/artifact return-home proof can become a full bidirectional runtime-state round trip.
+5. **Broader Fidelity Evaluation:** Repeating the MLX-to-vLLM validation across longer continuation horizons, larger contexts, additional model families, additional transfer codecs, and prewarmed cloud images to separate steady-state migration cost from cold infrastructure setup.
