@@ -7,6 +7,19 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Fresh E2E validation checkpoint documenting current local migration passes,
+  AWS real-runtime structural KV migration, cleanup verification, and the
+  remaining source-exact decode-fidelity gap.
+
+### Fixed
+
+- MLX runtime exporter readiness checks now pass through `GET /` and
+  `GET /health`.
+- AWS real-runtime E2E runner now handles default unquantized transfer without
+  expanding an unset Bash array.
+
 ## [0.1.24-versioning-policy] - 2026-06-20
 
 ### Added

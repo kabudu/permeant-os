@@ -572,7 +572,16 @@ run_migration() {
     export PERMEANT_MLX_RUNTIME_URL="$PERMEANT_SOURCE_URL"
     export PERMEANT_MODEL_ARCHITECTURE="$PERMEANT_MODEL"
     export PERMEANT_MODEL_IDENTITY="$PERMEANT_MODEL"
-    ./target/debug/permeant-cli sim-migrate --target-addr "127.0.0.1:$PERMEANT_LOCAL_TUNNEL_PORT" --seq-len "$PERMEANT_SEQ_LEN" "${quant_args[@]}" | tee "$RUN_DIR/migration.log"
+    local migrate_cmd=(
+      ./target/debug/permeant-cli
+      sim-migrate
+      --target-addr "127.0.0.1:$PERMEANT_LOCAL_TUNNEL_PORT"
+      --seq-len "$PERMEANT_SEQ_LEN"
+    )
+    if (( ${#quant_args[@]} > 0 )); then
+      migrate_cmd+=("${quant_args[@]}")
+    fi
+    "${migrate_cmd[@]}" | tee "$RUN_DIR/migration.log"
   )
   local manifest
   manifest="$(sed -n 's/^Saved migration benchmark manifest: //p' "$RUN_DIR/migration.log" | tail -1)"

@@ -414,3 +414,11 @@ Scope:
   verification to the local Agent Memory Graph harness.
 - [x] Wire live MLX and vLLM adapters to produce and validate graph-attached
   span metadata for the same prompt used to prefill the migrated KV cache.
+- [x] Run a fresh local E2E validation checkpoint against the current checkout,
+  including raw, FP8, graph-bound, and command-backed fixture migration paths.
+- [x] Run a fresh AWS real-runtime structural E2E migration after the
+  non-skipped preflight passes with a reachable local MLX exporter, refreshed
+  AWS identity, visible target subnet, and visible target AMI.
+- [ ] Restore source-exact AWS decode fidelity by fixing or explicitly
+  configuring the continuation prompt/prefix-cache attachment path, then rerun
+  the AWS real-runtime E2E validation horizon.

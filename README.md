@@ -69,6 +69,8 @@ What is still experimental:
 - `docs/schemas/agent-memory-graph-v0.schema.json`: machine-readable JSON Schema for the graph envelope.
 - `docs/agent-framework-adapters.md`: Agent Memory Graph adapter capability manifest, compatibility matrix, and conformance rules.
 - `docs/usxf-arxiv-paper.md`: paper draft covering USXF, PermeantOS, and real-runtime E2E findings.
+- `docs/e2e-validation-checkpoint-2026-06-20.md`: fresh local and AWS
+  real-runtime E2E checkpoint evidence.
 - `paper/arxiv/`: arXiv-oriented LaTeX submission bundle.
 - `docs/website/white-paper.md`: website-friendly technical white paper.
 - `docs/deployment-and-testing-guide.md`: local, cloud-host, manifest, benchmark, and Runpod workflow guide.

@@ -58,6 +58,15 @@ class Exporter(BaseHTTPRequestHandler):
         self._reject(401, {"error": "unauthorized"})
         return False
 
+    def do_GET(self) -> None:
+        if self.path not in ("/", "/health"):
+            self._reject(404, {"error": "not found"})
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps({"ok": True, "service": "mlx_runtime_exporter"}).encode("utf-8"))
+
     def do_POST(self) -> None:
         if not self._require_auth():
             return
