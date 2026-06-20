@@ -43,8 +43,13 @@ What works today:
 - Local Agent Memory Graph security policy gate with signed-root attestation, provenance chain checks, secret rejection, credential rebinding, and target/tool/artifact allowlists.
 - Optional Agent Memory Graph hash metadata in migration manifests.
 - Complex graph-attached AWS real-runtime E2E proof for the current MLX-to-vLLM path.
-- Production secure transport is planned but not implemented: the current AWS
-  path still uses the framed TCP daemon protocol through an SSH tunnel.
+- Production transport foundation in the Rust transport crate: signed session
+  hello, `wss://`/mTLS-oriented profile metadata, compact binary frames,
+  bounded payload sizes, CRC validation, stream IDs, and replay rejection.
+  Transport negotiation uses an explicit fallback ladder from private
+  `wss://`/mTLS to QUIC/mTLS to framed TCP/mTLS, while rejecting insecure
+  downgrades. The current AWS runner still uses the framed TCP daemon protocol
+  through an SSH tunnel until the deployment cutover is implemented.
 
 What is still experimental:
 
@@ -80,6 +85,8 @@ What is still experimental:
 - `docs/versioning-policy.md`: USXF, Agent Memory Graph, report schema, and
   lightweight release versioning policy.
 - `docs/agent-memory-graph-threat-model.md`: local graph import threat model and Phase 8 security controls.
+- `docs/production-transport.md`: production transport foundation, security
+  invariants, binary framing, and deployment cutover plan.
 - `docs/schemas/agent-memory-graph-v0.schema.json`: machine-readable JSON Schema for the graph envelope.
 - `docs/agent-framework-adapters.md`: Agent Memory Graph adapter capability manifest, compatibility matrix, and conformance rules.
 - `docs/usxf-arxiv-paper.md`: paper draft covering USXF, PermeantOS, and real-runtime E2E findings.
