@@ -266,7 +266,8 @@ Deliverables:
 - [x] Conservative prewarmed AWS AMI or container recipe with Rust toolchain,
   vLLM, and CUDA stack; model weights stay outside the image unless a later
   cost/latency calculation justifies baking them in.
-- [ ] Longer-horizon decode-fidelity benchmark suite.
+- [x] Longer-horizon decode-fidelity benchmark suite for captured source,
+  baseline, and post-migration continuations.
 - [ ] Larger context runs beyond 2k tokens.
 - [ ] Transfer quantization comparison for real-runtime fidelity.
 - [ ] Adaptive KV transfer codec experiments: capability-negotiated raw, FP8,
@@ -390,6 +391,8 @@ Scope:
   crate publishing become part of the product flow.
 - [x] Add structured benchmark manifest summary tooling and transport-level
   failure-injection tests for interrupted graph/KV migration frames.
+- [x] Add multi-horizon decode-fidelity analysis tooling and AWS runner
+  integration for captured continuation artifacts.
 - [x] Prototype graph-attached migration manifest extensions and analyzer
   checks behind the existing Agent Memory Graph manifest path.
 - [x] Add content-addressed artifact packaging and restored-workspace
