@@ -674,11 +674,18 @@ generate_production_transport_certs() {
   chmod 700 "$PRODUCTION_TRANSPORT_CERT_DIR"
 
   openssl genrsa -out "$PRODUCTION_TRANSPORT_CERT_DIR/ca.key" 2048 >/dev/null 2>&1
+  {
+    printf 'basicConstraints=critical,CA:TRUE\n'
+    printf 'keyUsage=critical,keyCertSign,cRLSign\n'
+    printf 'subjectKeyIdentifier=hash\n'
+  } > "$PRODUCTION_TRANSPORT_CERT_DIR/ca.ext"
   openssl req -x509 -new -nodes \
     -key "$PRODUCTION_TRANSPORT_CERT_DIR/ca.key" \
     -sha256 \
     -days 1 \
     -subj "/CN=permeant-e2e-ca-$RUN_ID" \
+    -extensions v3_ca \
+    -extfile <(printf '[v3_ca]\n'; cat "$PRODUCTION_TRANSPORT_CERT_DIR/ca.ext") \
     -out "$PRODUCTION_TRANSPORT_CERT_DIR/ca.crt" >/dev/null 2>&1
 
   openssl genrsa -out "$PRODUCTION_TRANSPORT_CERT_DIR/server.key" 2048 >/dev/null 2>&1
@@ -688,6 +695,8 @@ generate_production_transport_certs() {
     -out "$PRODUCTION_TRANSPORT_CERT_DIR/server.csr" >/dev/null 2>&1
   {
     printf 'subjectAltName=DNS:permeant-target,IP:%s\n' "$ip"
+    printf 'basicConstraints=critical,CA:FALSE\n'
+    printf 'keyUsage=critical,digitalSignature,keyEncipherment\n'
     printf 'extendedKeyUsage=serverAuth\n'
   } > "$PRODUCTION_TRANSPORT_CERT_DIR/server.ext"
   openssl x509 -req \
@@ -705,7 +714,11 @@ generate_production_transport_certs() {
     -key "$PRODUCTION_TRANSPORT_CERT_DIR/client.key" \
     -subj "/CN=permeant-source" \
     -out "$PRODUCTION_TRANSPORT_CERT_DIR/client.csr" >/dev/null 2>&1
-  printf 'extendedKeyUsage=clientAuth\n' > "$PRODUCTION_TRANSPORT_CERT_DIR/client.ext"
+  {
+    printf 'basicConstraints=critical,CA:FALSE\n'
+    printf 'keyUsage=critical,digitalSignature,keyEncipherment\n'
+    printf 'extendedKeyUsage=clientAuth\n'
+  } > "$PRODUCTION_TRANSPORT_CERT_DIR/client.ext"
   openssl x509 -req \
     -in "$PRODUCTION_TRANSPORT_CERT_DIR/client.csr" \
     -CA "$PRODUCTION_TRANSPORT_CERT_DIR/ca.crt" \

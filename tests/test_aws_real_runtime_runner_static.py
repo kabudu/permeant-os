@@ -69,8 +69,11 @@ def test_production_transport_generates_and_copies_mtls_certs():
     copy_body = script[copy_start : script.index("\nstart_target() {", copy_start)]
 
     assert "openssl req -x509" in cert_body
+    assert "basicConstraints=critical,CA:TRUE" in cert_body
+    assert "keyUsage=critical,keyCertSign,cRLSign" in cert_body
     assert "extendedKeyUsage=serverAuth" in cert_body
     assert "extendedKeyUsage=clientAuth" in cert_body
+    assert "keyUsage=critical,digitalSignature,keyEncipherment" in cert_body
     assert "subjectAltName=DNS:permeant-target" in cert_body
     assert "server.key" in copy_body
     assert "client.key" not in copy_body
