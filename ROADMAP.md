@@ -281,6 +281,10 @@ Deliverables:
 - [x] Structured benchmark output suitable for paper updates, including JSON
   aggregates, failure records, and Markdown table generation from migration
   manifests.
+- [ ] Production secure bidirectional migration transport that can replace
+  ad-hoc SSH tunnels and provider-specific HTTP bridges with private-network
+  `wss://`/mTLS binary streaming first, then QUIC or RDMA/UCX/NIXL where the
+  target deployment supports it.
 
 Exit criteria:
 
@@ -378,6 +382,9 @@ Scope:
   TurboQuant variants, reduce migration bandwidth without breaking continuation
   fidelity, and what metadata is required to safely rehydrate compressed cache
   state onto richer origin hardware profiles?
+- Should the production transport baseline be WebSocket-over-mTLS for
+  deployability, or should high-throughput deployments move directly to QUIC,
+  RDMA/UCX, or NIXL once runtime adapters can keep the pipeline saturated?
 
 ## Immediate next steps
 
@@ -421,3 +428,10 @@ Scope:
   AWS identity, visible target subnet, and visible target AMI.
 - [x] Rerun the AWS real-runtime E2E validation horizon after the runner's
   source-continuation refresh fix to confirm source-exact decode fidelity.
+- [ ] Add a production secure bidirectional transport design covering private
+  network identity, binary streaming frames, backpressure, resume/retry
+  semantics, and a benchmark plan against the current SSH-forwarded TCP path.
+- [ ] Prove round-trip Agent Memory Graph continuity by migrating origin state
+  to AWS, executing target-side work, returning the AWS-updated graph/artifact
+  evidence to the origin, and requiring origin-side continuation that depends
+  on the remote proof.

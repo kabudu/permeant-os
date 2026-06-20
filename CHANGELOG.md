@@ -22,6 +22,11 @@ and this project uses release tags compatible with semantic versioning.
   migration, validates exact 16-token vLLM continuation, resumes the same
   complex Agent Memory Graph package on the AWS target, executes pending tool
   work, writes a post-migration artifact, and verifies cloud cleanup.
+- Agent Memory Graph return-home proof harness and AWS runner option for
+  verifying AWS-updated graph/artifact evidence on the origin and continuing
+  from the returned state.
+- Production secure bidirectional transport roadmap item covering private
+  `wss://`/mTLS binary streaming and future QUIC/RDMA/UCX/NIXL evaluation.
 
 ## [0.1.27-complex-agent-e2e] - 2026-06-20
 

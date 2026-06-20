@@ -3,6 +3,8 @@ import pathlib
 import sys
 import tempfile
 
+import pytest
+
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 HARNESS_PATH = ROOT / "examples" / "agent-memory-graph" / "local_agent.py"
@@ -241,6 +243,80 @@ def test_complex_agent_graph_resume_blocks_publish_without_explicit_approval():
             }
         ]
         assert not (workspace_dir / "reports" / "publish" / "announcement.md").exists()
+
+
+def test_complex_agent_graph_return_home_proves_round_trip_continuation():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "complex-package"
+        target_workspace = pathlib.Path(temp_dir) / "target-workspace"
+        origin_workspace = pathlib.Path(temp_dir) / "origin-workspace"
+        manifest = harness.export_complex_session(package_dir)
+
+        target_result = harness.resume_imported_agent(
+            package_dir,
+            target_workspace,
+            approve_publish=True,
+        )
+        target_graph = target_workspace / "reports" / "resume" / "resumed-graph.json"
+        target_report = target_workspace / "reports" / "resume" / "resume-report.json"
+        target_artifact = target_workspace / "reports" / "publish" / "announcement.md"
+
+        result = harness.return_home_after_target_resume(
+            package_dir,
+            target_graph,
+            target_report,
+            origin_workspace,
+            target_artifact,
+        )
+        report = harness.read_json(origin_workspace / "reports" / "roundtrip" / "roundtrip-report.json")
+        returned_graph = harness.read_json(
+            origin_workspace / "reports" / "roundtrip" / "returned-home-graph.json"
+        )
+        continuation = origin_workspace / "reports" / "roundtrip" / "origin-continuation.md"
+
+        assert result["status"] == "round_trip_continued"
+        assert result["round_trip_continued"] is True
+        assert result["origin_pre_graph_hash"] == manifest["graph_hash"]
+        assert result["target_post_graph_hash"] == target_result["post_resume_graph_hash"]
+        assert result["target_proof_hash"] == target_result["proof_hash"]
+        assert result["target_artifact_hash"] == target_result["written_artifacts"][0]["sha256"]
+        assert result["origin_post_graph_hash"] == returned_graph["graph_hash"]
+        assert result["proof_hash"] == report["proof_hash"]
+        assert continuation.exists()
+        assert result["origin_written_artifacts"][0]["sha256"] == harness.file_sha256_and_size(continuation)[0]
+        assert any(
+            node["id"] == "memory:agent-roundtrip-returned-home"
+            for node in returned_graph["nodes"]
+        )
+        assert any(
+            edge["from"] == "artifact:publish-announcement:post-import"
+            and edge["to"] == "artifact:origin-roundtrip-continuation"
+            for edge in returned_graph["edges"]
+        )
+        assert returned_graph["roundtrip_source_graph_id"] == target_result["post_resume_graph_hash"]
+        assert returned_graph["graph_hash"] == harness.canonical_graph_hash(returned_graph)
+
+
+def test_complex_agent_graph_return_home_rejects_tampered_target_artifact():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "complex-package"
+        target_workspace = pathlib.Path(temp_dir) / "target-workspace"
+        origin_workspace = pathlib.Path(temp_dir) / "origin-workspace"
+        harness.export_complex_session(package_dir)
+        harness.resume_imported_agent(package_dir, target_workspace, approve_publish=True)
+        target_artifact = target_workspace / "reports" / "publish" / "announcement.md"
+        target_artifact.write_text("tampered\n")
+
+        with pytest.raises(harness.ImportVerificationError, match="target artifact bytes"):
+            harness.return_home_after_target_resume(
+                package_dir,
+                target_workspace / "reports" / "resume" / "resumed-graph.json",
+                target_workspace / "reports" / "resume" / "resume-report.json",
+                origin_workspace,
+                target_artifact,
+            )
 
 
 def test_local_agent_graph_import_recomputes_vector_retrieval_equivalence():

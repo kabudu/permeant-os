@@ -25,6 +25,7 @@ Environment overrides:
   PERMEANT_AGENT_GRAPH_MANIFEST      optional local Agent Memory Graph manifest
   PERMEANT_AGENT_ACTIVITY_RESUME     default: 0; run Agent Memory Graph resume proof on target
   PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH default: 0; approve gated local publish proof
+  PERMEANT_AGENT_ACTIVITY_RETURN_HOME default: 0; verify AWS-updated graph and continue on origin
   PERMEANT_LOCAL_TUNNEL_PORT         default: 39099
   PERMEANT_STATE_DIR                 default: .permeant-e2e/aws
   PERMEANT_PREFLIGHT_SKIP_AWS        default: 0
@@ -54,6 +55,7 @@ PERMEANT_SOURCE_CONTINUATION_FILE="${PERMEANT_SOURCE_CONTINUATION_FILE:-/tmp/per
 PERMEANT_AGENT_GRAPH_MANIFEST="${PERMEANT_AGENT_GRAPH_MANIFEST:-}"
 PERMEANT_AGENT_ACTIVITY_RESUME="${PERMEANT_AGENT_ACTIVITY_RESUME:-0}"
 PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH="${PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH:-0}"
+PERMEANT_AGENT_ACTIVITY_RETURN_HOME="${PERMEANT_AGENT_ACTIVITY_RETURN_HOME:-0}"
 PERMEANT_LOCAL_TUNNEL_PORT="${PERMEANT_LOCAL_TUNNEL_PORT:-39099}"
 PERMEANT_STATE_DIR="${PERMEANT_STATE_DIR:-$ROOT_DIR/.permeant-e2e/aws}"
 PERMEANT_PREFLIGHT_SKIP_AWS="${PERMEANT_PREFLIGHT_SKIP_AWS:-0}"
@@ -76,6 +78,10 @@ TARGET_AGENT_GRAPH_PACKAGE="/home/ubuntu/permeant-agent-graph-package"
 TARGET_AGENT_ACTIVITY_WORKSPACE="/tmp/permeant-agent-activity-workspace"
 TARGET_AGENT_ACTIVITY_REPORT_LOCAL=""
 TARGET_AGENT_ACTIVITY_GRAPH_LOCAL=""
+TARGET_AGENT_ACTIVITY_ARTIFACT_LOCAL=""
+ORIGIN_ROUNDTRIP_WORKSPACE=""
+ORIGIN_ROUNDTRIP_REPORT_LOCAL=""
+ORIGIN_ROUNDTRIP_GRAPH_LOCAL=""
 
 log() {
   printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"
@@ -193,6 +199,12 @@ load_state() {
   TARGET_PROBE_LOCAL="$(json_get "$STATE_FILE" target_probe_local)"
   TUNNEL_PID_FILE="$RUN_DIR/tunnel.pid"
   TARGET_LOG_DIR="$RUN_DIR/target-logs"
+  TARGET_AGENT_ACTIVITY_REPORT_LOCAL="$(json_get "$STATE_FILE" target_agent_activity_report_local)"
+  TARGET_AGENT_ACTIVITY_GRAPH_LOCAL="$(json_get "$STATE_FILE" target_agent_activity_graph_local)"
+  TARGET_AGENT_ACTIVITY_ARTIFACT_LOCAL="$(json_get "$STATE_FILE" target_agent_activity_artifact_local)"
+  ORIGIN_ROUNDTRIP_WORKSPACE="$(json_get "$STATE_FILE" origin_roundtrip_workspace)"
+  ORIGIN_ROUNDTRIP_REPORT_LOCAL="$(json_get "$STATE_FILE" origin_roundtrip_report_local)"
+  ORIGIN_ROUNDTRIP_GRAPH_LOCAL="$(json_get "$STATE_FILE" origin_roundtrip_graph_local)"
 }
 
 instance_id() {
@@ -274,6 +286,10 @@ create_state() {
   TUNNEL_PID_FILE="$RUN_DIR/tunnel.pid"
   TARGET_AGENT_ACTIVITY_REPORT_LOCAL="$RUN_DIR/agent-activity-resume-report.json"
   TARGET_AGENT_ACTIVITY_GRAPH_LOCAL="$RUN_DIR/agent-activity-resumed-graph.json"
+  TARGET_AGENT_ACTIVITY_ARTIFACT_LOCAL="$RUN_DIR/agent-activity-publish-announcement.md"
+  ORIGIN_ROUNDTRIP_WORKSPACE="$RUN_DIR/origin-roundtrip-workspace"
+  ORIGIN_ROUNDTRIP_REPORT_LOCAL="$ORIGIN_ROUNDTRIP_WORKSPACE/reports/roundtrip/roundtrip-report.json"
+  ORIGIN_ROUNDTRIP_GRAPH_LOCAL="$ORIGIN_ROUNDTRIP_WORKSPACE/reports/roundtrip/returned-home-graph.json"
   mkdir -p "$TARGET_LOG_DIR"
 
   python3 - "$STATE_FILE" <<PY
@@ -296,6 +312,7 @@ data = {
   "agent_graph_manifest": "$PERMEANT_AGENT_GRAPH_MANIFEST",
   "agent_activity_resume": "$PERMEANT_AGENT_ACTIVITY_RESUME",
   "agent_activity_approve_publish": "$PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH",
+  "agent_activity_return_home": "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME",
   "local_tunnel_port": "$PERMEANT_LOCAL_TUNNEL_PORT",
   "run_dir": "$RUN_DIR",
   "key_name": "$KEY_NAME",
@@ -303,7 +320,11 @@ data = {
   "known_hosts_file": "$KNOWN_HOSTS_FILE",
   "target_probe_local": "$TARGET_PROBE_LOCAL",
   "target_agent_activity_report_local": "$TARGET_AGENT_ACTIVITY_REPORT_LOCAL",
-  "target_agent_activity_graph_local": "$TARGET_AGENT_ACTIVITY_GRAPH_LOCAL"
+  "target_agent_activity_graph_local": "$TARGET_AGENT_ACTIVITY_GRAPH_LOCAL",
+  "target_agent_activity_artifact_local": "$TARGET_AGENT_ACTIVITY_ARTIFACT_LOCAL",
+  "origin_roundtrip_workspace": "$ORIGIN_ROUNDTRIP_WORKSPACE",
+  "origin_roundtrip_report_local": "$ORIGIN_ROUNDTRIP_REPORT_LOCAL",
+  "origin_roundtrip_graph_local": "$ORIGIN_ROUNDTRIP_GRAPH_LOCAL"
 }
 with open("$STATE_FILE", "w") as f:
     json.dump(data, f, indent=2, sort_keys=True)
@@ -402,6 +423,28 @@ preflight_cmd() {
     check_status pass "configuration:agent_activity_approve_publish" "$PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH" >> "$checks_file"
   else
     check_status fail "configuration:agent_activity_approve_publish" "PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH must be 0 or 1" >> "$checks_file"
+  fi
+
+  if [[ "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME" == "0" || "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME" == "1" ]]; then
+    check_status pass "configuration:agent_activity_return_home" "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME" >> "$checks_file"
+  else
+    check_status fail "configuration:agent_activity_return_home" "PERMEANT_AGENT_ACTIVITY_RETURN_HOME must be 0 or 1" >> "$checks_file"
+  fi
+
+  if [[ "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME" == "1" && "$PERMEANT_AGENT_ACTIVITY_RESUME" != "1" ]]; then
+    check_status fail "configuration:agent_activity_return_home_requires_resume" "return-home proof requires PERMEANT_AGENT_ACTIVITY_RESUME=1" >> "$checks_file"
+  elif [[ "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME" == "1" ]]; then
+    check_status pass "configuration:agent_activity_return_home_requires_resume" "target resume is enabled" >> "$checks_file"
+  else
+    check_status skip "configuration:agent_activity_return_home_requires_resume" "PERMEANT_AGENT_ACTIVITY_RETURN_HOME=0" >> "$checks_file"
+  fi
+
+  if [[ "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME" == "1" && "$PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH" != "1" ]]; then
+    check_status fail "configuration:agent_activity_return_home_requires_publish" "return-home proof requires PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH=1 so a target artifact exists" >> "$checks_file"
+  elif [[ "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME" == "1" ]]; then
+    check_status pass "configuration:agent_activity_return_home_requires_publish" "target publish artifact will be produced" >> "$checks_file"
+  else
+    check_status skip "configuration:agent_activity_return_home_requires_publish" "PERMEANT_AGENT_ACTIVITY_RETURN_HOME=0" >> "$checks_file"
   fi
 
   if [[ "$PERMEANT_PREFLIGHT_SKIP_BUILD" == "1" ]]; then
@@ -785,6 +828,10 @@ run_agent_activity_resume() {
   scp_from_target "$TARGET_AGENT_ACTIVITY_WORKSPACE/reports/resume/resumed-graph.json" "$TARGET_AGENT_ACTIVITY_GRAPH_LOCAL"
   json_set "$STATE_FILE" target_agent_activity_report_local "$TARGET_AGENT_ACTIVITY_REPORT_LOCAL"
   json_set "$STATE_FILE" target_agent_activity_graph_local "$TARGET_AGENT_ACTIVITY_GRAPH_LOCAL"
+  if [[ "$PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH" == "1" ]]; then
+    scp_from_target "$TARGET_AGENT_ACTIVITY_WORKSPACE/reports/publish/announcement.md" "$TARGET_AGENT_ACTIVITY_ARTIFACT_LOCAL"
+    json_set "$STATE_FILE" target_agent_activity_artifact_local "$TARGET_AGENT_ACTIVITY_ARTIFACT_LOCAL"
+  fi
   python3 - "$TARGET_AGENT_ACTIVITY_REPORT_LOCAL" <<'PY'
 import json, sys
 from pathlib import Path
@@ -799,6 +846,44 @@ print(json.dumps({
     "proof_hash": report.get("proof_hash"),
     "executed_tools": [entry.get("node_id") for entry in report.get("executed_tools", [])],
     "written_artifacts": report.get("written_artifacts", []),
+}, indent=2, sort_keys=True))
+PY
+}
+
+run_agent_activity_return_home() {
+  [[ "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME" == "1" ]] || return 0
+  log "running origin return-home proof against AWS-updated Agent Memory Graph"
+  local package_dir
+  package_dir="$(cd "$(dirname "$PERMEANT_AGENT_GRAPH_MANIFEST")" && pwd)"
+  local target_artifact_args=()
+  if [[ -f "$TARGET_AGENT_ACTIVITY_ARTIFACT_LOCAL" ]]; then
+    target_artifact_args=(--target-artifact "$TARGET_AGENT_ACTIVITY_ARTIFACT_LOCAL")
+  fi
+  python3 "$ROOT_DIR/examples/agent-memory-graph/local_agent.py" return-home \
+    --original-package "$package_dir" \
+    --target-resumed-graph "$TARGET_AGENT_ACTIVITY_GRAPH_LOCAL" \
+    --target-resume-report "$TARGET_AGENT_ACTIVITY_REPORT_LOCAL" \
+    "${target_artifact_args[@]}" \
+    --workspace "$ORIGIN_ROUNDTRIP_WORKSPACE" \
+    | tee "$RUN_DIR/origin-return-home.stdout.json"
+  json_set "$STATE_FILE" origin_roundtrip_workspace "$ORIGIN_ROUNDTRIP_WORKSPACE"
+  json_set "$STATE_FILE" origin_roundtrip_report_local "$ORIGIN_ROUNDTRIP_REPORT_LOCAL"
+  json_set "$STATE_FILE" origin_roundtrip_graph_local "$ORIGIN_ROUNDTRIP_GRAPH_LOCAL"
+  python3 - "$ORIGIN_ROUNDTRIP_REPORT_LOCAL" <<'PY'
+import json, sys
+from pathlib import Path
+report = json.loads(Path(sys.argv[1]).read_text())
+if report.get("status") != "round_trip_continued" or report.get("round_trip_continued") is not True:
+    raise SystemExit(f"origin return-home proof did not continue: {report}")
+print(json.dumps({
+    "status": report.get("status"),
+    "round_trip_continued": report.get("round_trip_continued"),
+    "origin_pre_graph_hash": report.get("origin_pre_graph_hash"),
+    "target_post_graph_hash": report.get("target_post_graph_hash"),
+    "origin_post_graph_hash": report.get("origin_post_graph_hash"),
+    "target_proof_hash": report.get("target_proof_hash"),
+    "proof_hash": report.get("proof_hash"),
+    "origin_written_artifacts": report.get("origin_written_artifacts", []),
 }, indent=2, sort_keys=True))
 PY
 }
@@ -890,6 +975,7 @@ run_cmd() {
   collect_artifacts
   analyze_artifacts
   run_agent_activity_resume
+  run_agent_activity_return_home
   cleanup_cmd "$STATE_FILE"
   trap - EXIT
   log "run complete: $RUN_DIR"
