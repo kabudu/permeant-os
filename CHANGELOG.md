@@ -7,6 +7,8 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.12-lazarus-hardening] - 2026-06-20
+
 ### Added
 
 - PR CI now enforces `cargo fmt --all -- --check` and strict Clippy
@@ -136,7 +138,8 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.11-daemon-graph-transaction-binding...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.12-lazarus-hardening...HEAD
+[0.1.12-lazarus-hardening]: https://github.com/kabudu/permeant-os/compare/v0.1.11-daemon-graph-transaction-binding...v0.1.12-lazarus-hardening
 [0.1.11-daemon-graph-transaction-binding]: https://github.com/kabudu/permeant-os/compare/v0.1.10-target-tokenizer-span-validation...v0.1.11-daemon-graph-transaction-binding
 [0.1.10-target-tokenizer-span-validation]: https://github.com/kabudu/permeant-os/compare/v0.1.9-live-graph-span-metadata...v0.1.10-target-tokenizer-span-validation
 [0.1.9-live-graph-span-metadata]: https://github.com/kabudu/permeant-os/compare/v0.1.8-artifact-restore-harness...v0.1.9-live-graph-span-metadata
