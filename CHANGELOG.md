@@ -7,6 +7,8 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.16-agent-framework-adapters] - 2026-06-20
+
 ### Added
 
 - Agent Memory Graph framework adapter conformance layer with dependency-free
@@ -203,7 +205,8 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.15-vector-retrieval-memory...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.16-agent-framework-adapters...HEAD
+[0.1.16-agent-framework-adapters]: https://github.com/kabudu/permeant-os/compare/v0.1.15-vector-retrieval-memory...v0.1.16-agent-framework-adapters
 [0.1.15-vector-retrieval-memory]: https://github.com/kabudu/permeant-os/compare/v0.1.14-tool-replay-safety...v0.1.15-vector-retrieval-memory
 [0.1.14-tool-replay-safety]: https://github.com/kabudu/permeant-os/compare/v0.1.13-artifact-safety-policies...v0.1.14-tool-replay-safety
 [0.1.13-artifact-safety-policies]: https://github.com/kabudu/permeant-os/compare/v0.1.12-lazarus-hardening...v0.1.13-artifact-safety-policies
