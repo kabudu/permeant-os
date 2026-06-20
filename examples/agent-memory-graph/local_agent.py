@@ -55,6 +55,7 @@ FORBIDDEN_SECRET_KEYS = {
 STREAM_CHUNK_SIZE = 1024 * 1024
 PENDING_TOOL_STATUSES = {"not_started", "in_progress", "failed", "needs_user"}
 MANUAL_RESUME_POLICIES = {"ask_user", "rebind", "compensate"}
+POST_MIGRATION_CREATED_AT = "2026-06-20T00:00:00Z"
 
 
 class ImportVerificationError(ValueError):
@@ -290,6 +291,18 @@ def base_node(node_id: str, node_type: str, payload: dict[str, Any]) -> dict[str
         **payload,
     }
     return node
+
+
+def node_content_payload(node: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in node.items()
+        if key not in {"id", "type", "created_at", "content_hash", "provenance"}
+    }
+
+
+def refresh_node_content_hash(node: dict[str, Any]) -> None:
+    node["content_hash"] = sha256_json(node_content_payload(node))
 
 
 def build_artifact_record_from_bytes(path: str, artifact_bytes: bytes, policy: ArtifactExportPolicy) -> ArtifactRecord:
@@ -1562,6 +1575,326 @@ def import_session(package_dir: Path, workspace_dir: Path | None = None, target_
     }
 
 
+def node_by_id(graph: dict[str, Any], node_id: str) -> dict[str, Any]:
+    for node in graph.get("nodes", []):
+        if node.get("id") == node_id:
+            return node
+    raise ImportVerificationError(f"missing graph node: {node_id}")
+
+
+def append_post_migration_node(graph: dict[str, Any], node_id: str, node_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    node = {
+        "id": node_id,
+        "type": node_type,
+        "created_at": POST_MIGRATION_CREATED_AT,
+        "content_hash": sha256_json(payload),
+        "provenance": {
+            "runtime": RUNTIME_ID,
+            "captured_at": POST_MIGRATION_CREATED_AT,
+            "adapter": "local_agent.py",
+            "migration_phase": "post_import_resume",
+        },
+        **payload,
+    }
+    graph["nodes"].append(node)
+    return node
+
+
+def mark_tool_call_completed(graph: dict[str, Any], node_id: str, approval_state: str = "not_required") -> dict[str, Any]:
+    tool_call = node_by_id(graph, node_id)
+    if tool_call.get("type") != "tool_call":
+        raise ImportVerificationError(f"node is not a tool_call: {node_id}")
+    tool_call["status"] = "completed"
+    tool_call["approval_state"] = approval_state
+    refresh_node_content_hash(tool_call)
+    return tool_call
+
+
+def simulated_quota_result() -> dict[str, Any]:
+    return {
+        "provider": "aws",
+        "operation": "ec2.describe_instances",
+        "filters": ["Project=permeant-os"],
+        "active_instances": 0,
+        "stopped_instances": 0,
+        "security_groups": 0,
+        "key_pairs": 0,
+        "result": "clean",
+    }
+
+
+def publish_announcement_content(import_result: dict[str, Any], pre_resume_graph_hash: str) -> str:
+    return "\n".join(
+        [
+            "# PermeantOS Agent Activity Continuation Proof",
+            "",
+            "The imported agent resumed after migration, retried safe read-only work,",
+            "received explicit publish approval, and wrote this post-migration artifact.",
+            "",
+            f"- pre-resume graph hash: `{pre_resume_graph_hash}`",
+            f"- prompt token hash: `{import_result['prompt_token_hash']}`",
+            f"- simulated KV hash: `{import_result['kv_hash']}`",
+            "- safe read-only quota check: `completed`",
+            "- approved publish write: `completed`",
+            "",
+        ]
+    )
+
+
+def resume_imported_agent(
+    package_dir: Path,
+    workspace_dir: Path | None = None,
+    approve_publish: bool = False,
+) -> dict[str, Any]:
+    import_result = import_session(package_dir, workspace_dir)
+    manifest = read_json(package_dir / "manifest.json")
+    graph = read_json(package_dir / safe_package_relative_path(manifest["graph_path"]))
+    workspace = Path(import_result["restored_workspace"])
+    pre_resume_graph_hash = graph["graph_hash"]
+
+    read_tool = node_by_id(graph, "tool:call:read-aws-quota")
+    if read_tool.get("side_effect") != "read_only" or read_tool.get("resume_policy") != "retry_safe":
+        raise ImportVerificationError("read-only quota tool is not retry-safe")
+
+    quota_result = simulated_quota_result()
+    mark_tool_call_completed(graph, "tool:call:read-aws-quota")
+    quota_result_hash = sha256_json(quota_result)
+    append_post_migration_node(
+        graph,
+        "tool:result:read-aws-quota:post-import",
+        "tool_result",
+        {
+            "actor_id": TOOL_ID,
+            "memory_scope": "thread",
+            "memory_tier": "working",
+            "sensitivity": "internal",
+            "retention": "session",
+            "redaction_state": "none",
+            "result_hash": quota_result_hash,
+            "output_schema_hash": sha256_json({"active_instances": "integer", "result": "string"}),
+            "is_error": False,
+            "resource_refs": [],
+            "status": "completed",
+        },
+    )
+    graph["edges"].append(
+        {
+            "from": "tool:call:read-aws-quota",
+            "to": "tool:result:read-aws-quota:post-import",
+            "type": "produced",
+        }
+    )
+
+    executed_tools = [
+        {
+            "node_id": "tool:call:read-aws-quota",
+            "name": "aws.ec2.describe_instances",
+            "side_effect": "read_only",
+            "status": "completed",
+            "result_hash": quota_result_hash,
+        }
+    ]
+    blocked_tools = []
+    written_artifacts = []
+
+    publish_tool = node_by_id(graph, "tool:call:publish-release")
+    if approve_publish:
+        if publish_tool.get("side_effect") != "external_write" or publish_tool.get("resume_policy") != "ask_user":
+            raise ImportVerificationError("publish tool is not gated by explicit user approval")
+        mark_tool_call_completed(graph, "tool:call:publish-release", approval_state="approved")
+        announcement_path = "reports/publish/announcement.md"
+        announcement = publish_announcement_content(import_result, pre_resume_graph_hash)
+        announcement_target = workspace / safe_workspace_relative_path(announcement_path)
+        announcement_target.parent.mkdir(parents=True, exist_ok=True)
+        announcement_target.write_text(announcement)
+        announcement_hash, announcement_size = file_sha256_and_size(announcement_target)
+        written_artifacts.append(
+            {
+                "path": announcement_path,
+                "sha256": announcement_hash,
+                "size_bytes": announcement_size,
+            }
+        )
+        append_post_migration_node(
+            graph,
+            "tool:result:publish-release:post-import",
+            "tool_result",
+            {
+                "actor_id": TOOL_ID,
+                "memory_scope": "thread",
+                "memory_tier": "working",
+                "sensitivity": "internal",
+                "retention": "durable",
+                "redaction_state": "none",
+                "result_hash": sha256_json({"path": announcement_path, "sha256": announcement_hash}),
+                "output_schema_hash": sha256_json({"path": "string", "sha256": "string"}),
+                "is_error": False,
+                "resource_refs": [f"artifact:{announcement_path}"],
+                "status": "completed",
+            },
+        )
+        append_post_migration_node(
+            graph,
+            "artifact:publish-announcement:post-import",
+            "artifact",
+            {
+                "actor_id": TOOL_ID,
+                "memory_scope": "thread",
+                "memory_tier": "archival",
+                "sensitivity": "internal",
+                "retention": "durable",
+                "redaction_state": "none",
+                "artifact_kind": "file",
+                "path": announcement_path,
+                "uri": f"artifact://local/{announcement_path}",
+                "sha256": announcement_hash.removeprefix("sha256:"),
+                "size_bytes": announcement_size,
+                "media_type": "text/markdown",
+                "root_ref": "post-migration-workspace",
+                "restore_policy": "required",
+            },
+        )
+        append_post_migration_node(
+            graph,
+            "memory:agent-activity-continued:post-import",
+            "memory",
+            {
+                "actor_id": AGENT_ID,
+                "memory_scope": "thread",
+                "memory_tier": "recall",
+                "sensitivity": "internal",
+                "retention": "durable",
+                "redaction_state": "none",
+                "quality_state": "verified",
+                "historical_state": "current",
+                "trust_level": "verified",
+                "valid_at": POST_MIGRATION_CREATED_AT,
+                "confidence": 1.0,
+                "memory_kind": "episodic",
+                "text_hash": sha256_bytes(b"agent resumed after migration and completed approved publish"),
+                "subject": "agent:complex-continuity",
+                "predicate": "post_migration_activity",
+                "object": "completed_safe_retry_and_approved_publish",
+                "namespace": ["complex-agent", "post-migration"],
+                "key": "agent-activity-continued",
+                "embedding_model": EMBEDDING_MODEL,
+                "embedding_dim": EMBEDDING_DIM,
+                "embedding_hash": embedding_hash(
+                    deterministic_embedding(
+                        "agent:complex-continuity post_migration_activity completed_safe_retry_and_approved_publish"
+                    )
+                ),
+                "distance_metric": "cosine",
+                "vector_store_ref": VECTOR_STORE_REF,
+                "episode": {
+                    "schema_version": "complex-agent-v0",
+                    "episode_id": "episode:complex-agent:post-import",
+                    "continuity_state": "continued",
+                    "actor_ids": [AGENT_ID, TOOL_ID, "operator:release-manager"],
+                    "started_at": POST_MIGRATION_CREATED_AT,
+                    "boundary_labels": ["post_import_resume", "tool_execution", "artifact_write"],
+                    "causal_record_ids": [
+                        "tool:call:read-aws-quota",
+                        "tool:call:publish-release",
+                    ],
+                    "related_record_ids": ["artifact:publish-announcement:post-import"],
+                    "salience": {"reuse": 1.0, "novelty": 0.8, "unresolved": 0.0},
+                },
+                "conflict": {"review_state": "none", "conflicting_node_ids": [], "drift_score": 0.0},
+                "lineage_links": [
+                    {"node_id": "tool:result:publish-release:post-import", "relation": "derived_from"}
+                ],
+            },
+        )
+        graph["edges"].extend(
+            [
+                {
+                    "from": "tool:call:publish-release",
+                    "to": "tool:result:publish-release:post-import",
+                    "type": "produced",
+                },
+                {
+                    "from": "tool:call:publish-release",
+                    "to": "artifact:publish-announcement:post-import",
+                    "type": "produced",
+                },
+                {
+                    "from": "artifact:publish-announcement:post-import",
+                    "to": "memory:agent-activity-continued:post-import",
+                    "type": "produced",
+                },
+            ]
+        )
+        executed_tools.append(
+            {
+                "node_id": "tool:call:publish-release",
+                "name": "fs.write_file",
+                "side_effect": "external_write",
+                "status": "completed",
+                "approval_state": "approved",
+                "artifact_hash": announcement_hash,
+            }
+        )
+    else:
+        blocked_tools.append(
+            {
+                "node_id": "tool:call:publish-release",
+                "name": "fs.write_file",
+                "side_effect": "external_write",
+                "status": publish_tool.get("status"),
+                "approval_state": publish_tool.get("approval_state"),
+                "reason": "explicit publish approval was not supplied",
+            }
+        )
+
+    append_post_migration_node(
+        graph,
+        "event:post-migration-agent-resume",
+        "event",
+        {
+            "actor_id": AGENT_ID,
+            "event_kind": "agent_resumed_after_import",
+            "memory_scope": "thread",
+            "memory_tier": "working",
+            "sensitivity": "internal",
+            "retention": "durable",
+            "redaction_state": "none",
+        },
+    )
+    graph["lineage"].append(
+        {
+            "graph_id": graph["graph_id"],
+            "event": "post_migration_agent_resume",
+            "created_at": POST_MIGRATION_CREATED_AT,
+        }
+    )
+    graph["source_graph_id"] = pre_resume_graph_hash
+    graph["graph_hash"] = canonical_graph_hash(graph)
+
+    resumed_graph_path = workspace / "reports" / "resume" / "resumed-graph.json"
+    resume_report_path = workspace / "reports" / "resume" / "resume-report.json"
+    write_json(resumed_graph_path, graph)
+
+    report = {
+        "status": "continued" if executed_tools else "not_continued",
+        "activity_continued": bool(executed_tools),
+        "publish_approved": approve_publish,
+        "pre_resume_graph_hash": pre_resume_graph_hash,
+        "post_resume_graph_hash": graph["graph_hash"],
+        "prompt_token_hash": import_result["prompt_token_hash"],
+        "kv_hash": import_result["kv_hash"],
+        "executed_tools": executed_tools,
+        "blocked_tools": blocked_tools,
+        "written_artifacts": written_artifacts,
+        "resumed_graph_path": str(resumed_graph_path.relative_to(workspace)),
+        "proof_hash": "",
+    }
+    report["proof_hash"] = sha256_json({key: value for key, value in report.items() if key != "proof_hash"})
+    write_json(resume_report_path, report)
+    report["resume_report_path"] = str(resume_report_path.relative_to(workspace))
+    return report
+
+
 def command_export(args: argparse.Namespace) -> None:
     artifact_policy = ArtifactExportPolicy(
         exclude_paths=set(args.exclude_artifact),
@@ -1573,6 +1906,15 @@ def command_export(args: argparse.Namespace) -> None:
 
 def command_import(args: argparse.Namespace) -> None:
     result = import_session(Path(args.input), Path(args.workspace) if args.workspace else None)
+    print(json.dumps(result, indent=2, sort_keys=True))
+
+
+def command_resume(args: argparse.Namespace) -> None:
+    result = resume_imported_agent(
+        Path(args.input),
+        Path(args.workspace) if args.workspace else None,
+        approve_publish=args.approve_publish,
+    )
     print(json.dumps(result, indent=2, sort_keys=True))
 
 
@@ -1636,6 +1978,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="target workspace directory for restored artifacts",
     )
     import_parser.set_defaults(func=command_import)
+
+    resume_parser = subcommands.add_parser(
+        "resume",
+        help="import a package, resume safe pending work, and emit post-migration activity evidence",
+    )
+    resume_parser.add_argument("--input", required=True, help="input package directory")
+    resume_parser.add_argument(
+        "--workspace",
+        help="target workspace directory for restored artifacts and post-migration outputs",
+    )
+    resume_parser.add_argument(
+        "--approve-publish",
+        action="store_true",
+        help="approve the gated publish write so the resumed agent can complete it",
+    )
+    resume_parser.set_defaults(func=command_resume)
 
     demo_parser = subcommands.add_parser("demo", help="export, import, and verify in one command")
     demo_parser.add_argument("--output", required=True, help="output package directory")

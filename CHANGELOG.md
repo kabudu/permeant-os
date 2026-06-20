@@ -15,6 +15,9 @@ and this project uses release tags compatible with semantic versioning.
 - AWS real-runtime QATQ validation report showing exact 16-token continuation
   fidelity with 6,294,528 transferred bytes on the complex graph-attached
   MLX-to-vLLM path.
+- Agent Memory Graph resume proof that imports the complex graph, resumes
+  retry-safe pending work, executes an explicitly approved publish write,
+  appends post-import activity evidence, and emits pre/post graph proof hashes.
 
 ## [0.1.27-complex-agent-e2e] - 2026-06-20
 

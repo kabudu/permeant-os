@@ -180,6 +180,69 @@ def test_complex_agent_graph_export_import_roundtrip():
         assert any(node["id"] == "artifact:context-notes" for node in graph["nodes"])
 
 
+def test_complex_agent_graph_resume_proves_post_migration_activity_continued():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "complex-package"
+        workspace_dir = pathlib.Path(temp_dir) / "workspace"
+        manifest = harness.export_complex_session(package_dir)
+
+        result = harness.resume_imported_agent(package_dir, workspace_dir, approve_publish=True)
+        report = harness.read_json(workspace_dir / "reports" / "resume" / "resume-report.json")
+        resumed_graph = harness.read_json(workspace_dir / "reports" / "resume" / "resumed-graph.json")
+        announcement = workspace_dir / "reports" / "publish" / "announcement.md"
+
+        assert result["activity_continued"] is True
+        assert result["publish_approved"] is True
+        assert result["pre_resume_graph_hash"] == manifest["graph_hash"]
+        assert result["post_resume_graph_hash"] != manifest["graph_hash"]
+        assert result["proof_hash"] == report["proof_hash"]
+        assert {entry["node_id"] for entry in result["executed_tools"]} == {
+            "tool:call:read-aws-quota",
+            "tool:call:publish-release",
+        }
+        assert result["blocked_tools"] == []
+        assert announcement.exists()
+        assert result["written_artifacts"][0]["sha256"] == harness.file_sha256_and_size(announcement)[0]
+        assert any(
+            node["id"] == "memory:agent-activity-continued:post-import"
+            for node in resumed_graph["nodes"]
+        )
+        assert any(
+            edge["from"] == "artifact:publish-announcement:post-import"
+            and edge["to"] == "memory:agent-activity-continued:post-import"
+            for edge in resumed_graph["edges"]
+        )
+        assert resumed_graph["source_graph_id"] == manifest["graph_hash"]
+        assert resumed_graph["graph_hash"] == harness.canonical_graph_hash(resumed_graph)
+
+
+def test_complex_agent_graph_resume_blocks_publish_without_explicit_approval():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "complex-package"
+        workspace_dir = pathlib.Path(temp_dir) / "workspace"
+        harness.export_complex_session(package_dir)
+
+        result = harness.resume_imported_agent(package_dir, workspace_dir, approve_publish=False)
+
+        assert result["activity_continued"] is True
+        assert [entry["node_id"] for entry in result["executed_tools"]] == [
+            "tool:call:read-aws-quota"
+        ]
+        assert result["blocked_tools"] == [
+            {
+                "node_id": "tool:call:publish-release",
+                "name": "fs.write_file",
+                "side_effect": "external_write",
+                "status": "needs_user",
+                "approval_state": "pending",
+                "reason": "explicit publish approval was not supplied",
+            }
+        ]
+        assert not (workspace_dir / "reports" / "publish" / "announcement.md").exists()
+
+
 def test_local_agent_graph_import_recomputes_vector_retrieval_equivalence():
     harness = load_harness()
     with tempfile.TemporaryDirectory() as temp_dir:

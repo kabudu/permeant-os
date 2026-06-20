@@ -99,3 +99,39 @@ That is an 87.49 percent byte reduction relative to raw f32 transfer and a
 49.98 percent byte reduction relative to FP8. The codec is lossy; the result is
 behaviorally exact over the configured continuation horizon, not numerically
 lossless.
+
+## QATQ Viability and Lossless Semantics
+
+The current `qatq` implementation is viable as an experimental lossy transfer
+codec for the validated short-horizon migration path:
+
+- it is implemented in the CLI, runner, target decode path, planner, and tests;
+- it completed a real AWS MLX-to-vLLM QATQ migration;
+- it reduced payload bytes to about one eighth of raw f32 and about half of
+  FP8;
+- it preserved graph/KV/prompt alignment and exact 16-token continuation
+  fidelity in that run.
+
+It should not yet be treated as a production default. Acceptance should require
+longer continuation horizons, more prompts, more model families, warm-target
+benchmarks, and drift/error distribution reports.
+
+The current int4 QATQ payload cannot be made numerically lossless while keeping
+the same representation. Mapping f32/BF16 KV values into 4-bit coefficients
+throws information away. A lossless variant would need one of these designs:
+
+- `qatq+residual`: transmit the QATQ payload plus an entropy-coded residual
+  stream that exactly reconstructs the original values. This can be bit-exact,
+  but the residual may erase much of the compression benefit.
+- `lossless_raw`: keep the original representation and apply a true lossless
+  compressor such as Zstd, LZ4, or an entropy coder over delta/blocked tensor
+  layouts. This preserves exact values but will not approach int4 size on
+  high-entropy KV tensors.
+- `near_lossless_qatq`: bound maximum absolute or relative error and make the
+  tolerance explicit in the manifest. This is not lossless, but may be the right
+  production tradeoff for many migrations.
+
+Therefore the right claim is: QATQ is a promising lossy migration compression
+codec. A lossless QATQ-family codec is possible only by carrying enough residual
+information to reconstruct the original tensor exactly, and must be benchmarked
+separately from the current int4 path.

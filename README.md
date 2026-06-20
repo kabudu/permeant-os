@@ -85,6 +85,9 @@ What is still experimental:
   Graph package validation for the graph-attached MLX-to-vLLM path.
 - `docs/aws-real-runtime-qatq-2026-06-20.md`: experimental
   Quaternion-Augmented TurboQuant AWS real-runtime validation.
+- `docs/agent-activity-continuation-proof-2026-06-20.md`: deterministic
+  Agent Memory Graph resume proof showing post-import tool activity and new
+  graph evidence.
 - `docs/adaptive-transfer-codecs.md`: adaptive transfer codec planning, semantics, and fallback behavior.
 - `docs/aws-real-runtime-e2e-runner.md`: repeatable AWS real-runtime E2E runner and cleanup/resume runbook.
 - `docs/aws-prewarm-image.md`: conservative AWS image/container prewarm recipe and cost guardrails.
