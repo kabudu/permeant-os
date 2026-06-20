@@ -173,22 +173,22 @@ Prevent duplicated external side effects during migration and resume.
 
 Deliverables:
 
-- Tool-call node schema with idempotency keys.
-- Pending action states: `not_started`, `in_progress`, `completed`, `failed`, `cancelled`, `needs_user`.
-- Resume policies: `retry_safe`, `never_retry`, `ask_user`, `rebind`, `compensate`.
-- Tool result provenance and external resource IDs.
-- Side-effect audit log.
+- [x] Tool-call node schema with idempotency keys.
+- [x] Pending action states: `not_started`, `in_progress`, `completed`, `failed`, `cancelled`, `needs_user`.
+- [x] Resume policies: `retry_safe`, `never_retry`, `ask_user`, `rebind`, `compensate`.
+- [x] Tool result provenance and external resource IDs.
+- [x] Side-effect audit log.
 
 Validation:
 
-- A completed cloud provisioning tool call is not repeated after import.
-- A pending safe read-only tool call may retry.
-- A non-idempotent write action requires explicit policy before resume.
+- [x] A completed cloud provisioning tool call is not repeated after import.
+- [x] A pending safe read-only tool call may retry.
+- [x] A non-idempotent write action requires explicit policy before resume.
 
 Exit criteria:
 
-- Migration can preserve pending work without duplicating destructive or billable actions.
-- Analyzer reports unsafe pending actions before commit.
+- [x] Migration can preserve pending work without duplicating destructive or billable actions.
+- [x] Analyzer reports unsafe pending actions before commit.
 
 ## Phase 6: Vector and retrieval memory support
 

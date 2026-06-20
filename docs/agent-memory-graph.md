@@ -173,6 +173,13 @@ Tool calls capture enough state to avoid accidental replay:
 
 Importers must not automatically replay a tool call with `side_effect` of
 `external_write` or `unknown` unless `resume_policy` explicitly permits it.
+The local reference harness now records a `side_effect_audit` during export and
+recomputes it during import before activation. Completed side-effecting tool
+calls are preserved with a `no_replay` action. Pending `read_only` or `none`
+calls marked `retry_safe` may retry. Pending `external_write` or `unknown` calls
+must use an explicit manual policy such as `ask_user`, `rebind`, or
+`compensate`; automatic retry of those calls fails import. Pending calls with
+denied or expired approval also fail import.
 
 ### Tool Result Nodes
 
