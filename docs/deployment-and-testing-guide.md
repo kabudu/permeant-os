@@ -91,9 +91,12 @@ You can run a complete, simulated migration process locally using the CLI binary
    * Outcome metadata: phase status, success flag, and optional error message.
    * Optional Agent Memory Graph metadata when `sim-migrate` is run with
      `--agent-graph-manifest <path>`: graph hash, prompt byte/token hashes,
-     tokenizer hash, artifact hashes, and simulated KV hash.
+     tokenizer hash, artifact hashes, simulated KV hash, and daemon graph/KV
+     transaction binding evidence.
 
    Failed target commits also write a manifest with `success: false` and `phase_status: "commit_failed"` before returning the error, so failed benchmark attempts can still be analyzed after the fact.
+   Failed graph-bound migrations rejected before commit write
+   `phase_status: "graph_binding_failed"`.
 
 ---
 

@@ -1,8 +1,38 @@
 use serde::{Deserialize, Serialize};
 use anyhow::{Result, Context, bail};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpStream;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use usxf_core::crypto::EncryptedEnvelope;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentGraphBinding {
+    pub manifest_path: String,
+    pub graph_path: String,
+    pub graph_hash: String,
+    pub prompt_byte_hash: Option<String>,
+    pub prompt_token_hash: Option<String>,
+    pub tokenizer_hash: Option<String>,
+    pub kv_hash: Option<String>,
+    pub kv_spans: Vec<AgentGraphBindingKvSpan>,
+    pub artifacts: Vec<AgentGraphBindingArtifact>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentGraphBindingKvSpan {
+    pub node_id: String,
+    pub token_start: usize,
+    pub token_end: usize,
+    pub cache_ref: String,
+    pub tokenizer_hash: Option<String>,
+    pub block_hashes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentGraphBindingArtifact {
+    pub path: String,
+    pub sha256: String,
+    pub size_bytes: Option<u64>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MigrationMessage {
@@ -29,6 +59,11 @@ pub enum MigrationMessage {
     },
     ChunkAck {
         chunk_index: u32,
+    },
+    AgentGraphBinding(AgentGraphBinding),
+    AgentGraphBindingAck {
+        accepted: bool,
+        error_message: Option<String>,
     },
     CommitRequest,
     CommitResponse {

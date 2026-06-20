@@ -116,8 +116,15 @@ metadata:
 The in-tree MLX live runtime attaches this metadata to the same prompt/token IDs
 used to prefill the exported KV cache. The vLLM import worker validates the
 sidecar before calling the target hook and records the validation result in its
-processed marker. This is adapter-side evidence only; the daemon wire protocol
-still carries tensor state as before.
+processed marker.
+
+For graph-attached CLI migrations, `permeant-cli sim-migrate
+--agent-graph-manifest <path>` also sends an `AgentGraphBinding` daemon protocol
+frame after KV chunks are staged and before `CommitRequest`. The target daemon
+rejects graph-bound runs before commit when required prompt token hash,
+tokenizer hash, KV hash, KV span, artifact hash, or migrated block-hash evidence
+is missing or inconsistent with the USXF header. The current binding is
+manifest-referenced; graph package byte streaming remains future work.
 
 When the staged target payload includes a target tokenizer view, the worker also
 verifies that view against the graph span metadata before ingest. The accepted

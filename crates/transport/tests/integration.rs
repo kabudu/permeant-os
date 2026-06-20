@@ -1,6 +1,6 @@
 use tokio::net::{TcpListener, TcpStream};
-use permeant_transport::{send_message, recv_message, MigrationMessage, compute_crc32, verify_chunk_crc32};
-use usxf_core::crypto::{seal_packet, open_packet, EncryptedEnvelope, SigningKey};
+use permeant_transport::{AgentGraphBinding, AgentGraphBindingKvSpan, send_message, recv_message, MigrationMessage, compute_crc32, verify_chunk_crc32};
+use usxf_core::crypto::{seal_packet, open_packet, SigningKey};
 use usxf_core::{UsxfHeader, AttentionType, ModelIdentity, ModelCacheSpec, ExchangeDtype};
 use std::collections::HashMap;
 use chrono::Utc;
@@ -174,5 +174,56 @@ async fn test_protocol_abort_mid_stream() {
     // Drop socket to simulate abrupt crash / timeout
     drop(client_socket);
     
+    server_handle.await.unwrap();
+}
+
+#[tokio::test]
+async fn test_agent_graph_binding_roundtrip() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let local_addr = listener.local_addr().unwrap();
+    let expected = AgentGraphBinding {
+        manifest_path: "manifest.json".to_string(),
+        graph_path: "graph.json".to_string(),
+        graph_hash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+        prompt_byte_hash: Some("sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string()),
+        prompt_token_hash: Some("sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".to_string()),
+        tokenizer_hash: Some("sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".to_string()),
+        kv_hash: Some("sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string()),
+        kv_spans: vec![AgentGraphBindingKvSpan {
+            node_id: "checkpoint:prompt".to_string(),
+            token_start: 0,
+            token_end: 8,
+            cache_ref: "kv:prefix:0".to_string(),
+            tokenizer_hash: Some("sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".to_string()),
+            block_hashes: vec!["sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string()],
+        }],
+        artifacts: vec![],
+    };
+    let server_expected = expected.clone();
+
+    let server_handle = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let message = recv_message(&mut socket).await.unwrap();
+        assert!(matches!(
+            message,
+            MigrationMessage::AgentGraphBinding(binding) if binding == server_expected
+        ));
+        send_message(&mut socket, &MigrationMessage::AgentGraphBindingAck {
+            accepted: true,
+            error_message: None,
+        }).await.unwrap();
+    });
+
+    let mut client_socket = TcpStream::connect(local_addr).await.unwrap();
+    send_message(&mut client_socket, &MigrationMessage::AgentGraphBinding(expected)).await.unwrap();
+    let ack = recv_message(&mut client_socket).await.unwrap();
+    assert!(matches!(
+        ack,
+        MigrationMessage::AgentGraphBindingAck {
+            accepted: true,
+            error_message: None
+        }
+    ));
+
     server_handle.await.unwrap();
 }

@@ -145,12 +145,13 @@ Completed:
 - Optional graph-to-KV span metadata in migration manifests when an Agent Memory Graph package is supplied.
 - Content-addressed artifact packaging and restored-workspace verification in the local graph harness.
 - Adapter-side graph span metadata emitted by the MLX live runtime and validated against the vLLM target tokenizer view before target ingest.
+- Daemon transaction binding for manifest-referenced graph packages, rejected before commit when required graph/KV evidence is incomplete or does not match the migrated KV header.
 - Analyzer reporting for prompt, graph, graph/KV span, and KV alignment in fidelity summaries.
 - Graph-attached live KV migration planning notes and acceptance criteria.
 
 Remaining:
 
-- End-to-end graph package binding to the daemon transaction.
+- Full graph package byte streaming and durable target-side graph session storage.
 
 See `ROADMAP.md` for the detailed phased plan.
 
