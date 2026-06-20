@@ -11,6 +11,7 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 crc32fast.workspace = true
 usxf-core = { path = "../usxf-core" }
+ed25519-dalek.workspace = true
 
 [dev-dependencies]
 chrono.workspace = true

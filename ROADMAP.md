@@ -281,10 +281,13 @@ Deliverables:
 - [x] Structured benchmark output suitable for paper updates, including JSON
   aggregates, failure records, and Markdown table generation from migration
   manifests.
-- [ ] Production secure bidirectional migration transport that can replace
+- [x] Production secure bidirectional migration transport foundation that can
+  replace
   ad-hoc SSH tunnels and provider-specific HTTP bridges with private-network
   `wss://`/mTLS binary streaming first, then QUIC or RDMA/UCX/NIXL where the
   target deployment supports it.
+- [ ] Cut the AWS real-runtime runner over from SSH tunnel transport to the
+  production `wss://`/mTLS transport once certificate bootstrap is documented.
 
 Exit criteria:
 
@@ -415,6 +418,11 @@ Scope:
 - [x] Add adaptive transfer codec experiment planning for raw, FP8,
   TurboQuant-style, and Quaternion-Augmented TurboQuant candidate modes with
   explicit fallback semantics.
+- [x] Add production transport foundation with signed session metadata,
+  compact binary frames, mTLS-oriented profile negotiation, frame-size bounds,
+  CRC validation, stream IDs, and replay rejection.
+- [ ] Cut the AWS real-runtime runner over to the production `wss://`/mTLS
+  transport once certificate bootstrap and benchmark comparison are documented.
 - [x] Prototype graph-attached migration manifest extensions and analyzer
   checks behind the existing Agent Memory Graph manifest path.
 - [x] Add content-addressed artifact packaging and restored-workspace

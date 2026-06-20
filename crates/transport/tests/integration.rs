@@ -1,7 +1,10 @@
 use chrono::Utc;
 use permeant_transport::{
-    compute_crc32, recv_message, send_message, verify_chunk_crc32, AgentGraphBinding,
-    AgentGraphBindingKvSpan, MigrationMessage,
+    compute_crc32, decode_binary_frame, default_transport_candidates, encode_binary_frame,
+    negotiate_transport, recv_binary_frame, recv_message, send_binary_frame, send_message,
+    verify_chunk_crc32, AgentGraphBinding, AgentGraphBindingKvSpan, BinaryFrame,
+    BinaryFrameValidator, EndpointRole, MigrationMessage, ProductionTransportMode,
+    ProductionTransportProfile, SecureSessionHello, SecureSessionHelloRequest, TransportCandidate,
 };
 use std::collections::HashMap;
 use tokio::io::AsyncWriteExt;
@@ -149,6 +152,162 @@ async fn test_tcp_handshake_and_exchange() {
     }
 
     server_handle.await.unwrap();
+}
+
+#[tokio::test]
+async fn test_binary_frame_socket_roundtrip() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let local_addr = listener.local_addr().unwrap();
+
+    let server_handle = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let frame = recv_binary_frame(&mut socket, 1024).await.unwrap();
+        assert_eq!(frame.stream_id, 11);
+        assert_eq!(frame.frame_index, 3);
+        assert_eq!(frame.payload, b"binary-stream".to_vec());
+        send_binary_frame(
+            &mut socket,
+            &BinaryFrame::new(2, 12, 1, b"ack".to_vec()),
+            1024,
+        )
+        .await
+        .unwrap();
+    });
+
+    let mut client_socket = TcpStream::connect(local_addr).await.unwrap();
+    send_binary_frame(
+        &mut client_socket,
+        &BinaryFrame::new(1, 11, 3, b"binary-stream".to_vec()),
+        1024,
+    )
+    .await
+    .unwrap();
+    let ack = recv_binary_frame(&mut client_socket, 1024).await.unwrap();
+    assert_eq!(ack.stream_id, 12);
+    assert_eq!(ack.payload, b"ack".to_vec());
+
+    server_handle.await.unwrap();
+}
+
+#[test]
+fn test_secure_session_hello_verifies_signed_profile() {
+    let mut csprng = rand::rngs::OsRng;
+    let signing_key = SigningKey::generate(&mut csprng);
+    let hello = SecureSessionHello::signed(
+        SecureSessionHelloRequest {
+            session_id: "session:test".to_string(),
+            role: EndpointRole::Source,
+            node_id: "source-node".to_string(),
+            peer_node_id: Some("target-node".to_string()),
+            profile: ProductionTransportProfile::websocket_mtls_binary(),
+            nonce: vec![7u8; 32],
+            supported_codecs: vec!["raw".to_string(), "qatq".to_string()],
+        },
+        &signing_key,
+    )
+    .unwrap();
+
+    hello.verify().unwrap();
+}
+
+#[test]
+fn test_secure_session_hello_rejects_tampering() {
+    let mut csprng = rand::rngs::OsRng;
+    let signing_key = SigningKey::generate(&mut csprng);
+    let mut hello = SecureSessionHello::signed(
+        SecureSessionHelloRequest {
+            session_id: "session:test".to_string(),
+            role: EndpointRole::Target,
+            node_id: "target-node".to_string(),
+            peer_node_id: Some("source-node".to_string()),
+            profile: ProductionTransportProfile::websocket_mtls_binary(),
+            nonce: vec![8u8; 32],
+            supported_codecs: vec!["raw".to_string()],
+        },
+        &signing_key,
+    )
+    .unwrap();
+
+    hello.node_id = "different-target".to_string();
+
+    assert!(hello.verify().is_err());
+}
+
+#[test]
+fn test_transport_negotiation_prefers_portable_secure_baseline() {
+    let source = default_transport_candidates();
+    let target = default_transport_candidates();
+
+    let result = negotiate_transport(&source, &target).unwrap();
+
+    assert_eq!(result.selected.mode, ProductionTransportMode::WebSocketMtls);
+    assert!(result.selected.require_mutual_tls);
+    assert!(result.selected.binary_framing);
+}
+
+#[test]
+fn test_transport_negotiation_falls_back_to_safe_tcp_mtls() {
+    let source = default_transport_candidates();
+    let target = vec![TransportCandidate {
+        profile: ProductionTransportProfile::framed_tcp_mtls_binary(),
+        priority: 50,
+        reason: "target supports only compatibility mode".to_string(),
+    }];
+
+    let result = negotiate_transport(&source, &target).unwrap();
+
+    assert_eq!(result.selected.mode, ProductionTransportMode::FramedTcpMtls);
+    assert_eq!(result.selected.max_frame_bytes, 16 * 1024 * 1024);
+}
+
+#[test]
+fn test_transport_negotiation_rejects_insecure_downgrade() {
+    let source = default_transport_candidates();
+    let mut insecure_profile = ProductionTransportProfile::websocket_mtls_binary();
+    insecure_profile.require_mutual_tls = false;
+    let target = vec![TransportCandidate {
+        profile: insecure_profile,
+        priority: 100,
+        reason: "target tried to disable mTLS".to_string(),
+    }];
+
+    let error = negotiate_transport(&source, &target)
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains("no mutually supported production transport candidate"));
+}
+
+#[test]
+fn test_binary_frame_roundtrip_and_replay_rejection() {
+    let frame = BinaryFrame::new(42, 7, 1, b"payload".to_vec());
+    let encoded = encode_binary_frame(&frame, 1024).unwrap();
+    let decoded = decode_binary_frame(&encoded, 1024).unwrap();
+    assert_eq!(decoded, frame);
+
+    let mut validator = BinaryFrameValidator::new(1024);
+    validator.accept(&decoded).unwrap();
+    let duplicate = validator.accept(&decoded).unwrap_err().to_string();
+    assert!(duplicate.contains("duplicate binary frame rejected"));
+
+    let next_frame = BinaryFrame::new(42, 7, 2, b"payload-2".to_vec());
+    validator.accept(&next_frame).unwrap();
+    let reverse_stream_frame = BinaryFrame::new(42, 8, 1, b"reverse".to_vec());
+    validator.accept(&reverse_stream_frame).unwrap();
+}
+
+#[test]
+fn test_binary_frame_rejects_crc_and_size_failures() {
+    let frame = BinaryFrame::new(1, 1, 1, b"payload".to_vec());
+    let mut encoded = encode_binary_frame(&frame, 1024).unwrap();
+    let last = encoded.len() - 1;
+    encoded[last] ^= 0xff;
+    let crc_error = decode_binary_frame(&encoded, 1024).unwrap_err().to_string();
+    assert!(crc_error.contains("CRC32 mismatch"));
+
+    let oversize = BinaryFrame::new(1, 1, 2, vec![0u8; 8]);
+    let encode_error = encode_binary_frame(&oversize, 4).unwrap_err().to_string();
+    assert!(encode_error.contains("exceeds configured maximum"));
 }
 
 #[tokio::test]

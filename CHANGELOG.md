@@ -7,6 +7,19 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Production transport foundation in `permeant-transport`, including signed
+  session hello metadata, `wss://`/mTLS-oriented profile negotiation, compact
+  binary frames, negotiated frame-size bounds, CRC validation, stream IDs, and
+  duplicate-frame replay rejection.
+- Explicit production transport preference ladder with fallback from private
+  `wss://`/mTLS to QUIC/mTLS to framed TCP/mTLS, while rejecting candidates
+  that disable mTLS or binary framing.
+- Production transport design documentation covering security invariants,
+  fallback negotiation, binary frame shape, performance rationale, and AWS
+  runner cutover plan.
+
 ## [0.1.28-qatq-reverse-runtime-e2e] - 2026-06-20
 
 ### Added
