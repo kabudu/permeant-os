@@ -7,6 +7,21 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Structured migration benchmark manifest summarizer with JSON aggregates,
+  failure records, and optional Markdown paper-table output.
+- Transport failure-injection tests for interrupted Agent Memory Graph binding
+  frames and interrupted KV payload chunk frames.
+- Benchmark summary tooling documentation covering current scope and
+  limitations.
+
+### Changed
+
+- Marked the completed Phase 9 local reliability-pack items in the roadmap
+  while keeping longer-horizon, larger-context, codec, and external validation
+  work open.
+
 ## [0.1.17-graph-security-policy] - 2026-06-20
 
 ### Added
