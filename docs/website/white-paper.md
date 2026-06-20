@@ -16,7 +16,7 @@ PermeantOS treats agent state as portable infrastructure. Instead of binding sta
 
 PermeantOS has demonstrated that agents can move on the validated real-runtime path: a complex Agent Memory Graph package and live KV cache migrated from a local Apple Silicon MLX source runtime to an AWS NVIDIA vLLM target runtime.
 
-Validated run:
+Latest validated run:
 
 | Field | Value |
 | --- | --- |
@@ -24,16 +24,19 @@ Validated run:
 | Target | AWS `g4dn.xlarge`, vLLM `0.23.0` |
 | Model | `Qwen/Qwen2.5-0.5B-Instruct` |
 | Prefix length | 2016 tokens |
-| Transfer quantization | `none` |
-| Agent Memory Graph | 27 nodes, 25 edges, 4 packaged artifacts, bound and aligned |
+| Transfer quantization | experimental `qatq` |
+| Agent Memory Graph | 27 nodes, 25 edges, 4 packaged artifacts, bound, aligned, and resumed on target |
 | Layers | 24 |
 | Hash validation | passed |
-| Slot-probe max key diff | `5.000000025123796e-09` |
-| Slot-probe max value diff | `5.000000025123796e-09` |
+| Slot-probe max key diff | `0.006696999999999065` |
+| Slot-probe max value diff | `0.000558149999999813` |
 | Prefix-cache seeded blocks | 16 |
 | Decode fidelity | exact source/post-migration match for 16 generated tokens |
+| Agent activity | AWS target resumed pending graph work, executed approved tool activity, wrote a new artifact, and emitted a proof hash |
 
-The run proves the core path for the validated configuration: live MLX extraction, secure transport, graph/KV transaction binding, target-side vLLM KV allocation, direct KV write, prefix-cache attachment, artifact hash preservation, memory/retrieval evidence preservation, pending tool policy preservation, and post-migration continuation fidelity. It used raw/unquantized transfer, so it does not claim codec compression or speed benefits.
+The run proves the core path for the validated configuration: live MLX extraction, secure transport, graph/KV transaction binding, target-side vLLM KV allocation, direct KV write, prefix-cache attachment, artifact hash preservation, memory/retrieval evidence preservation, pending tool policy preservation, post-migration runtime continuation fidelity, and target-side graph activity resume. After migration, the AWS target imported the same complex Agent Memory Graph package, resumed retry-safe pending work, executed an explicitly approved publish write, wrote `reports/publish/announcement.md`, appended new graph evidence, and emitted proof hash `sha256:b066a1dba9ed250eb54e1344c8d0092d8ad2d90dfe68bbfc1a0c740d18b6969c`.
+
+The QATQ run transferred 6,294,528 bytes from a 49,545,216-byte uncompressed KV payload, a compression ratio of `0.12704613095238096`. QATQ is lossy at the tensor-slot level, so the claim is not numerical losslessness. The claim is bounded sampled numeric drift plus exact observed source/post-migration continuation for the configured 16-token horizon.
 
 A matched FP8 transfer-quantized run used the same source, target, model,
 prefix length, continuation horizon, and Agent Memory Graph manifest. It
@@ -94,6 +97,8 @@ PermeantOS is a research preview. It is substantial enough to release and reprod
 Current strengths:
 
 - Real complex-agent cross-runtime proof point.
+- AWS target-side proof that agent activity continues after migration, including
+  policy-governed pending tool work and new post-import graph evidence.
 - Rust core protocol and daemon.
 - MLX and vLLM live runtime adapters.
 - Agent Memory Graph v0 schema and specification.
@@ -107,6 +112,8 @@ Current strengths:
 - Complex-agent AWS validation with artifacts, memory, retrieval evidence,
   credential rebinding, pending tool policy, exact 16-token continuation
   fidelity, and verified cleanup.
+- Experimental QATQ AWS validation with about 8x smaller transferred payload
+  than raw f32 and target-side Agent Memory Graph resume evidence.
 - Graph-attached live KV migration planning notes and acceptance criteria.
 - Repeatable AWS E2E runner with cleanup verification.
 - Conservative AWS prewarm recipe for reducing E2E bootstrap time without

@@ -18,6 +18,10 @@ and this project uses release tags compatible with semantic versioning.
 - Agent Memory Graph resume proof that imports the complex graph, resumes
   retry-safe pending work, executes an explicitly approved publish write,
   appends post-import activity evidence, and emits pre/post graph proof hashes.
+- AWS real-runtime agent activity continuation proof that runs QATQ KV
+  migration, validates exact 16-token vLLM continuation, resumes the same
+  complex Agent Memory Graph package on the AWS target, executes pending tool
+  work, writes a post-migration artifact, and verifies cloud cleanup.
 
 ## [0.1.27-complex-agent-e2e] - 2026-06-20
 

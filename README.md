@@ -47,8 +47,8 @@ What is still experimental:
   transfer-quantization comparison tooling can analyze paired benchmark
   manifests; new cloud batches are still needed for broader real-runtime claims.
 - Adaptive transfer codec planning exists for raw, FP8, TurboQuant-style, and
-  Quaternion-Augmented TurboQuant candidate modes; only raw and FP8 are
-  executable in the current runner.
+  Quaternion-Augmented TurboQuant candidate modes; raw, FP8, and experimental
+  QATQ are executable in the current AWS runner.
 
 ## Repository layout
 
@@ -88,6 +88,9 @@ What is still experimental:
 - `docs/agent-activity-continuation-proof-2026-06-20.md`: deterministic
   Agent Memory Graph resume proof showing post-import tool activity and new
   graph evidence.
+- `docs/aws-real-runtime-agent-activity-continuation-2026-06-20.md`: AWS
+  target-side proof that QATQ migration fidelity and Agent Memory Graph
+  post-import tool activity both continue on the real target.
 - `docs/adaptive-transfer-codecs.md`: adaptive transfer codec planning, semantics, and fallback behavior.
 - `docs/aws-real-runtime-e2e-runner.md`: repeatable AWS real-runtime E2E runner and cleanup/resume runbook.
 - `docs/aws-prewarm-image.md`: conservative AWS image/container prewarm recipe and cost guardrails.
@@ -102,24 +105,27 @@ Latest successful fidelity run:
 
 | Field | Value |
 | --- | --- |
-| Run ID | `20260620-165344` |
-| Manifest | `migration-20260620-170130-37116-manifest.json` |
+| Run ID | `20260620-183853` |
+| Manifest | `migration-20260620-184608-67621-manifest.json` |
 | Source | local MLX on Apple Silicon |
 | Target | AWS `g4dn.xlarge`, vLLM `0.23.0` |
 | Model | `Qwen/Qwen2.5-0.5B-Instruct` |
 | Prefix length | 2016 tokens |
-| Transfer quantization | `none` |
-| Agent Memory Graph | 27 nodes, 25 edges, 4 packaged artifacts, bound and aligned |
+| Transfer quantization | `qatq` |
+| Agent Memory Graph | 27 nodes, 25 edges, 4 packaged artifacts, bound/aligned/resumed on target |
 | Layers | 24 |
 | Hash validation | passed |
-| Slot probe max key diff | `5.000000025123796e-09` |
-| Slot probe max value diff | `5.000000025123796e-09` |
+| Slot probe max key diff | `0.006696999999999065` |
+| Slot probe max value diff | `0.000558149999999813` |
 | Prefix-cache seeded blocks | 16 |
 | Decode fidelity | exact source/post-migration match for 16 generated tokens |
+| Agent activity continuation | AWS target resumed pending work, wrote `reports/publish/announcement.md`, emitted proof hash `sha256:b066a1dba9ed250eb54e1344c8d0092d8ad2d90dfe68bbfc1a0c740d18b6969c` |
 | Cleanup | instance, security group, and key pair deleted |
 
 The earlier apparent fidelity gap at a longer prefix was traced to target context-window exhaustion, not a KV migration defect.
-This validation used raw/unquantized transfer, so it does not measure codec compression or speed benefits.
+This latest validation uses experimental QATQ transfer compression. QATQ is lossy
+at the tensor-slot level, so fidelity claims are based on graph/KV/prompt
+alignment, bounded sampled deltas, and exact observed continuation.
 
 ## Quick start
 
@@ -205,6 +211,7 @@ scripts/plan-transfer-codecs.py \
 
 | Run | Target | Source mode | Transport | Seq len | Total time (ms) | Effective bandwidth (Gbps) | Manifest |
 | --- | --- | --- | --- | ---: | ---: | ---: | --- |
+| AWS QATQ agent-activity continuation | `g4dn.xlarge` | live MLX | SSH tunnel + QATQ complex graph-bound vLLM prefix-cache attachment + target-side graph resume | 2016 | 389836.2535 | 0.0008036472740685385 | `migration-20260620-184608-67621-manifest.json` |
 | AWS QATQ complex graph-attached fidelity | `g4dn.xlarge` | live MLX | SSH tunnel + QATQ complex graph-bound vLLM prefix-cache attachment | 2016 | 386467.57175 | 0.0008050778400958065 | `migration-20260620-173846-50882-manifest.json` |
 | AWS complex graph-attached real-runtime fidelity | `g4dn.xlarge` | live MLX | SSH tunnel + complex graph-bound vLLM prefix-cache attachment | 2016 | 426187.141167 | 0.005626112414656161 | `migration-20260620-170130-37116-manifest.json` |
 | AWS graph-attached FP8 fidelity | `g4dn.xlarge` | live MLX | SSH tunnel + FP8 graph-bound vLLM prefix-cache attachment | 2016 | 389689.972334 | 0.0015973124508454 | `migration-20260620-162809-25370-manifest.json` |
