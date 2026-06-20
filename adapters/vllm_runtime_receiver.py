@@ -114,6 +114,8 @@ class Receiver(BaseHTTPRequestHandler):
                 response = self._inject(payload)
             elif self.path == "/verify_continuation":
                 response = self._verify(payload)
+            elif self.path == "/export_reverse_runtime_state":
+                response = self._export_reverse_runtime_state(payload)
             else:
                 self._reject(404, {"success": False, "error": "not found"})
                 return
@@ -152,6 +154,18 @@ class Receiver(BaseHTTPRequestHandler):
         result = _call_consumer(self.hook, payload)
         if not isinstance(result, dict):
             raise AdapterError("consumer verification hook must return a dict or None")
+        if result.get("success", True):
+            normalized = {"success": True}
+            normalized.update(result)
+            return normalized
+        return result
+
+    def _export_reverse_runtime_state(self, payload: dict[str, Any]) -> dict[str, Any]:
+        request = {"action": "export_reverse_runtime_state"}
+        request.update(payload)
+        result = _call_consumer(self.hook, request)
+        if not isinstance(result, dict):
+            raise AdapterError("consumer reverse export hook must return a dict or None")
         if result.get("success", True):
             normalized = {"success": True}
             normalized.update(result)

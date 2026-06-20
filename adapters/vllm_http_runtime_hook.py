@@ -56,4 +56,6 @@ def runtime_hook(payload: dict[str, Any], request: dict[str, Any] | None = None)
         return _post_json("/inject_block", payload)
     if "block_hashes" in payload:
         return _post_json("/verify_continuation", payload)
+    if payload.get("action") == "export_reverse_runtime_state":
+        return _post_json("/export_reverse_runtime_state", payload)
     raise AdapterError("unsupported runtime hook payload")

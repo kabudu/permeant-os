@@ -29,6 +29,13 @@ def _call_provider(hook, request: dict):
     return normalize_extractor_payload(result)
 
 
+def _call_import_provider(hook, request: dict) -> dict:
+    result = hook(request)
+    if not isinstance(result, dict):
+        raise AdapterError("MLX runtime import hook must return a JSON object")
+    return result
+
+
 class Exporter(BaseHTTPRequestHandler):
     server_version = "PermeantMLXExporter/0.1"
 
@@ -70,7 +77,7 @@ class Exporter(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         if not self._require_auth():
             return
-        if self.path != "/extract":
+        if self.path not in ("/extract", "/import-reverse-state"):
             self._reject(404, {"error": "not found"})
             return
         try:
@@ -79,7 +86,11 @@ class Exporter(BaseHTTPRequestHandler):
             request = json.loads(raw) if raw else {}
             if not isinstance(request, dict):
                 raise AdapterError("request body must be a JSON object")
-            payload = _call_provider(self.provider, request)
+            if self.path == "/extract":
+                payload = _call_provider(self.provider, request)
+            else:
+                request.setdefault("action", "import_reverse_runtime_state")
+                payload = _call_import_provider(self.provider, request)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()

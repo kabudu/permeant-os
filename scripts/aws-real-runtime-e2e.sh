@@ -26,6 +26,7 @@ Environment overrides:
   PERMEANT_AGENT_ACTIVITY_RESUME     default: 0; run Agent Memory Graph resume proof on target
   PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH default: 0; approve gated local publish proof
   PERMEANT_AGENT_ACTIVITY_RETURN_HOME default: 0; verify AWS-updated graph and continue on origin
+  PERMEANT_REVERSE_RUNTIME_IMPORT    default: 0; import vLLM target decode boundary back into MLX origin
   PERMEANT_LOCAL_TUNNEL_PORT         default: 39099
   PERMEANT_STATE_DIR                 default: .permeant-e2e/aws
   PERMEANT_PREFLIGHT_SKIP_AWS        default: 0
@@ -56,6 +57,7 @@ PERMEANT_AGENT_GRAPH_MANIFEST="${PERMEANT_AGENT_GRAPH_MANIFEST:-}"
 PERMEANT_AGENT_ACTIVITY_RESUME="${PERMEANT_AGENT_ACTIVITY_RESUME:-0}"
 PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH="${PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH:-0}"
 PERMEANT_AGENT_ACTIVITY_RETURN_HOME="${PERMEANT_AGENT_ACTIVITY_RETURN_HOME:-0}"
+PERMEANT_REVERSE_RUNTIME_IMPORT="${PERMEANT_REVERSE_RUNTIME_IMPORT:-0}"
 PERMEANT_LOCAL_TUNNEL_PORT="${PERMEANT_LOCAL_TUNNEL_PORT:-39099}"
 PERMEANT_STATE_DIR="${PERMEANT_STATE_DIR:-$ROOT_DIR/.permeant-e2e/aws}"
 PERMEANT_PREFLIGHT_SKIP_AWS="${PERMEANT_PREFLIGHT_SKIP_AWS:-0}"
@@ -82,6 +84,8 @@ TARGET_AGENT_ACTIVITY_ARTIFACT_LOCAL=""
 ORIGIN_ROUNDTRIP_WORKSPACE=""
 ORIGIN_ROUNDTRIP_REPORT_LOCAL=""
 ORIGIN_ROUNDTRIP_GRAPH_LOCAL=""
+TARGET_REVERSE_RUNTIME_STATE_LOCAL=""
+ORIGIN_REVERSE_IMPORT_REPORT_LOCAL=""
 
 log() {
   printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"
@@ -141,6 +145,14 @@ source_extract_url() {
   else
     printf '%s/extract\n' "$base"
   fi
+}
+
+source_reverse_import_url() {
+  local base="${PERMEANT_SOURCE_URL%/}"
+  if [[ "$base" == */extract ]]; then
+    base="${base%/extract}"
+  fi
+  printf '%s/import-reverse-state\n' "$base"
 }
 
 validate_source_continuation_file() {
@@ -205,6 +217,8 @@ load_state() {
   ORIGIN_ROUNDTRIP_WORKSPACE="$(json_get "$STATE_FILE" origin_roundtrip_workspace)"
   ORIGIN_ROUNDTRIP_REPORT_LOCAL="$(json_get "$STATE_FILE" origin_roundtrip_report_local)"
   ORIGIN_ROUNDTRIP_GRAPH_LOCAL="$(json_get "$STATE_FILE" origin_roundtrip_graph_local)"
+  TARGET_REVERSE_RUNTIME_STATE_LOCAL="$(json_get "$STATE_FILE" target_reverse_runtime_state_local)"
+  ORIGIN_REVERSE_IMPORT_REPORT_LOCAL="$(json_get "$STATE_FILE" origin_reverse_import_report_local)"
 }
 
 instance_id() {
@@ -290,6 +304,8 @@ create_state() {
   ORIGIN_ROUNDTRIP_WORKSPACE="$RUN_DIR/origin-roundtrip-workspace"
   ORIGIN_ROUNDTRIP_REPORT_LOCAL="$ORIGIN_ROUNDTRIP_WORKSPACE/reports/roundtrip/roundtrip-report.json"
   ORIGIN_ROUNDTRIP_GRAPH_LOCAL="$ORIGIN_ROUNDTRIP_WORKSPACE/reports/roundtrip/returned-home-graph.json"
+  TARGET_REVERSE_RUNTIME_STATE_LOCAL="$RUN_DIR/vllm-reverse-runtime-state.json"
+  ORIGIN_REVERSE_IMPORT_REPORT_LOCAL="$RUN_DIR/mlx-reverse-import-report.json"
   mkdir -p "$TARGET_LOG_DIR"
 
   python3 - "$STATE_FILE" <<PY
@@ -313,6 +329,7 @@ data = {
   "agent_activity_resume": "$PERMEANT_AGENT_ACTIVITY_RESUME",
   "agent_activity_approve_publish": "$PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH",
   "agent_activity_return_home": "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME",
+  "reverse_runtime_import": "$PERMEANT_REVERSE_RUNTIME_IMPORT",
   "local_tunnel_port": "$PERMEANT_LOCAL_TUNNEL_PORT",
   "run_dir": "$RUN_DIR",
   "key_name": "$KEY_NAME",
@@ -324,7 +341,9 @@ data = {
   "target_agent_activity_artifact_local": "$TARGET_AGENT_ACTIVITY_ARTIFACT_LOCAL",
   "origin_roundtrip_workspace": "$ORIGIN_ROUNDTRIP_WORKSPACE",
   "origin_roundtrip_report_local": "$ORIGIN_ROUNDTRIP_REPORT_LOCAL",
-  "origin_roundtrip_graph_local": "$ORIGIN_ROUNDTRIP_GRAPH_LOCAL"
+  "origin_roundtrip_graph_local": "$ORIGIN_ROUNDTRIP_GRAPH_LOCAL",
+  "target_reverse_runtime_state_local": "$TARGET_REVERSE_RUNTIME_STATE_LOCAL",
+  "origin_reverse_import_report_local": "$ORIGIN_REVERSE_IMPORT_REPORT_LOCAL"
 }
 with open("$STATE_FILE", "w") as f:
     json.dump(data, f, indent=2, sort_keys=True)
@@ -429,6 +448,12 @@ preflight_cmd() {
     check_status pass "configuration:agent_activity_return_home" "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME" >> "$checks_file"
   else
     check_status fail "configuration:agent_activity_return_home" "PERMEANT_AGENT_ACTIVITY_RETURN_HOME must be 0 or 1" >> "$checks_file"
+  fi
+
+  if [[ "$PERMEANT_REVERSE_RUNTIME_IMPORT" == "0" || "$PERMEANT_REVERSE_RUNTIME_IMPORT" == "1" ]]; then
+    check_status pass "configuration:reverse_runtime_import" "$PERMEANT_REVERSE_RUNTIME_IMPORT" >> "$checks_file"
+  else
+    check_status fail "configuration:reverse_runtime_import" "PERMEANT_REVERSE_RUNTIME_IMPORT must be 0 or 1" >> "$checks_file"
   fi
 
   if [[ "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME" == "1" && "$PERMEANT_AGENT_ACTIVITY_RESUME" != "1" ]]; then
@@ -645,6 +670,7 @@ export PERMEANT_VLLM_CAPTURE_BASELINE=1
 export PERMEANT_SOURCE_CONTINUATION_FILE=/home/ubuntu/permeant-source-continuation.json
 export PERMEANT_VLLM_RUNTIME_STATE_FILE=/tmp/permeant-vllm-runtime-state.json
 export PERMEANT_VLLM_RUNTIME_PROBE_FILE=/tmp/permeant-vllm-runtime-probe.json
+export PERMEANT_VLLM_REVERSE_EXPORT_FILE=/tmp/permeant-vllm-reverse-runtime-state.json
 export PERMEANT_VLLM_SLOT_SAMPLE_LIMIT=4
 nohup /home/ubuntu/permeant-os/.venv/bin/python /home/ubuntu/permeant-os/adapters/vllm_runtime_receiver.py --host 127.0.0.1 --port 29100 --state-dir /tmp/permeant-vllm-state >/tmp/permeant-logs/receiver.log 2>&1 &
 export PERMEANT_INJECTOR_MODE=json_command
@@ -758,6 +784,7 @@ collect_artifacts() {
   log "collecting target artifacts"
   mkdir -p "$TARGET_LOG_DIR"
   scp_from_target /tmp/permeant-vllm-runtime-probe.json "$TARGET_PROBE_LOCAL" || true
+  scp_from_target /tmp/permeant-vllm-reverse-runtime-state.json "$TARGET_REVERSE_RUNTIME_STATE_LOCAL" || true
   scp_from_target /tmp/permeant-logs/receiver.log "$TARGET_LOG_DIR/receiver.log" || true
   scp_from_target /tmp/permeant-logs/daemon.log "$TARGET_LOG_DIR/daemon.log" || true
 }
@@ -811,6 +838,59 @@ print(json.dumps({
     "max_value_abs_diff": max_value,
     "first_failure": failures[0] if failures else None,
 }, indent=2))
+PY
+}
+
+run_reverse_runtime_import() {
+  [[ "$PERMEANT_REVERSE_RUNTIME_IMPORT" == "1" ]] || return 0
+  log "exporting vLLM target decode boundary through reverse runtime API"
+  ssh_target "curl -fsS -H 'Content-Type: application/json' --data '{}' http://127.0.0.1:29100/export_reverse_runtime_state" \
+    | tee "$TARGET_REVERSE_RUNTIME_STATE_LOCAL"
+  python3 - "$TARGET_REVERSE_RUNTIME_STATE_LOCAL" <<'PY'
+import json, sys
+from pathlib import Path
+payload = json.loads(Path(sys.argv[1]).read_text())
+if payload.get("success") is not True:
+    raise SystemExit(f"reverse runtime export API failed: {payload}")
+state = payload.get("reverse_runtime_state")
+if not isinstance(state, dict):
+    raise SystemExit(f"reverse runtime export API did not return reverse_runtime_state: {payload}")
+if state.get("status") != "target_runtime_state_exported":
+    raise SystemExit(f"reverse runtime state has unexpected status: {state}")
+if not state.get("generated_token_ids"):
+    raise SystemExit(f"reverse runtime state contains no generated tokens: {state}")
+print(json.dumps({
+    "status": state.get("status"),
+    "proof_hash": state.get("proof_hash"),
+    "generated_token_count": state.get("generated_token_count"),
+    "last_registered_hash": state.get("last_registered_hash"),
+}, indent=2, sort_keys=True))
+PY
+  log "importing vLLM target decode boundary back into live MLX origin"
+  curl -fsS \
+    --max-time 900 \
+    -H 'Content-Type: application/json' \
+    --data-binary "@$TARGET_REVERSE_RUNTIME_STATE_LOCAL" \
+    "$(source_reverse_import_url)" | tee "$ORIGIN_REVERSE_IMPORT_REPORT_LOCAL"
+  json_set "$STATE_FILE" target_reverse_runtime_state_local "$TARGET_REVERSE_RUNTIME_STATE_LOCAL"
+  json_set "$STATE_FILE" origin_reverse_import_report_local "$ORIGIN_REVERSE_IMPORT_REPORT_LOCAL"
+  python3 - "$ORIGIN_REVERSE_IMPORT_REPORT_LOCAL" <<'PY'
+import json, sys
+from pathlib import Path
+report = json.loads(Path(sys.argv[1]).read_text())
+if report.get("status") != "reverse_runtime_imported" or report.get("reverse_runtime_imported") is not True:
+    raise SystemExit(f"reverse runtime import did not continue: {report}")
+continuation = report.get("origin_continuation") or {}
+if not continuation.get("token_ids"):
+    raise SystemExit(f"reverse runtime import produced no origin continuation tokens: {report}")
+print(json.dumps({
+    "status": report.get("status"),
+    "reverse_runtime_imported": report.get("reverse_runtime_imported"),
+    "target_proof_hash": report.get("target_proof_hash"),
+    "origin_advanced_prompt_token_count": report.get("origin_advanced_prompt_token_count"),
+    "origin_continuation_token_count": continuation.get("token_count"),
+    "proof_hash": report.get("proof_hash"),
+}, indent=2, sort_keys=True))
 PY
 }
 
@@ -974,6 +1054,7 @@ run_cmd() {
   run_migration
   collect_artifacts
   analyze_artifacts
+  run_reverse_runtime_import
   run_agent_activity_resume
   run_agent_activity_return_home
   cleanup_cmd "$STATE_FILE"
