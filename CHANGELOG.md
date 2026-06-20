@@ -7,6 +7,8 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.24-versioning-policy] - 2026-06-20
+
 ### Added
 
 - Public versioning policy for USXF, Agent Memory Graph, script report schemas,
@@ -331,7 +333,8 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.23-aws-e2e-preflight-validation...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.24-versioning-policy...HEAD
+[0.1.24-versioning-policy]: https://github.com/kabudu/permeant-os/compare/v0.1.23-aws-e2e-preflight-validation...v0.1.24-versioning-policy
 [0.1.23-aws-e2e-preflight-validation]: https://github.com/kabudu/permeant-os/compare/v0.1.22-adaptive-transfer-codecs...v0.1.23-aws-e2e-preflight-validation
 [0.1.22-adaptive-transfer-codecs]: https://github.com/kabudu/permeant-os/compare/v0.1.21-transfer-quantization-comparison...v0.1.22-adaptive-transfer-codecs
 [0.1.21-transfer-quantization-comparison]: https://github.com/kabudu/permeant-os/compare/v0.1.20-larger-context-matrix...v0.1.21-transfer-quantization-comparison
