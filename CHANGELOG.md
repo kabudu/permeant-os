@@ -7,6 +7,29 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- PR CI now enforces `cargo fmt --all -- --check` and strict Clippy
+  (`cargo clippy --locked --all-targets --all-features -- -D warnings`) in
+  addition to the existing Rust, Python, and SDK test suites.
+- Contributor documentation now lists the local validation commands expected
+  before opening a pull request.
+
+### Changed
+
+- Normalized Rust workspace formatting so `cargo fmt --all -- --check` is a
+  passing project gate.
+- Tightened Rust implementation quality so strict Clippy passes across all
+  targets and features.
+
+### Fixed
+
+- Rejected malformed encrypted USXF envelopes with invalid AES-GCM nonce lengths
+  instead of relying on lower-level parsing behavior.
+- Rejected invalid daemon payload chunk metadata before staging tensors,
+  including out-of-range block indexes, out-of-range layer indexes, mismatched
+  tensor names, and duplicate chunks.
+
 ## [0.1.11-daemon-graph-transaction-binding] - 2026-06-20
 
 ### Added

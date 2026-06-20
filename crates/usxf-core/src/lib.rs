@@ -1,9 +1,9 @@
-pub mod header;
 pub mod crypto;
+pub mod header;
 pub mod validation;
 
-pub use header::*;
 pub use crypto::*;
+pub use header::*;
 pub use validation::*;
 
 #[cfg(test)]
@@ -22,7 +22,9 @@ mod tests {
             usxf_version: "1.1".to_string(),
             model_architecture: "Llama-3.1-8B".to_string(),
             model_identity: ModelIdentity {
-                config_hash: "sha256:7f8e9a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f".to_string(),
+                config_hash:
+                    "sha256:7f8e9a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f"
+                        .to_string(),
                 weights_revision: "hf:meta-llama/Llama-3.1-8B".to_string(),
             },
             attention_type: AttentionType::Gqa,
@@ -50,7 +52,8 @@ mod tests {
             extra: HashMap::new(),
             created_at: Utc::now(),
             extractor_id: "extractor-v1".to_string(),
-            checksum: "sha256:0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            checksum: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                .to_string(),
             signature: "".to_string(),
         };
 
@@ -62,7 +65,7 @@ mod tests {
     fn test_encrypt_then_sign() {
         let plaintext = b"Hello PermeantOS crypto envelope!";
         let aes_key = [9u8; 32];
-        
+
         let mut csprng = rand::rngs::OsRng;
         let signing_key = crypto::SigningKey::generate(&mut csprng);
 
@@ -73,11 +76,33 @@ mod tests {
         let opened = crypto::open_packet(&envelope, &aes_key);
         assert!(opened.is_ok());
         assert_eq!(opened.unwrap(), plaintext);
-        
+
         // Test tampering detection
         let mut tampered_envelope = envelope.clone();
         tampered_envelope.ciphertext[0] ^= 1; // flip a bit
         let tampered_open = crypto::open_packet(&tampered_envelope, &aes_key);
-        assert!(tampered_open.is_err(), "Integrity verification should have failed!");
+        assert!(
+            tampered_open.is_err(),
+            "Integrity verification should have failed!"
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_envelope_nonce_length() {
+        let plaintext = b"Hello PermeantOS crypto envelope!";
+        let aes_key = [9u8; 32];
+
+        let mut csprng = rand::rngs::OsRng;
+        let signing_key = crypto::SigningKey::generate(&mut csprng);
+
+        let mut envelope = crypto::seal_packet(plaintext, &aes_key, &signing_key).unwrap();
+        envelope.nonce.pop();
+
+        let opened = crypto::open_packet(&envelope, &aes_key);
+        assert!(opened.is_err());
+        assert!(opened
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid nonce length"));
     }
 }

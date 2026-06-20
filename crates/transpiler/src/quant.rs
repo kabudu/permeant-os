@@ -1,5 +1,4 @@
-/// FP8 (E4M3 and E5M2) quantization & dequantization utilities.
-
+//! FP8 (E4M3 and E5M2) quantization & dequantization utilities.
 /// Convert f32 to FP8 E4M3 (1 sign, 4 exponent, 3 mantissa, bias = 7)
 pub fn f32_to_e4m3(val: f32) -> u8 {
     if val == 0.0 {
@@ -8,15 +7,15 @@ pub fn f32_to_e4m3(val: f32) -> u8 {
     if val.is_nan() {
         return 0x7f;
     }
-    
+
     let sign = if val.is_sign_negative() { 0x80 } else { 0x00 };
     let abs_val = val.abs();
-    
+
     // Max representable value in E4M3 is 448.0
     if abs_val >= 448.0 {
         return sign | 0x7e; // clamp to max positive/negative
     }
-    
+
     let mut exp = (abs_val.log2().floor() as i32) + 7;
     if exp < 0 {
         // Subnormal range: value is (-1)^s * 2^-6 * (mantissa / 8)
@@ -24,19 +23,19 @@ pub fn f32_to_e4m3(val: f32) -> u8 {
         let mantissa = mantissa.clamp(0, 7) as u8;
         return sign | mantissa;
     }
-    
+
     if exp > 15 {
         exp = 15;
     }
-    
+
     let scale_factor = 2.0f32.powi(exp - 7);
     let mant_val = ((abs_val / scale_factor) - 1.0) * 8.0;
     let mut mantissa = mant_val.round() as i32;
-    
+
     if mantissa < 0 {
         mantissa = 0;
     }
-    
+
     if mantissa > 7 {
         if exp == 15 {
             mantissa = 6; // max value
@@ -45,7 +44,7 @@ pub fn f32_to_e4m3(val: f32) -> u8 {
             return f32_to_e4m3(val.signum() * 2.0f32.powi(exp - 6));
         }
     }
-    
+
     sign | ((exp as u8) << 3) | (mantissa as u8)
 }
 
@@ -54,7 +53,7 @@ pub fn e4m3_to_f32(byte: u8) -> f32 {
     let sign = if (byte & 0x80) != 0 { -1.0 } else { 1.0 };
     let exp = (byte & 0x78) >> 3;
     let mant = byte & 0x07;
-    
+
     if exp == 0 {
         // Subnormal: (-1)^s * 2^-6 * (m / 8)
         sign * 2.0f32.powi(-6) * (mant as f32 / 8.0)
@@ -76,16 +75,16 @@ pub fn f32_to_e5m2(val: f32) -> u8 {
     }
     let sign = if val.is_sign_negative() { 0x80 } else { 0x00 };
     let abs_val = val.abs();
-    
+
     if abs_val.is_infinite() {
         return sign | 0x7c; // Inf: exp = 31, mant = 0
     }
-    
+
     // Max representable value is 57344.0
     if abs_val >= 57344.0 {
         return sign | 0x7c; // Clamp to max/Inf
     }
-    
+
     let mut exp = (abs_val.log2().floor() as i32) + 15;
     if exp < 0 {
         // Subnormal: (-1)^s * 2^-14 * (m / 4)
@@ -93,19 +92,19 @@ pub fn f32_to_e5m2(val: f32) -> u8 {
         let mantissa = mantissa.clamp(0, 3) as u8;
         return sign | mantissa;
     }
-    
+
     if exp > 30 {
         exp = 30;
     }
-    
+
     let scale_factor = 2.0f32.powi(exp - 15);
     let mant_val = ((abs_val / scale_factor) - 1.0) * 4.0;
     let mut mantissa = mant_val.round() as i32;
-    
+
     if mantissa < 0 {
         mantissa = 0;
     }
-    
+
     if mantissa > 3 {
         if exp == 30 {
             mantissa = 3;
@@ -113,7 +112,7 @@ pub fn f32_to_e5m2(val: f32) -> u8 {
             return f32_to_e5m2(val.signum() * 2.0f32.powi(exp - 14));
         }
     }
-    
+
     sign | ((exp as u8) << 2) | (mantissa as u8)
 }
 
@@ -122,7 +121,7 @@ pub fn e5m2_to_f32(byte: u8) -> f32 {
     let sign = if (byte & 0x80) != 0 { -1.0 } else { 1.0 };
     let exp = (byte & 0x7c) >> 2;
     let mant = byte & 0x03;
-    
+
     if exp == 0 {
         // Subnormal: (-1)^s * 2^-14 * (m / 4)
         sign * 2.0f32.powi(-14) * (mant as f32 / 4.0)

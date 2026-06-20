@@ -1,13 +1,13 @@
-use std::collections::HashMap;
 use crate::state::MigrationState;
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct ResourcePolicy {
     pub max_concurrent_migrations: usize,
     pub max_memory_quota_bytes: u64,
     pub phase_timeouts: HashMap<MigrationState, u64>, // State -> Timeout in seconds
-    pub circuit_breaker_threshold: u32, // Max consecutive failures
+    pub circuit_breaker_threshold: u32,               // Max consecutive failures
 }
 
 impl Default for ResourcePolicy {
@@ -18,7 +18,7 @@ impl Default for ResourcePolicy {
         timeouts.insert(MigrationState::Streaming, 300);
         timeouts.insert(MigrationState::Injecting, 120);
         timeouts.insert(MigrationState::Validating, 60);
-        
+
         Self {
             max_concurrent_migrations: 4,
             max_memory_quota_bytes: 32 * 1024 * 1024 * 1024, // 32 GB default
@@ -42,7 +42,11 @@ impl ResourcePolicy {
     }
 
     /// Checks if memory limits are respected.
-    pub fn check_memory_allocation(&self, requested_bytes: u64, current_allocated: u64) -> Result<()> {
+    pub fn check_memory_allocation(
+        &self,
+        requested_bytes: u64,
+        current_allocated: u64,
+    ) -> Result<()> {
         if current_allocated + requested_bytes > self.max_memory_quota_bytes {
             bail!(
                 "Resource quota exceeded: Requested {} bytes, which exceeds remaining memory quota (max {}, currently allocated {})",

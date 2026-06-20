@@ -1,12 +1,12 @@
-pub mod state;
-pub mod policy;
 pub mod decision;
+pub mod policy;
+pub mod state;
 
-pub use state::{MigrationState, MigrationStateMachine};
+pub use decision::{evaluate_migration, MigrationDecision};
 pub use policy::ResourcePolicy;
-pub use decision::{MigrationDecision, evaluate_migration};
+pub use state::{MigrationState, MigrationStateMachine};
 
-use anyhow::{Result, Context, bail};
+use anyhow::Result;
 
 #[derive(Debug, Clone)]
 pub struct MigrationOrchestrator {
@@ -23,7 +23,7 @@ impl MigrationOrchestrator {
             consecutive_failures: 0,
         }
     }
-    
+
     /// Pre-checks if migration is allowed under ResourcePolicy and model constraints.
     pub fn initiate_migration(
         &mut self,
@@ -35,11 +35,12 @@ impl MigrationOrchestrator {
         network_bandwidth_bps: f64,
     ) -> Result<(MigrationStateMachine, MigrationDecision)> {
         // 1. Check circuit breaker
-        self.policy.check_circuit_breaker(self.consecutive_failures)?;
-        
+        self.policy
+            .check_circuit_breaker(self.consecutive_failures)?;
+
         // 2. Check concurrency
         self.policy.check_concurrency(self.active_migrations)?;
-        
+
         // 3. Evaluate warm-start decision boundary
         let decision = evaluate_migration(
             seq_len,
@@ -49,16 +50,17 @@ impl MigrationOrchestrator {
             transfer_quant,
             network_bandwidth_bps,
         );
-        
+
         // 4. Check memory quota allocation
-        self.policy.check_memory_allocation(decision.kv_cache_size_bytes, 0)?;
-        
+        self.policy
+            .check_memory_allocation(decision.kv_cache_size_bytes, 0)?;
+
         self.active_migrations += 1;
         let sm = MigrationStateMachine::new();
-        
+
         Ok((sm, decision))
     }
-    
+
     /// Records a migration failure, incrementing circuit breaker counter.
     pub fn record_failure(&mut self) {
         self.consecutive_failures += 1;
@@ -66,7 +68,7 @@ impl MigrationOrchestrator {
             self.active_migrations -= 1;
         }
     }
-    
+
     /// Records a migration success, resetting circuit breaker counter.
     pub fn record_success(&mut self) {
         self.consecutive_failures = 0;
@@ -84,20 +86,20 @@ mod tests {
     fn test_migration_state_transitions() {
         let mut sm = MigrationStateMachine::new();
         assert_eq!(sm.current_state(), MigrationState::Idle);
-        
+
         assert!(sm.transition_to(MigrationState::Extracting).is_ok());
         assert_eq!(sm.current_state(), MigrationState::Extracting);
-        
+
         assert!(sm.transition_to(MigrationState::Streaming).is_ok());
         assert_eq!(sm.current_state(), MigrationState::Streaming);
-        
+
         // Invalid transition: Streaming directly to Committed
         assert!(sm.transition_to(MigrationState::Committed).is_err());
-        
+
         // Valid rollback transition
         assert!(sm.transition_to(MigrationState::RolledBack).is_ok());
         assert_eq!(sm.current_state(), MigrationState::RolledBack);
-        
+
         // Cannot transition out of terminal state
         assert!(sm.transition_to(MigrationState::Idle).is_err());
     }
@@ -110,7 +112,7 @@ mod tests {
             circuit_breaker_threshold: 3,
             ..Default::default()
         };
-        let mut orch = MigrationOrchestrator::new(policy);
+        let orch = MigrationOrchestrator::new(policy);
 
         // Check concurrency limits
         assert!(orch.policy.check_concurrency(0).is_ok());
@@ -143,7 +145,7 @@ mod tests {
             n_kv_heads,
             head_dim,
             None,
-            10_000_000_000.0
+            10_000_000_000.0,
         );
         assert!(!dec_slow.should_migrate);
 
@@ -158,7 +160,7 @@ mod tests {
             n_kv_heads,
             head_dim,
             Some("fp8"),
-            25_000_000_000.0
+            25_000_000_000.0,
         );
         assert!(dec_fast.should_migrate);
     }
