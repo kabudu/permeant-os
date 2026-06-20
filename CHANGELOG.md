@@ -7,6 +7,17 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Larger-context benchmark matrix planner for >2k token runs, including
+  required vLLM context-window calculation, source/runner environment blocks,
+  Markdown output, and validation tests.
+- AWS real-runtime runner support for passing `PERMEANT_VLLM_MAX_MODEL_LEN` to
+  the target vLLM process and selecting `PERMEANT_TRANSFER_QUANTIZATION=fp8`
+  from benchmark matrix environment blocks.
+- Larger-context benchmark matrix documentation covering scope, usage, and
+  limitations.
+
 ## [0.1.19-fidelity-horizon-suite] - 2026-06-20
 
 ### Added

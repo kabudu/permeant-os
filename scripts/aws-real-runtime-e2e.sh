@@ -15,6 +15,8 @@ Environment overrides:
   AWS_AMI_ID                         default: ami-01011b868ec560823
   PERMEANT_MODEL                     default: Qwen/Qwen2.5-0.5B-Instruct
   PERMEANT_SEQ_LEN                   default: 2016
+  PERMEANT_VLLM_MAX_MODEL_LEN        default: 2048
+  PERMEANT_TRANSFER_QUANTIZATION     default: none
   PERMEANT_CONTINUATION_MAX_TOKENS   default: 16
   PERMEANT_FIDELITY_HORIZONS         default: 16,32,64,128
   PERMEANT_SOURCE_URL                default: http://127.0.0.1:29101
@@ -36,6 +38,8 @@ AWS_INSTANCE_TYPE="${AWS_INSTANCE_TYPE:-g4dn.xlarge}"
 AWS_AMI_ID="${AWS_AMI_ID:-ami-01011b868ec560823}"
 PERMEANT_MODEL="${PERMEANT_MODEL:-Qwen/Qwen2.5-0.5B-Instruct}"
 PERMEANT_SEQ_LEN="${PERMEANT_SEQ_LEN:-2016}"
+PERMEANT_VLLM_MAX_MODEL_LEN="${PERMEANT_VLLM_MAX_MODEL_LEN:-2048}"
+PERMEANT_TRANSFER_QUANTIZATION="${PERMEANT_TRANSFER_QUANTIZATION:-none}"
 PERMEANT_CONTINUATION_MAX_TOKENS="${PERMEANT_CONTINUATION_MAX_TOKENS:-16}"
 PERMEANT_FIDELITY_HORIZONS="${PERMEANT_FIDELITY_HORIZONS:-16,32,64,128}"
 PERMEANT_SOURCE_URL="${PERMEANT_SOURCE_URL:-http://127.0.0.1:29101}"
@@ -204,6 +208,8 @@ data = {
   "ami_id": "$AWS_AMI_ID",
   "model": "$PERMEANT_MODEL",
   "seq_len": "$PERMEANT_SEQ_LEN",
+  "vllm_max_model_len": "$PERMEANT_VLLM_MAX_MODEL_LEN",
+  "transfer_quantization": "$PERMEANT_TRANSFER_QUANTIZATION",
   "continuation_max_tokens": "$PERMEANT_CONTINUATION_MAX_TOKENS",
   "fidelity_horizons": "$PERMEANT_FIDELITY_HORIZONS",
   "source_url": "$PERMEANT_SOURCE_URL",
@@ -331,6 +337,7 @@ export VLLM_ENABLE_V1_MULTIPROCESSING=0
 export PERMEANT_VLLM_CONSUMER_HOOK=/home/ubuntu/permeant-os/adapters/vllm_real_runtime_consumer.py:consume
 export PERMEANT_VLLM_RUNTIME_TARGET=/home/ubuntu/permeant-os/adapters/vllm_real_runtime_target.py:get_runtime
 export PERMEANT_VLLM_MODEL='$PERMEANT_MODEL'
+export PERMEANT_VLLM_MAX_MODEL_LEN='$PERMEANT_VLLM_MAX_MODEL_LEN'
 export PERMEANT_VLLM_CONTINUATION_PROMPT='PermeantOS continuation probe'
 export PERMEANT_VLLM_CONTINUATION_PROMPT_FROM_SOURCE=1
 export PERMEANT_VLLM_CONTINUATION_MAX_TOKENS='$PERMEANT_CONTINUATION_MAX_TOKENS'
@@ -402,13 +409,19 @@ run_migration() {
   log "running migration"
   (
     cd "$ROOT_DIR"
+    local quant_args=()
+    if [[ "$PERMEANT_TRANSFER_QUANTIZATION" == "fp8" ]]; then
+      quant_args+=(--quant)
+    elif [[ "$PERMEANT_TRANSFER_QUANTIZATION" != "none" ]]; then
+      die "unsupported PERMEANT_TRANSFER_QUANTIZATION: $PERMEANT_TRANSFER_QUANTIZATION"
+    fi
     export PERMEANT_EXTRACTOR_MODE=json_command
     export PERMEANT_EXTRACTOR_CMD="python3 $ROOT_DIR/adapters/mlx_extractor.py"
     export PERMEANT_EXTRACTOR_HOOK="$ROOT_DIR/adapters/mlx_http_cache_provider.py:get_live_cache"
     export PERMEANT_MLX_RUNTIME_URL="$PERMEANT_SOURCE_URL"
     export PERMEANT_MODEL_ARCHITECTURE="$PERMEANT_MODEL"
     export PERMEANT_MODEL_IDENTITY="$PERMEANT_MODEL"
-    ./target/debug/permeant-cli sim-migrate --target-addr "127.0.0.1:$PERMEANT_LOCAL_TUNNEL_PORT" --seq-len "$PERMEANT_SEQ_LEN" | tee "$RUN_DIR/migration.log"
+    ./target/debug/permeant-cli sim-migrate --target-addr "127.0.0.1:$PERMEANT_LOCAL_TUNNEL_PORT" --seq-len "$PERMEANT_SEQ_LEN" "${quant_args[@]}" | tee "$RUN_DIR/migration.log"
   )
   local manifest
   manifest="$(sed -n 's/^Saved migration benchmark manifest: //p' "$RUN_DIR/migration.log" | tail -1)"

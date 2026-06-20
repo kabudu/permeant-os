@@ -40,6 +40,8 @@ The default target configuration matches the validated real-runtime runs:
 - AMI: `ami-01011b868ec560823`
 - model: `Qwen/Qwen2.5-0.5B-Instruct`
 - sequence length: `2016`
+- vLLM max model length: `2048`
+- transfer quantization: `none`
 - continuation max tokens: `16`
 - fidelity horizons: `16,32,64,128`
 - local MLX exporter URL: `http://127.0.0.1:29101`
@@ -60,10 +62,18 @@ AWS_AZ=us-east-1d \
 AWS_INSTANCE_TYPE=g4dn.xlarge \
 PERMEANT_MODEL=Qwen/Qwen2.5-0.5B-Instruct \
 PERMEANT_SEQ_LEN=2016 \
+PERMEANT_VLLM_MAX_MODEL_LEN=2048 \
+PERMEANT_TRANSFER_QUANTIZATION=none \
 PERMEANT_CONTINUATION_MAX_TOKENS=64 \
 PERMEANT_FIDELITY_HORIZONS=16,32,64 \
 scripts/aws-real-runtime-e2e.sh run
 ```
+
+For larger-than-2k context points, generate checked runner environment blocks
+with `scripts/plan-context-benchmarks.py`; see
+`docs/context-benchmark-matrix.md`. The important invariant is that
+`PERMEANT_VLLM_MAX_MODEL_LEN` must be large enough for the migrated prefix,
+continuation tokens, and tokenizer/runtime overhead.
 
 ## Required local preconditions
 
