@@ -675,17 +675,22 @@ generate_production_transport_certs() {
 
   openssl genrsa -out "$PRODUCTION_TRANSPORT_CERT_DIR/ca.key" 2048 >/dev/null 2>&1
   {
+    printf '[v3_ca]\n'
     printf 'basicConstraints=critical,CA:TRUE\n'
     printf 'keyUsage=critical,keyCertSign,cRLSign\n'
     printf 'subjectKeyIdentifier=hash\n'
   } > "$PRODUCTION_TRANSPORT_CERT_DIR/ca.ext"
-  openssl req -x509 -new -nodes \
+  openssl req -new \
     -key "$PRODUCTION_TRANSPORT_CERT_DIR/ca.key" \
+    -subj "/CN=permeant-e2e-ca-$RUN_ID" \
+    -out "$PRODUCTION_TRANSPORT_CERT_DIR/ca.csr" >/dev/null 2>&1
+  openssl x509 -req \
+    -in "$PRODUCTION_TRANSPORT_CERT_DIR/ca.csr" \
+    -signkey "$PRODUCTION_TRANSPORT_CERT_DIR/ca.key" \
     -sha256 \
     -days 1 \
-    -subj "/CN=permeant-e2e-ca-$RUN_ID" \
     -extensions v3_ca \
-    -extfile <(printf '[v3_ca]\n'; cat "$PRODUCTION_TRANSPORT_CERT_DIR/ca.ext") \
+    -extfile "$PRODUCTION_TRANSPORT_CERT_DIR/ca.ext" \
     -out "$PRODUCTION_TRANSPORT_CERT_DIR/ca.crt" >/dev/null 2>&1
 
   openssl genrsa -out "$PRODUCTION_TRANSPORT_CERT_DIR/server.key" 2048 >/dev/null 2>&1
@@ -1201,9 +1206,9 @@ run_cmd() {
   refresh_source_continuation
   discover_network
   write_remote_scripts
+  trap 'collect_artifacts || true; cleanup_cmd "$STATE_FILE" || true' EXIT
   provision
   generate_production_transport_certs
-  trap 'collect_artifacts || true; cleanup_cmd "$STATE_FILE" || true' EXIT
   copy_repo_and_setup
   copy_production_transport_certs_to_target
   copy_agent_graph_package_to_target

@@ -68,7 +68,9 @@ def test_production_transport_generates_and_copies_mtls_certs():
     copy_start = script.index("copy_production_transport_certs_to_target() {")
     copy_body = script[copy_start : script.index("\nstart_target() {", copy_start)]
 
-    assert "openssl req -x509" in cert_body
+    assert "openssl req -new" in cert_body
+    assert "openssl x509 -req" in cert_body
+    assert "-signkey \"$PRODUCTION_TRANSPORT_CERT_DIR/ca.key\"" in cert_body
     assert "basicConstraints=critical,CA:TRUE" in cert_body
     assert "keyUsage=critical,keyCertSign,cRLSign" in cert_body
     assert "extendedKeyUsage=serverAuth" in cert_body
@@ -113,3 +115,13 @@ def test_target_cargo_build_disables_http2_multiplexing_and_retries():
     assert "export CARGO_HTTP_MULTIPLEXING=false" in setup_body
     assert "for attempt in 1 2 3; do" in setup_body
     assert "if cargo build; then" in setup_body
+
+
+def test_run_installs_cleanup_trap_before_provisioning():
+    script = RUNNER.read_text()
+    run_start = script.index("run_cmd() {")
+    run_body = script[run_start : script.index("\n}", run_start)]
+
+    assert "trap 'collect_artifacts || true; cleanup_cmd \"$STATE_FILE\" || true' EXIT" in run_body
+    assert run_body.index("trap 'collect_artifacts") < run_body.index("provision")
+    assert run_body.index("trap 'collect_artifacts") < run_body.index("generate_production_transport_certs")
