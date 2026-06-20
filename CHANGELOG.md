@@ -7,6 +7,8 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.22-adaptive-transfer-codecs] - 2026-06-20
+
 ### Added
 
 - Adaptive transfer codec experiment planner for raw, FP8, TurboQuant-style,
@@ -295,7 +297,8 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.21-transfer-quantization-comparison...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.22-adaptive-transfer-codecs...HEAD
+[0.1.22-adaptive-transfer-codecs]: https://github.com/kabudu/permeant-os/compare/v0.1.21-transfer-quantization-comparison...v0.1.22-adaptive-transfer-codecs
 [0.1.21-transfer-quantization-comparison]: https://github.com/kabudu/permeant-os/compare/v0.1.20-larger-context-matrix...v0.1.21-transfer-quantization-comparison
 [0.1.20-larger-context-matrix]: https://github.com/kabudu/permeant-os/compare/v0.1.19-fidelity-horizon-suite...v0.1.20-larger-context-matrix
 [0.1.19-fidelity-horizon-suite]: https://github.com/kabudu/permeant-os/compare/v0.1.18-reliability-benchmark-pack...v0.1.19-fidelity-horizon-suite
