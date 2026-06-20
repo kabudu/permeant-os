@@ -24,6 +24,7 @@ What works today:
 - Repeatable AWS real-runtime E2E runner with cleanup verification.
 - Conservative AWS prewarm image/container recipe for faster E2E bootstrap without always-on infrastructure.
 - Structured benchmark manifest summaries for paper/update tables and failure records.
+- Multi-horizon decode-fidelity analysis over captured source, baseline, and post-migration continuations.
 - Exact short-horizon MLX-to-vLLM continuation fidelity for one validated Qwen run.
 - Agent Memory Graph v0 schema and specification for portable conversation, tool, artifact, memory, checkpoint, provenance, and KV-span state.
 - Minimal local Agent Memory Graph export/import harness with deterministic prompt reconstruction, content-addressed artifact packaging, artifact hash verification, and restored-workspace validation.
@@ -65,6 +66,7 @@ What is still experimental:
 - `docs/website/white-paper.md`: website-friendly technical white paper.
 - `docs/deployment-and-testing-guide.md`: local, cloud-host, manifest, benchmark, and Runpod workflow guide.
 - `docs/benchmark-summary-tooling.md`: structured manifest summary and paper-table tooling.
+- `docs/fidelity-horizon-suite.md`: multi-horizon decode-fidelity comparison tooling.
 - `docs/aws-real-runtime-e2e-runner.md`: repeatable AWS real-runtime E2E runner and cleanup/resume runbook.
 - `docs/aws-prewarm-image.md`: conservative AWS image/container prewarm recipe and cost guardrails.
 - `docs/graph-attached-kv-migration-plan.md`: Phase 3 graph-attached live KV migration plan and acceptance criteria.
@@ -134,6 +136,16 @@ Summarize migration manifests after a local or cloud batch:
 ```bash
 scripts/summarize-benchmark-manifests.py benchmark-manifests/<run-label> \
   --markdown-out benchmark-manifests/<run-label>/summary.md
+```
+
+Analyze captured continuation fidelity across multiple token horizons:
+
+```bash
+scripts/analyze-fidelity-horizons.py \
+  --source /tmp/permeant-source-continuation.json \
+  --probe .permeant-e2e/aws/<run-id>/vllm-runtime-probe.json \
+  --horizons 16,32,64 \
+  --markdown-out .permeant-e2e/aws/<run-id>/fidelity-horizons.md
 ```
 
 ## Benchmark snapshot

@@ -40,6 +40,8 @@ The default target configuration matches the validated real-runtime runs:
 - AMI: `ami-01011b868ec560823`
 - model: `Qwen/Qwen2.5-0.5B-Instruct`
 - sequence length: `2016`
+- continuation max tokens: `16`
+- fidelity horizons: `16,32,64,128`
 - local MLX exporter URL: `http://127.0.0.1:29101`
 - source continuation file: `/tmp/permeant-source-continuation.json`
 - local tunnel port: `39099`
@@ -58,6 +60,8 @@ AWS_AZ=us-east-1d \
 AWS_INSTANCE_TYPE=g4dn.xlarge \
 PERMEANT_MODEL=Qwen/Qwen2.5-0.5B-Instruct \
 PERMEANT_SEQ_LEN=2016 \
+PERMEANT_CONTINUATION_MAX_TOKENS=64 \
+PERMEANT_FIDELITY_HORIZONS=16,32,64 \
 scripts/aws-real-runtime-e2e.sh run
 ```
 
@@ -122,6 +126,16 @@ AWS may still show terminated instances in the EC2 console for a while. That is 
 ## Fidelity interpretation
 
 A successful run is not enough by itself. The analyzer and slot-probe summary should be read together. The default sequence length is intentionally `2016`, not the full `2048`, so the vLLM target has enough remaining context window to generate the full 16-token continuation after its tokenizer-specific prompt expansion.
+
+For longer-horizon fidelity checks, increase
+`PERMEANT_CONTINUATION_MAX_TOKENS` and set matching
+`PERMEANT_FIDELITY_HORIZONS`. The runner writes
+`fidelity-horizons.json` and `fidelity-horizons.md` next to
+`fidelity-analysis.json`. Larger continuation lengths require enough remaining
+target context window; otherwise the horizon suite will report
+`insufficient_tokens` rather than treating the run as an exact fidelity pass.
+The source continuation file must also have been generated with at least the
+largest requested horizon.
 
 The current expected state after Run D is:
 

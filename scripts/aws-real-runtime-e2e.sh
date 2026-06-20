@@ -15,6 +15,8 @@ Environment overrides:
   AWS_AMI_ID                         default: ami-01011b868ec560823
   PERMEANT_MODEL                     default: Qwen/Qwen2.5-0.5B-Instruct
   PERMEANT_SEQ_LEN                   default: 2016
+  PERMEANT_CONTINUATION_MAX_TOKENS   default: 16
+  PERMEANT_FIDELITY_HORIZONS         default: 16,32,64,128
   PERMEANT_SOURCE_URL                default: http://127.0.0.1:29101
   PERMEANT_SOURCE_CONTINUATION_FILE  default: /tmp/permeant-source-continuation.json
   PERMEANT_LOCAL_TUNNEL_PORT         default: 39099
@@ -34,6 +36,8 @@ AWS_INSTANCE_TYPE="${AWS_INSTANCE_TYPE:-g4dn.xlarge}"
 AWS_AMI_ID="${AWS_AMI_ID:-ami-01011b868ec560823}"
 PERMEANT_MODEL="${PERMEANT_MODEL:-Qwen/Qwen2.5-0.5B-Instruct}"
 PERMEANT_SEQ_LEN="${PERMEANT_SEQ_LEN:-2016}"
+PERMEANT_CONTINUATION_MAX_TOKENS="${PERMEANT_CONTINUATION_MAX_TOKENS:-16}"
+PERMEANT_FIDELITY_HORIZONS="${PERMEANT_FIDELITY_HORIZONS:-16,32,64,128}"
 PERMEANT_SOURCE_URL="${PERMEANT_SOURCE_URL:-http://127.0.0.1:29101}"
 PERMEANT_SOURCE_CONTINUATION_FILE="${PERMEANT_SOURCE_CONTINUATION_FILE:-/tmp/permeant-source-continuation.json}"
 PERMEANT_LOCAL_TUNNEL_PORT="${PERMEANT_LOCAL_TUNNEL_PORT:-39099}"
@@ -200,6 +204,8 @@ data = {
   "ami_id": "$AWS_AMI_ID",
   "model": "$PERMEANT_MODEL",
   "seq_len": "$PERMEANT_SEQ_LEN",
+  "continuation_max_tokens": "$PERMEANT_CONTINUATION_MAX_TOKENS",
+  "fidelity_horizons": "$PERMEANT_FIDELITY_HORIZONS",
   "source_url": "$PERMEANT_SOURCE_URL",
   "source_continuation_file": "$PERMEANT_SOURCE_CONTINUATION_FILE",
   "local_tunnel_port": "$PERMEANT_LOCAL_TUNNEL_PORT",
@@ -327,7 +333,7 @@ export PERMEANT_VLLM_RUNTIME_TARGET=/home/ubuntu/permeant-os/adapters/vllm_real_
 export PERMEANT_VLLM_MODEL='$PERMEANT_MODEL'
 export PERMEANT_VLLM_CONTINUATION_PROMPT='PermeantOS continuation probe'
 export PERMEANT_VLLM_CONTINUATION_PROMPT_FROM_SOURCE=1
-export PERMEANT_VLLM_CONTINUATION_MAX_TOKENS=16
+export PERMEANT_VLLM_CONTINUATION_MAX_TOKENS='$PERMEANT_CONTINUATION_MAX_TOKENS'
 export PERMEANT_VLLM_CAPTURE_BASELINE=1
 export PERMEANT_SOURCE_CONTINUATION_FILE=/home/ubuntu/permeant-source-continuation.json
 export PERMEANT_VLLM_RUNTIME_STATE_FILE=/tmp/permeant-vllm-runtime-state.json
@@ -429,6 +435,16 @@ analyze_artifacts() {
     --manifest "$ROOT_DIR/$manifest" \
     --probe "$TARGET_PROBE_LOCAL" \
     --pretty | tee "$RUN_DIR/fidelity-analysis.json"
+  if [[ -f "$PERMEANT_SOURCE_CONTINUATION_FILE" ]]; then
+    python3 "$ROOT_DIR/scripts/analyze-fidelity-horizons.py" \
+      --source "$PERMEANT_SOURCE_CONTINUATION_FILE" \
+      --probe "$TARGET_PROBE_LOCAL" \
+      --horizons "$PERMEANT_FIDELITY_HORIZONS" \
+      --markdown-out "$RUN_DIR/fidelity-horizons.md" \
+      --pretty | tee "$RUN_DIR/fidelity-horizons.json"
+  else
+    log "skipping fidelity horizon analysis; source continuation file not found: $PERMEANT_SOURCE_CONTINUATION_FILE"
+  fi
   python3 - "$TARGET_PROBE_LOCAL" <<'PY' | tee "$RUN_DIR/slot-probe-summary.json"
 import json, sys
 from pathlib import Path

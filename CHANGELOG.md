@@ -7,6 +7,15 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Multi-horizon decode-fidelity analyzer for captured source, target-baseline,
+  and post-migration continuation artifacts, with JSON and Markdown output.
+- AWS real-runtime runner integration for configurable continuation token
+  counts and generated fidelity horizon reports.
+- Fidelity horizon suite documentation covering usage, runner integration, and
+  current limitations.
+
 ## [0.1.18-reliability-benchmark-pack] - 2026-06-20
 
 ### Added
