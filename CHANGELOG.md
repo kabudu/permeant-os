@@ -7,6 +7,8 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.20-larger-context-matrix] - 2026-06-20
+
 ### Added
 
 - Larger-context benchmark matrix planner for >2k token runs, including
@@ -263,7 +265,8 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.19-fidelity-horizon-suite...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.20-larger-context-matrix...HEAD
+[0.1.20-larger-context-matrix]: https://github.com/kabudu/permeant-os/compare/v0.1.19-fidelity-horizon-suite...v0.1.20-larger-context-matrix
 [0.1.19-fidelity-horizon-suite]: https://github.com/kabudu/permeant-os/compare/v0.1.18-reliability-benchmark-pack...v0.1.19-fidelity-horizon-suite
 [0.1.18-reliability-benchmark-pack]: https://github.com/kabudu/permeant-os/compare/v0.1.17-graph-security-policy...v0.1.18-reliability-benchmark-pack
 [0.1.17-graph-security-policy]: https://github.com/kabudu/permeant-os/compare/v0.1.16-agent-framework-adapters...v0.1.17-graph-security-policy
