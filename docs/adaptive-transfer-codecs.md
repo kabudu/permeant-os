@@ -81,3 +81,21 @@ claims.
 - Production adaptive codec selection will need runtime capability exchange,
   manifest schema updates, codec-specific validation metadata, and rollback
   behavior in the migration protocol.
+
+## First QATQ Real-Runtime Result
+
+The first experimental `qatq` AWS real-runtime run completed on June 20, 2026:
+
+- run ID: `20260620-173045`
+- manifest: `migration-20260620-173846-50882-manifest.json`
+- transferred bytes: 6,294,528
+- raw graph-attached comparison bytes: 50,331,648
+- FP8 graph-attached comparison bytes: 12,582,912
+- exact source/post-migration continuation: 16 generated tokens
+- max sampled key/value deltas: `0.006696999999999065` /
+  `0.000558149999999813`
+
+That is an 87.49 percent byte reduction relative to raw f32 transfer and a
+49.98 percent byte reduction relative to FP8. The codec is lossy; the result is
+behaviorally exact over the configured continuation horizon, not numerically
+lossless.

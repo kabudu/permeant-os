@@ -83,6 +83,8 @@ What is still experimental:
   real-runtime comparison for the graph-attached MLX-to-vLLM validation path.
 - `docs/aws-real-runtime-complex-agent-2026-06-20.md`: complex Agent Memory
   Graph package validation for the graph-attached MLX-to-vLLM path.
+- `docs/aws-real-runtime-qatq-2026-06-20.md`: experimental
+  Quaternion-Augmented TurboQuant AWS real-runtime validation.
 - `docs/adaptive-transfer-codecs.md`: adaptive transfer codec planning, semantics, and fallback behavior.
 - `docs/aws-real-runtime-e2e-runner.md`: repeatable AWS real-runtime E2E runner and cleanup/resume runbook.
 - `docs/aws-prewarm-image.md`: conservative AWS image/container prewarm recipe and cost guardrails.
@@ -200,6 +202,7 @@ scripts/plan-transfer-codecs.py \
 
 | Run | Target | Source mode | Transport | Seq len | Total time (ms) | Effective bandwidth (Gbps) | Manifest |
 | --- | --- | --- | --- | ---: | ---: | ---: | --- |
+| AWS QATQ complex graph-attached fidelity | `g4dn.xlarge` | live MLX | SSH tunnel + QATQ complex graph-bound vLLM prefix-cache attachment | 2016 | 386467.57175 | 0.0008050778400958065 | `migration-20260620-173846-50882-manifest.json` |
 | AWS complex graph-attached real-runtime fidelity | `g4dn.xlarge` | live MLX | SSH tunnel + complex graph-bound vLLM prefix-cache attachment | 2016 | 426187.141167 | 0.005626112414656161 | `migration-20260620-170130-37116-manifest.json` |
 | AWS graph-attached FP8 fidelity | `g4dn.xlarge` | live MLX | SSH tunnel + FP8 graph-bound vLLM prefix-cache attachment | 2016 | 389689.972334 | 0.0015973124508454 | `migration-20260620-162809-25370-manifest.json` |
 | AWS graph-attached real-runtime fidelity | `g4dn.xlarge` | live MLX | SSH tunnel + graph-bound vLLM prefix-cache attachment | 2016 | 396126.852875 | 0.005531747332504151 | `migration-20260620-153940-11152-manifest.json` |

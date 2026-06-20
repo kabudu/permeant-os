@@ -7,6 +7,15 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Experimental Quaternion-Augmented TurboQuant (`qatq`) transfer codec path
+  with quaternion-grouped int4 payload packing, target-side decode, runner
+  support, planner support, and tests.
+- AWS real-runtime QATQ validation report showing exact 16-token continuation
+  fidelity with 6,294,528 transferred bytes on the complex graph-attached
+  MLX-to-vLLM path.
+
 ## [0.1.27-complex-agent-e2e] - 2026-06-20
 
 ### Added
