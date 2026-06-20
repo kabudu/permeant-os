@@ -7,6 +7,8 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.13-artifact-safety-policies] - 2026-06-20
+
 ### Added
 
 - Local Agent Memory Graph artifact export policies for redacted and excluded
@@ -153,7 +155,8 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.12-lazarus-hardening...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.13-artifact-safety-policies...HEAD
+[0.1.13-artifact-safety-policies]: https://github.com/kabudu/permeant-os/compare/v0.1.12-lazarus-hardening...v0.1.13-artifact-safety-policies
 [0.1.12-lazarus-hardening]: https://github.com/kabudu/permeant-os/compare/v0.1.11-daemon-graph-transaction-binding...v0.1.12-lazarus-hardening
 [0.1.11-daemon-graph-transaction-binding]: https://github.com/kabudu/permeant-os/compare/v0.1.10-target-tokenizer-span-validation...v0.1.11-daemon-graph-transaction-binding
 [0.1.10-target-tokenizer-span-validation]: https://github.com/kabudu/permeant-os/compare/v0.1.9-live-graph-span-metadata...v0.1.10-target-tokenizer-span-validation
