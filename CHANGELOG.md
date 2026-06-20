@@ -7,6 +7,8 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.15-vector-retrieval-memory] - 2026-06-20
+
 ### Added
 
 - Local Agent Memory Graph vector/retrieval memory snapshot validation,
@@ -187,7 +189,8 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.14-tool-replay-safety...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.15-vector-retrieval-memory...HEAD
+[0.1.15-vector-retrieval-memory]: https://github.com/kabudu/permeant-os/compare/v0.1.14-tool-replay-safety...v0.1.15-vector-retrieval-memory
 [0.1.14-tool-replay-safety]: https://github.com/kabudu/permeant-os/compare/v0.1.13-artifact-safety-policies...v0.1.14-tool-replay-safety
 [0.1.13-artifact-safety-policies]: https://github.com/kabudu/permeant-os/compare/v0.1.12-lazarus-hardening...v0.1.13-artifact-safety-policies
 [0.1.12-lazarus-hardening]: https://github.com/kabudu/permeant-os/compare/v0.1.11-daemon-graph-transaction-binding...v0.1.12-lazarus-hardening
