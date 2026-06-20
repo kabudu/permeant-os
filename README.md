@@ -29,6 +29,7 @@ What works today:
 - Local artifact migration safety policies for redacted/excluded artifacts, explicit external rebind requirements, and streaming artifact verification/restoration.
 - Local tool-call replay safety audit for completed side effects, retry-safe read-only pending work, manual resume policies, and unsafe replay rejection.
 - Local vector/retrieval memory snapshot validation and external vector-store rebind reporting.
+- Agent Memory Graph adapter conformance layer with LangGraph-style durable-state and MCP-backed tool/resource session mappings.
 - Optional Agent Memory Graph hash metadata in migration manifests.
 
 What is still experimental:
@@ -45,7 +46,7 @@ What is still experimental:
 - `crates/`: Rust crates for USXF core logic, transport, orchestration, injector, extractor, and CLI.
 - `adapters/`: Python runtime adapters and bridge tools for MLX, vLLM, Runpod, and analysis.
 - `docs/`: runbooks, design notes, validation reports, and paper draft.
-- `examples/agent-memory-graph/`: minimal local Agent Memory Graph export/import harness.
+- `examples/agent-memory-graph/`: local Agent Memory Graph export/import harness and framework adapter conformance mappings.
 - `sdk/python/`: early Python SDK package.
 - `scripts/`: repeatable cloud validation scripts.
 - `ROADMAP.md`: detailed roadmap toward full agent memory graph migration.
@@ -55,6 +56,7 @@ What is still experimental:
 - `ROADMAP.md`: full roadmap, including Agent Memory Graph migration phases.
 - `docs/agent-memory-graph.md`: Agent Memory Graph v0 schema specification.
 - `docs/schemas/agent-memory-graph-v0.schema.json`: machine-readable JSON Schema for the graph envelope.
+- `docs/agent-framework-adapters.md`: Agent Memory Graph adapter capability manifest, compatibility matrix, and conformance rules.
 - `docs/usxf-arxiv-paper.md`: paper draft covering USXF, PermeantOS, and real-runtime E2E findings.
 - `paper/arxiv/`: arXiv-oriented LaTeX submission bundle.
 - `docs/website/white-paper.md`: website-friendly technical white paper.
@@ -150,6 +152,7 @@ Completed:
 - Artifact redaction/exclusion policies, explicit external rebind validation, and streaming large-file artifact verification/restoration in the local graph harness.
 - Tool-call replay safety audit in the local graph harness, including no-replay preservation for completed external writes, retry-safe read-only pending calls, manual resume requirements, and rejection of unsafe side-effect retries.
 - Vector/retrieval memory support in the local graph harness, including deterministic vector snapshots, embedding/index compatibility checks, retrieval equivalence validation, and hosted vector-store rebind reporting.
+- Agent framework adapter conformance for two independent runtime families: LangGraph-style durable state and MCP-backed tool/resource sessions.
 - Adapter-side graph span metadata emitted by the MLX live runtime and validated against the vLLM target tokenizer view before target ingest.
 - Daemon transaction binding for manifest-referenced graph packages, rejected before commit when required graph/KV evidence is incomplete or does not match the migrated KV header.
 - Analyzer reporting for prompt, graph, graph/KV span, and KV alignment in fidelity summaries.

@@ -225,13 +225,13 @@ Candidate adapters:
 
 Deliverables:
 
-- Adapter capability manifest.
-- Export/import conformance tests.
-- Compatibility matrix.
+- [x] Adapter capability manifest.
+- [x] Export/import conformance tests.
+- [x] Compatibility matrix.
 
 Exit criteria:
 
-- At least two independent agent runtimes can export/import the Agent Memory Graph v0 schema.
+- [x] At least two independent agent runtimes can export/import the Agent Memory Graph v0 schema.
 
 ## Phase 8: Security, provenance, and policy
 

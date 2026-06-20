@@ -101,3 +101,33 @@ pass the generated package manifest to `sim-migrate`:
 
 The migration manifest will include an `agent_graph` section with graph, prompt,
 artifact, tokenizer, simulated KV hashes, and graph-to-KV span metadata.
+
+## Framework Adapter Conformance
+
+`framework_adapters.py` contains dependency-free Phase 7 conformance mappings
+for two independent framework-style runtimes:
+
+- `langgraph_durable_state`
+- `mcp_resource_session`
+
+Print the adapter capability manifest:
+
+```bash
+python3 examples/agent-memory-graph/framework_adapters.py manifest
+```
+
+Export and verify a conformance package:
+
+```bash
+python3 examples/agent-memory-graph/framework_adapters.py export \
+  langgraph_durable_state \
+  /tmp/permeant-langgraph-conformance
+
+python3 examples/agent-memory-graph/framework_adapters.py import \
+  /tmp/permeant-langgraph-conformance
+```
+
+These mappings validate graph shape, adapter identity, graph hashes, actor
+references, and edge references. They are not live LangGraph or MCP
+integrations; they define the minimum graph contract future live adapters must
+preserve.

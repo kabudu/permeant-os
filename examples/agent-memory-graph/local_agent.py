@@ -528,7 +528,7 @@ def vector_retrieval_payload(query_text: str) -> dict[str, Any]:
                 "score_breakdown": [
                     {
                         "name": "semantic",
-                        "score": score,
+                        "value": score,
                         "weight": 1.0,
                     }
                 ],
