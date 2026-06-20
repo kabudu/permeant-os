@@ -22,6 +22,7 @@ Environment overrides:
   PERMEANT_FIDELITY_HORIZONS         default: 16,32,64,128
   PERMEANT_SOURCE_URL                default: http://127.0.0.1:29101
   PERMEANT_SOURCE_CONTINUATION_FILE  default: /tmp/permeant-source-continuation.json
+  PERMEANT_AGENT_GRAPH_MANIFEST      optional local Agent Memory Graph manifest
   PERMEANT_LOCAL_TUNNEL_PORT         default: 39099
   PERMEANT_STATE_DIR                 default: .permeant-e2e/aws
   PERMEANT_PREFLIGHT_SKIP_AWS        default: 0
@@ -48,6 +49,7 @@ PERMEANT_CONTINUATION_MAX_TOKENS="${PERMEANT_CONTINUATION_MAX_TOKENS:-16}"
 PERMEANT_FIDELITY_HORIZONS="${PERMEANT_FIDELITY_HORIZONS:-16,32,64,128}"
 PERMEANT_SOURCE_URL="${PERMEANT_SOURCE_URL:-http://127.0.0.1:29101}"
 PERMEANT_SOURCE_CONTINUATION_FILE="${PERMEANT_SOURCE_CONTINUATION_FILE:-/tmp/permeant-source-continuation.json}"
+PERMEANT_AGENT_GRAPH_MANIFEST="${PERMEANT_AGENT_GRAPH_MANIFEST:-}"
 PERMEANT_LOCAL_TUNNEL_PORT="${PERMEANT_LOCAL_TUNNEL_PORT:-39099}"
 PERMEANT_STATE_DIR="${PERMEANT_STATE_DIR:-$ROOT_DIR/.permeant-e2e/aws}"
 PERMEANT_PREFLIGHT_SKIP_AWS="${PERMEANT_PREFLIGHT_SKIP_AWS:-0}"
@@ -281,6 +283,7 @@ data = {
   "fidelity_horizons": "$PERMEANT_FIDELITY_HORIZONS",
   "source_url": "$PERMEANT_SOURCE_URL",
   "source_continuation_file": "$PERMEANT_SOURCE_CONTINUATION_FILE",
+  "agent_graph_manifest": "$PERMEANT_AGENT_GRAPH_MANIFEST",
   "local_tunnel_port": "$PERMEANT_LOCAL_TUNNEL_PORT",
   "run_dir": "$RUN_DIR",
   "key_name": "$KEY_NAME",
@@ -397,6 +400,14 @@ preflight_cmd() {
     else
       check_status fail "source:mlx_exporter" "$PERMEANT_SOURCE_URL is not reachable" >> "$checks_file"
     fi
+  fi
+
+  if [[ -z "$PERMEANT_AGENT_GRAPH_MANIFEST" ]]; then
+    check_status skip "source:agent_graph_manifest" "PERMEANT_AGENT_GRAPH_MANIFEST is not set" >> "$checks_file"
+  elif [[ -f "$PERMEANT_AGENT_GRAPH_MANIFEST" ]]; then
+    check_status pass "source:agent_graph_manifest" "$PERMEANT_AGENT_GRAPH_MANIFEST exists" >> "$checks_file"
+  else
+    check_status fail "source:agent_graph_manifest" "missing Agent Memory Graph manifest: $PERMEANT_AGENT_GRAPH_MANIFEST" >> "$checks_file"
   fi
 
   if [[ "$PERMEANT_PREFLIGHT_SKIP_AWS" == "1" ]]; then
@@ -634,6 +645,9 @@ run_migration() {
     if (( ${#quant_args[@]} > 0 )); then
       migrate_cmd+=("${quant_args[@]}")
     fi
+    if [[ -n "$PERMEANT_AGENT_GRAPH_MANIFEST" ]]; then
+      migrate_cmd+=(--agent-graph-manifest "$PERMEANT_AGENT_GRAPH_MANIFEST")
+    fi
     "${migrate_cmd[@]}" | tee "$RUN_DIR/migration.log"
   )
   local manifest
@@ -685,10 +699,12 @@ for summary in summaries:
     if slot_probe.get("all_samples_match") is not True:
         failures.append({"layer_index": summary.get("layer_index"), "slot_probe": slot_probe})
     for sample in slot_probe.get("samples", []) or []:
-        if sample.get("key_max_abs_diff") is not None:
-            max_key = max(max_key, float(sample["key_max_abs_diff"]))
-        if sample.get("value_max_abs_diff") is not None:
-            max_value = max(max_value, float(sample["value_max_abs_diff"]))
+        key_delta = sample.get("key_max_abs_diff", sample.get("key_delta"))
+        value_delta = sample.get("value_max_abs_diff", sample.get("value_delta"))
+        if key_delta is not None:
+            max_key = max(max_key, abs(float(key_delta)))
+        if value_delta is not None:
+            max_value = max(max_value, abs(float(value_delta)))
 print(json.dumps({
     "layers": len(summaries),
     "all_layers_slot_probe_match": not failures,

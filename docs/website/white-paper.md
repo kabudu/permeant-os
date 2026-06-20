@@ -14,7 +14,7 @@ PermeantOS treats agent state as portable infrastructure. Instead of binding sta
 
 ## What has been demonstrated
 
-PermeantOS has demonstrated a real cross-runtime migration from a local Apple Silicon MLX source runtime to an AWS NVIDIA vLLM target runtime.
+PermeantOS has demonstrated a real graph-attached cross-runtime migration from a local Apple Silicon MLX source runtime to an AWS NVIDIA vLLM target runtime.
 
 Validated run:
 
@@ -24,6 +24,8 @@ Validated run:
 | Target | AWS `g4dn.xlarge`, vLLM `0.23.0` |
 | Model | `Qwen/Qwen2.5-0.5B-Instruct` |
 | Prefix length | 2016 tokens |
+| Transfer quantization | `none` |
+| Agent Memory Graph | bound and aligned |
 | Layers | 24 |
 | Hash validation | passed |
 | Slot-probe max key diff | `0.0` |
@@ -31,7 +33,15 @@ Validated run:
 | Prefix-cache seeded blocks | 16 |
 | Decode fidelity | exact source/post-migration match for 16 generated tokens |
 
-The run proves the core path: live MLX extraction, secure transport, target-side vLLM KV allocation, direct KV write, prefix-cache attachment, and post-migration continuation fidelity.
+The run proves the core path for the validated configuration: live MLX extraction, secure transport, graph/KV transaction binding, target-side vLLM KV allocation, direct KV write, prefix-cache attachment, and post-migration continuation fidelity. It used raw/unquantized transfer, so it does not claim codec compression or speed benefits.
+
+A matched FP8 transfer-quantized run used the same source, target, model,
+prefix length, continuation horizon, and Agent Memory Graph manifest. It
+reduced transferred bytes from 50,331,648 to 12,582,912 while preserving exact
+16-token source/post-migration continuation fidelity. The transfer phase
+improved from 72.790 seconds to 63.020 seconds, while total migration time
+improved only modestly because this cold-host validation path is dominated by
+target runtime setup, commit, and attachment overhead.
 
 ## Architecture
 
@@ -70,11 +80,11 @@ The Agent Memory Graph v0 schema now defines:
 
 The current Agent Memory Graph work includes a minimal local export/import
 harness, optional graph hash metadata in migration manifests, analyzer alignment
-reporting, graph-attached live KV migration planning notes, and prototype
-graph-to-KV span metadata in migration manifests. The next implementation step
-is live-runtime graph-attached span production, target validation, and runtime
-protocol integration. The goal is to migrate not just model activations, but
-agent continuity.
+reporting, graph-attached live KV migration planning notes, prototype
+graph-to-KV span metadata in migration manifests, and one graph-attached AWS
+real-runtime validation run. The next implementation step is durable
+target-side graph session storage and broader runtime coverage. The goal is to
+migrate not just model activations, but agent continuity.
 
 ## Status
 
@@ -82,15 +92,17 @@ PermeantOS is a research preview. It is substantial enough to release and reprod
 
 Current strengths:
 
-- Real cross-runtime proof point.
+- Real graph-attached cross-runtime proof point.
 - Rust core protocol and daemon.
 - MLX and vLLM live runtime adapters.
 - Agent Memory Graph v0 schema and specification.
 - Minimal local Agent Memory Graph export/import harness.
 - Optional Agent Memory Graph hash metadata in migration manifests.
 - Analyzer reporting for prompt, graph, and KV-cache alignment.
-- Prototype graph-to-KV span metadata in migration manifests and analyzer
-  reports.
+- Graph-to-KV span metadata in migration manifests and analyzer reports.
+- Graph-attached AWS real-runtime validation for the current MLX-to-vLLM path.
+- FP8 graph-attached AWS validation with a 4x smaller transferred payload and
+  exact 16-token continuation fidelity.
 - Graph-attached live KV migration planning notes and acceptance criteria.
 - Repeatable AWS E2E runner with cleanup verification.
 - Conservative AWS prewarm recipe for reducing E2E bootstrap time without
@@ -102,9 +114,9 @@ Current limitations:
 - Fidelity has been validated for one model family and a short continuation horizon.
 - vLLM integration relies on internal runtime behavior that may change.
 - Python adapters are needed for Python-native ML runtimes.
-- Graph-attached KV migration now has documented transaction requirements and
-  acceptance criteria plus prototype manifest/analyzer span evidence, but live
-  runtime protocol integration is still planned.
+- Graph-attached KV migration has one validated MLX-to-vLLM AWS proof, but
+  durable target-side graph session storage and broader runtime coverage remain
+  planned.
 
 ## Learn more
 

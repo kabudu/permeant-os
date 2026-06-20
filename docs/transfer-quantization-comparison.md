@@ -44,6 +44,25 @@ but excluded from performance medians.
 Performance comparison is not the same as fidelity validation. By default the
 tool reports transport and total-time deltas only.
 
+## Latest AWS Measurement
+
+On June 20, 2026, the graph-attached AWS MLX-to-vLLM validation path was run in
+both raw and FP8 transfer modes:
+
+| Metric | Raw | FP8 |
+| --- | ---: | ---: |
+| Manifest | `migration-20260620-153940-11152-manifest.json` | `migration-20260620-162809-25370-manifest.json` |
+| Transferred bytes | 50,331,648 | 12,582,912 |
+| Compression ratio | 1.015873 | 0.253968 |
+| Transfer time | 72,789.511 ms | 63,020.417 ms |
+| Total migration time | 396,126.853 ms | 389,689.972 ms |
+| Exact source/post-migration horizon | 16 tokens | 16 tokens |
+
+FP8 produced a 4x smaller transferred payload and preserved exact 16-token
+continuation fidelity for the validated run. Strict slot equality is expected
+to fail for FP8 because the codec is lossy; the measured max sampled key/value
+delta from the saved probe was `0.0125`.
+
 To require explicit decode-fidelity evidence on both baseline and candidate
 manifests, pass a
 minimum horizon:

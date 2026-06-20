@@ -136,9 +136,74 @@ Key evidence from the follow-up run:
 - `source_shared_prefix_token_count: 16`
 - Slot-probe validation: pass for every layer
 
+## Graph-Attached AWS Proof
+
+The graph-attached AWS proof run attached a local Agent Memory Graph manifest
+to the live MLX-to-vLLM migration command:
+
+```text
+.permeant-e2e/aws/20260620-153138/
+```
+
+Key evidence from the graph-attached run:
+
+- Migration manifest: `migration-20260620-153940-11152-manifest.json`
+- Graph hash: `sha256:cbc686bae7b9e8d4adac3c72a1f1a587ad9a87e9c19d8851d2307637a891a33c`
+- Transfer quantization: `none`
+- Migration phase status: `committed`
+- `alignment.overall_status: aligned`
+- `alignment.graph.status: aligned`
+- `alignment.kv.status: aligned`
+- `alignment.prompt.status: aligned`
+- `hash_validation_success: true`
+- `matches_source_exactly: true`
+- `matches_target_baseline_exactly: true`
+- `migrated_decode_attachment_supported: true`
+- `vllm_prefix_cache_seed_success: true`
+- Slot-probe validation: pass for every layer with zero sampled key/value delta
+- Cleanup verification timestamp: `2026-06-20T15:51:18Z`
+
+This run proves that, for the current MLX source and AWS vLLM target
+configuration, PermeantOS can commit KV state and Agent Memory Graph binding in
+one migration transaction and resume with exact 16-token continuation fidelity.
+It does not measure codec quantization benefits because the run used raw
+unquantized transfer.
+
+## FP8 Transfer Quantization Follow-Up
+
+The FP8 follow-up used the same graph manifest, source runtime, target runtime,
+model, 2016-token prefix, and 16-token continuation horizon:
+
+```text
+.permeant-e2e/aws/20260620-162019/
+```
+
+Key evidence from the FP8 run:
+
+- Migration manifest: `migration-20260620-162809-25370-manifest.json`
+- Transfer quantization: `fp8`
+- Migration phase status: `committed`
+- Transferred bytes: 12,582,912
+- Raw comparison transferred bytes: 50,331,648
+- Transfer time: 63,020.417 ms
+- Raw comparison transfer time: 72,789.511 ms
+- `alignment.overall_status: aligned`
+- `matches_source_exactly: true`
+- `matches_target_baseline_exactly: true`
+- `vllm_prefix_cache_seed_success: true`
+- Max sampled key/value delta from the saved probe: `0.0125`
+- Cleanup verification timestamp: `2026-06-20T16:39:41Z`
+
+The FP8 run reduced transferred payload bytes by roughly 75 percent and
+preserved exact 16-token continuation fidelity. Strict sampled slot equality
+failed because FP8 is lossy; for quantized runs, continuation fidelity and
+tolerance-aware slot deltas are the relevant checks.
+
 ## Decision
 
-The project now has fresh local E2E evidence and fresh AWS real-runtime
-source-exact E2E evidence for KV migration, target hash validation, slot writes,
-prefix-cache attachment, 16-token continuation fidelity, and cleanup
+The project now has fresh local E2E evidence, fresh AWS real-runtime
+source-exact E2E evidence, a graph-attached AWS real-runtime proof, and a
+matched FP8 graph-attached AWS comparison for KV migration, target hash
+validation, slot writes, graph/KV transaction binding, prefix-cache attachment,
+16-token continuation fidelity, transfer-byte reduction, and cleanup
 verification.

@@ -220,12 +220,14 @@ The target context length was kept below the 2048-token model window to leave ro
 
 | Metric | Result |
 |---|---|
-| Run ID | `20260616-230743` |
-| Migration manifest | `migration-20260616-231535-66524-manifest.json` |
+| Run ID | `20260620-153138` |
+| Migration manifest | `migration-20260620-153940-11152-manifest.json` |
 | Source runtime | MLX, Apple Silicon laptop |
 | Target runtime | vLLM `0.23.0`, AWS `g4dn.xlarge` |
 | Model | `Qwen/Qwen2.5-0.5B-Instruct` |
 | Migrated prefix length | 2016 tokens |
+| Transfer quantization | `none` |
+| Agent Memory Graph binding | Aligned |
 | Layer count | 24 |
 | Hash validation | Passed |
 | Slot-probe max key diff | `0.0` |
@@ -235,7 +237,17 @@ The target context length was kept below the 2048-token model window to leave ro
 | Target baseline vs. post-migration decode | Exact match for 16 generated tokens |
 | Cleanup | AWS instance, security group, and key pair deleted |
 
-These results validate the core live migration chain: MLX extraction, USXF transport, target allocation, target KV write, hash validation, prefix-cache attachment, and post-migration decode reuse. The result is intentionally scoped: it demonstrates exact fidelity for one model family and a 16-token continuation horizon. Longer continuation horizons, additional model architectures, quantized transfer variants, and high-concurrency multi-tenant runs remain future evaluation work.
+These results validate the core live migration chain: MLX extraction, USXF transport, Agent Memory Graph transaction binding, target allocation, target KV write, hash validation, prefix-cache attachment, and post-migration decode reuse. The result is intentionally scoped: it demonstrates exact fidelity for one model family and a 16-token continuation horizon using raw, unquantized transfer. Longer continuation horizons, additional model architectures, quantized transfer variants, durable target-side graph session storage, and high-concurrency multi-tenant runs remain future evaluation work.
+
+A matched FP8 transfer-quantized run on the same MLX-to-AWS-vLLM graph-attached
+path reduced transferred bytes from 50,331,648 to 12,582,912 while preserving
+exact 16-token source/post-migration continuation fidelity. The measured
+transfer phase improved from 72.790 seconds to 63.020 seconds. Total migration
+time improved modestly, from 396.127 seconds to 389.690 seconds, because the
+cold disposable-host validation path is dominated by target commit/runtime
+attachment and vLLM initialization effects. Strict sampled slot equality failed
+under FP8 as expected for a lossy codec, with measured max sampled key/value
+delta of 0.0125.
 
 ### 7.3 Engineering Finding: Context Window Accounting
 
@@ -252,7 +264,7 @@ This research builds upon several disaggregated caching and optimization framewo
 ---
 
 ## 9. Conclusion & Future Work
-We have presented USXF v1.1 and the PermeantOS hypervisor stack. By decoupling the KV cache from vendor-locked runtimes and wrapping it in a secure, layout-agnostic structure, PermeantOS enables cross-hardware agent migration. The latest end-to-end validation demonstrates that this is not only a wire-format proposal: a real MLX source cache can be migrated to a real vLLM target, registered into target KV storage, attached through prefix-cache metadata, and decoded with exact short-horizon source fidelity.
+We have presented USXF v1.1 and the PermeantOS hypervisor stack. By decoupling the KV cache from vendor-locked runtimes and wrapping it in a secure, layout-agnostic structure, PermeantOS enables cross-hardware agent migration. The latest end-to-end validation demonstrates that this is not only a wire-format proposal: a real MLX source cache and Agent Memory Graph binding can be migrated to a real vLLM target, registered into target KV storage, attached through prefix-cache metadata, and decoded with exact short-horizon source fidelity.
 
 Future research directions include:
 1. **Speculative Migration:** Initiating network streaming of prefix blocks before the active reasoning loop completes.

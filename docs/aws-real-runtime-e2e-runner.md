@@ -49,6 +49,9 @@ The default target configuration matches the validated real-runtime runs:
 - fidelity horizons: `16,32,64,128`
 - local MLX exporter URL: `http://127.0.0.1:29101`
 - source continuation file: `/tmp/permeant-source-continuation.json`
+- Agent Memory Graph manifest: unset by default; set
+  `PERMEANT_AGENT_GRAPH_MANIFEST=/path/to/manifest.json` to bind graph
+  metadata to the staged KV transaction
 - local tunnel port: `39099`
 
 For faster bootstrap, a conservative prewarmed image can be supplied through
@@ -69,6 +72,7 @@ PERMEANT_VLLM_MAX_MODEL_LEN=2048 \
 PERMEANT_TRANSFER_QUANTIZATION=none \
 PERMEANT_CONTINUATION_MAX_TOKENS=64 \
 PERMEANT_FIDELITY_HORIZONS=16,32,64 \
+PERMEANT_AGENT_GRAPH_MANIFEST=/tmp/permeant-agent-graph/manifest.json \
 scripts/aws-real-runtime-e2e.sh run
 ```
 
@@ -98,7 +102,9 @@ scripts/aws-real-runtime-e2e.sh preflight
 The preflight command does not create AWS resources. It validates local command
 availability, numeric configuration, supported transfer quantization, local
 build/source prerequisites, AWS identity, default subnet lookup, and AMI
-visibility. It writes a structured report to:
+visibility. If `PERMEANT_AGENT_GRAPH_MANIFEST` is set, preflight also verifies
+that the manifest exists before any cloud resource is provisioned. It writes a
+structured report to:
 
 ```text
 .permeant-e2e/aws/<run-id>/preflight-report.json
@@ -180,20 +186,32 @@ target context window; otherwise the horizon suite will report
 The source continuation file must also have been generated with at least the
 largest requested horizon.
 
-The current expected state after Run D is:
+The current expected state after a source-exact graph-attached run is:
 
 - migration success: `true`
 - target hash verification: `true`
 - written layers: `24`
 - slot-probe failure count: `0`
 - max sampled key/value delta: `0.0`
-- post-migration continuation still matches target baseline, not source continuation
+- post-migration continuation matches the source continuation exactly for the
+  configured token horizon
+- graph, KV, and prompt alignment all report `aligned` when an Agent Memory
+  Graph manifest is attached
 
-That means the transport and sampled target KV slot writes are working. The remaining fidelity gap is likely in decode attachment state outside the raw KV tensor values.
+That means the transport, sampled target KV slot writes, graph binding, prefix
+cache seeding, and configured continuation horizon are working for the validated
+MLX-to-vLLM path.
+
+For `PERMEANT_TRANSFER_QUANTIZATION=fp8`, strict sampled slot equality is
+expected to fail because the transfer codec is lossy. Interpret quantized runs
+with decode-fidelity evidence, graph/KV/prompt alignment, transaction/hash
+validation, and tolerance-aware sampled deltas rather than exact sampled tensor
+equality.
 
 ## Next fidelity instrumentation target
 
-The next implementation step is to instrument the target runtime state used to attach the migrated KV cache to generation:
+Further fidelity instrumentation should extend the target runtime state used to
+attach the migrated KV cache to generation:
 
 - request or sequence object identity
 - block table selected for the continuation request

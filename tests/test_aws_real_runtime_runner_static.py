@@ -23,3 +23,20 @@ def test_source_extract_url_preserves_explicit_extract_endpoint():
     script = RUNNER.read_text()
     assert 'if [[ "$base" == */extract ]]; then' in script
     assert "printf '%s/extract\\n' \"$base\"" in script
+
+
+def test_run_passes_agent_graph_manifest_to_migration_when_set():
+    script = RUNNER.read_text()
+    run_migration_start = script.index("run_migration() {")
+    run_migration_body = script[run_migration_start : script.index("\n}", run_migration_start)]
+
+    assert 'PERMEANT_AGENT_GRAPH_MANIFEST="${PERMEANT_AGENT_GRAPH_MANIFEST:-}"' in script
+    assert "source:agent_graph_manifest" in script
+    assert '--agent-graph-manifest "$PERMEANT_AGENT_GRAPH_MANIFEST"' in run_migration_body
+
+
+def test_slot_probe_summary_accepts_quantized_sample_delta_fields():
+    script = RUNNER.read_text()
+
+    assert 'sample.get("key_max_abs_diff", sample.get("key_delta"))' in script
+    assert 'sample.get("value_max_abs_diff", sample.get("value_delta"))' in script

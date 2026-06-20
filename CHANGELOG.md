@@ -7,6 +7,30 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.26-graph-attached-fp8-e2e] - 2026-06-20
+
+### Added
+
+- AWS real-runtime E2E runner can now attach an Agent Memory Graph manifest to
+  the migration command and records the manifest path in run state.
+- Preflight validation now reports explicit skip/pass/fail status for optional
+  Agent Memory Graph manifests before cloud resources are provisioned.
+- Graph-attached AWS FP8 transfer-quantization comparison documenting a 4x
+  smaller transferred payload with exact 16-token continuation fidelity.
+
+### Changed
+
+- AWS real-runtime E2E runner documentation now covers graph-attached KV
+  migration validation and the `PERMEANT_AGENT_GRAPH_MANIFEST` override.
+- README, white paper, arXiv paper sources, and validation checkpoint docs now
+  cite the graph-attached raw and FP8 AWS E2E results.
+
+### Fixed
+
+- AWS real-runtime E2E slot-probe summary now derives top-level max sampled
+  deltas from `key_delta`/`value_delta` fields emitted by the target probe, so
+  lossy FP8 runs do not report misleading zero max deltas.
+
 ## [0.1.25-aws-source-exact-e2e] - 2026-06-20
 
 ### Added
@@ -358,7 +382,8 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.25-aws-source-exact-e2e...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.26-graph-attached-fp8-e2e...HEAD
+[0.1.26-graph-attached-fp8-e2e]: https://github.com/kabudu/permeant-os/compare/v0.1.25-aws-source-exact-e2e...v0.1.26-graph-attached-fp8-e2e
 [0.1.25-aws-source-exact-e2e]: https://github.com/kabudu/permeant-os/compare/v0.1.24-versioning-policy...v0.1.25-aws-source-exact-e2e
 [0.1.24-versioning-policy]: https://github.com/kabudu/permeant-os/compare/v0.1.23-aws-e2e-preflight-validation...v0.1.24-versioning-policy
 [0.1.23-aws-e2e-preflight-validation]: https://github.com/kabudu/permeant-os/compare/v0.1.22-adaptive-transfer-codecs...v0.1.23-aws-e2e-preflight-validation
