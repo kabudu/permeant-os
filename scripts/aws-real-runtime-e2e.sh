@@ -23,6 +23,8 @@ Environment overrides:
   PERMEANT_SOURCE_URL                default: http://127.0.0.1:29101
   PERMEANT_SOURCE_CONTINUATION_FILE  default: /tmp/permeant-source-continuation.json
   PERMEANT_AGENT_GRAPH_MANIFEST      optional local Agent Memory Graph manifest
+  PERMEANT_AGENT_ACTIVITY_RESUME     default: 0; run Agent Memory Graph resume proof on target
+  PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH default: 0; approve gated local publish proof
   PERMEANT_LOCAL_TUNNEL_PORT         default: 39099
   PERMEANT_STATE_DIR                 default: .permeant-e2e/aws
   PERMEANT_PREFLIGHT_SKIP_AWS        default: 0
@@ -50,6 +52,8 @@ PERMEANT_FIDELITY_HORIZONS="${PERMEANT_FIDELITY_HORIZONS:-16,32,64,128}"
 PERMEANT_SOURCE_URL="${PERMEANT_SOURCE_URL:-http://127.0.0.1:29101}"
 PERMEANT_SOURCE_CONTINUATION_FILE="${PERMEANT_SOURCE_CONTINUATION_FILE:-/tmp/permeant-source-continuation.json}"
 PERMEANT_AGENT_GRAPH_MANIFEST="${PERMEANT_AGENT_GRAPH_MANIFEST:-}"
+PERMEANT_AGENT_ACTIVITY_RESUME="${PERMEANT_AGENT_ACTIVITY_RESUME:-0}"
+PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH="${PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH:-0}"
 PERMEANT_LOCAL_TUNNEL_PORT="${PERMEANT_LOCAL_TUNNEL_PORT:-39099}"
 PERMEANT_STATE_DIR="${PERMEANT_STATE_DIR:-$ROOT_DIR/.permeant-e2e/aws}"
 PERMEANT_PREFLIGHT_SKIP_AWS="${PERMEANT_PREFLIGHT_SKIP_AWS:-0}"
@@ -68,6 +72,10 @@ REMOTE_START_SCRIPT=""
 TARGET_PROBE_LOCAL=""
 TARGET_LOG_DIR=""
 TUNNEL_PID_FILE=""
+TARGET_AGENT_GRAPH_PACKAGE="/home/ubuntu/permeant-agent-graph-package"
+TARGET_AGENT_ACTIVITY_WORKSPACE="/tmp/permeant-agent-activity-workspace"
+TARGET_AGENT_ACTIVITY_REPORT_LOCAL=""
+TARGET_AGENT_ACTIVITY_GRAPH_LOCAL=""
 
 log() {
   printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"
@@ -264,6 +272,8 @@ create_state() {
   TARGET_PROBE_LOCAL="$RUN_DIR/vllm-runtime-probe.json"
   TARGET_LOG_DIR="$RUN_DIR/target-logs"
   TUNNEL_PID_FILE="$RUN_DIR/tunnel.pid"
+  TARGET_AGENT_ACTIVITY_REPORT_LOCAL="$RUN_DIR/agent-activity-resume-report.json"
+  TARGET_AGENT_ACTIVITY_GRAPH_LOCAL="$RUN_DIR/agent-activity-resumed-graph.json"
   mkdir -p "$TARGET_LOG_DIR"
 
   python3 - "$STATE_FILE" <<PY
@@ -284,12 +294,16 @@ data = {
   "source_url": "$PERMEANT_SOURCE_URL",
   "source_continuation_file": "$PERMEANT_SOURCE_CONTINUATION_FILE",
   "agent_graph_manifest": "$PERMEANT_AGENT_GRAPH_MANIFEST",
+  "agent_activity_resume": "$PERMEANT_AGENT_ACTIVITY_RESUME",
+  "agent_activity_approve_publish": "$PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH",
   "local_tunnel_port": "$PERMEANT_LOCAL_TUNNEL_PORT",
   "run_dir": "$RUN_DIR",
   "key_name": "$KEY_NAME",
   "pem_file": "$PEM_FILE",
   "known_hosts_file": "$KNOWN_HOSTS_FILE",
-  "target_probe_local": "$TARGET_PROBE_LOCAL"
+  "target_probe_local": "$TARGET_PROBE_LOCAL",
+  "target_agent_activity_report_local": "$TARGET_AGENT_ACTIVITY_REPORT_LOCAL",
+  "target_agent_activity_graph_local": "$TARGET_AGENT_ACTIVITY_GRAPH_LOCAL"
 }
 with open("$STATE_FILE", "w") as f:
     json.dump(data, f, indent=2, sort_keys=True)
@@ -378,6 +392,18 @@ preflight_cmd() {
     check_status fail "configuration:transfer_quantization" "unsupported PERMEANT_TRANSFER_QUANTIZATION: $PERMEANT_TRANSFER_QUANTIZATION" >> "$checks_file"
   fi
 
+  if [[ "$PERMEANT_AGENT_ACTIVITY_RESUME" == "0" || "$PERMEANT_AGENT_ACTIVITY_RESUME" == "1" ]]; then
+    check_status pass "configuration:agent_activity_resume" "$PERMEANT_AGENT_ACTIVITY_RESUME" >> "$checks_file"
+  else
+    check_status fail "configuration:agent_activity_resume" "PERMEANT_AGENT_ACTIVITY_RESUME must be 0 or 1" >> "$checks_file"
+  fi
+
+  if [[ "$PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH" == "0" || "$PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH" == "1" ]]; then
+    check_status pass "configuration:agent_activity_approve_publish" "$PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH" >> "$checks_file"
+  else
+    check_status fail "configuration:agent_activity_approve_publish" "PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH must be 0 or 1" >> "$checks_file"
+  fi
+
   if [[ "$PERMEANT_PREFLIGHT_SKIP_BUILD" == "1" ]]; then
     check_status skip "local:permeant_cli" "skipped by PERMEANT_PREFLIGHT_SKIP_BUILD=1" >> "$checks_file"
   elif [[ -x "$ROOT_DIR/target/debug/permeant-cli" ]]; then
@@ -408,6 +434,22 @@ preflight_cmd() {
     check_status pass "source:agent_graph_manifest" "$PERMEANT_AGENT_GRAPH_MANIFEST exists" >> "$checks_file"
   else
     check_status fail "source:agent_graph_manifest" "missing Agent Memory Graph manifest: $PERMEANT_AGENT_GRAPH_MANIFEST" >> "$checks_file"
+  fi
+
+  if [[ "$PERMEANT_AGENT_ACTIVITY_RESUME" == "1" ]]; then
+    if [[ -z "$PERMEANT_AGENT_GRAPH_MANIFEST" ]]; then
+      check_status fail "source:agent_activity_package" "agent activity resume requires PERMEANT_AGENT_GRAPH_MANIFEST" >> "$checks_file"
+    else
+      local graph_package_dir
+      graph_package_dir="$(cd "$(dirname "$PERMEANT_AGENT_GRAPH_MANIFEST")" 2>/dev/null && pwd || true)"
+      if [[ -f "$graph_package_dir/manifest.json" && -f "$graph_package_dir/graph.json" ]]; then
+        check_status pass "source:agent_activity_package" "$graph_package_dir contains manifest.json and graph.json" >> "$checks_file"
+      else
+        check_status fail "source:agent_activity_package" "Agent Memory Graph package must contain manifest.json and graph.json" >> "$checks_file"
+      fi
+    fi
+  else
+    check_status skip "source:agent_activity_package" "PERMEANT_AGENT_ACTIVITY_RESUME=0" >> "$checks_file"
   fi
 
   if [[ "$PERMEANT_PREFLIGHT_SKIP_AWS" == "1" ]]; then
@@ -585,6 +627,17 @@ copy_repo_and_setup() {
   ssh_target 'bash /home/ubuntu/permeant-remote-setup.sh'
 }
 
+copy_agent_graph_package_to_target() {
+  [[ "$PERMEANT_AGENT_ACTIVITY_RESUME" == "1" ]] || return 0
+  [[ -n "$PERMEANT_AGENT_GRAPH_MANIFEST" ]] || die "PERMEANT_AGENT_ACTIVITY_RESUME=1 requires PERMEANT_AGENT_GRAPH_MANIFEST"
+  local package_dir
+  package_dir="$(cd "$(dirname "$PERMEANT_AGENT_GRAPH_MANIFEST")" && pwd)"
+  [[ -f "$package_dir/manifest.json" && -f "$package_dir/graph.json" ]] || die "invalid Agent Memory Graph package: $package_dir"
+  log "copying Agent Memory Graph package to target"
+  tar -C "$package_dir" -cf - . | ssh_target "rm -rf '$TARGET_AGENT_GRAPH_PACKAGE' && mkdir -p '$TARGET_AGENT_GRAPH_PACKAGE' && tar -xf - -C '$TARGET_AGENT_GRAPH_PACKAGE'"
+  json_set "$STATE_FILE" target_agent_graph_package "$TARGET_AGENT_GRAPH_PACKAGE"
+}
+
 start_target() {
   [[ -f "$PERMEANT_SOURCE_CONTINUATION_FILE" ]] || die "missing source continuation file: $PERMEANT_SOURCE_CONTINUATION_FILE"
   scp_to_target "$PERMEANT_SOURCE_CONTINUATION_FILE" /home/ubuntu/permeant-source-continuation.json
@@ -718,6 +771,38 @@ print(json.dumps({
 PY
 }
 
+run_agent_activity_resume() {
+  [[ "$PERMEANT_AGENT_ACTIVITY_RESUME" == "1" ]] || return 0
+  log "running Agent Memory Graph resume proof on target"
+  local approve_arg=""
+  if [[ "$PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH" == "1" ]]; then
+    approve_arg="--approve-publish"
+  fi
+  ssh_target "cd /home/ubuntu/permeant-os && python3 examples/agent-memory-graph/local_agent.py resume --input '$TARGET_AGENT_GRAPH_PACKAGE' --workspace '$TARGET_AGENT_ACTIVITY_WORKSPACE' $approve_arg" \
+    | tee "$RUN_DIR/agent-activity-resume.stdout.json"
+  json_set "$STATE_FILE" target_agent_activity_workspace "$TARGET_AGENT_ACTIVITY_WORKSPACE"
+  scp_from_target "$TARGET_AGENT_ACTIVITY_WORKSPACE/reports/resume/resume-report.json" "$TARGET_AGENT_ACTIVITY_REPORT_LOCAL"
+  scp_from_target "$TARGET_AGENT_ACTIVITY_WORKSPACE/reports/resume/resumed-graph.json" "$TARGET_AGENT_ACTIVITY_GRAPH_LOCAL"
+  json_set "$STATE_FILE" target_agent_activity_report_local "$TARGET_AGENT_ACTIVITY_REPORT_LOCAL"
+  json_set "$STATE_FILE" target_agent_activity_graph_local "$TARGET_AGENT_ACTIVITY_GRAPH_LOCAL"
+  python3 - "$TARGET_AGENT_ACTIVITY_REPORT_LOCAL" <<'PY'
+import json, sys
+from pathlib import Path
+report = json.loads(Path(sys.argv[1]).read_text())
+if report.get("status") != "continued" or report.get("activity_continued") is not True:
+    raise SystemExit(f"agent activity resume did not continue: {report}")
+print(json.dumps({
+    "status": report.get("status"),
+    "activity_continued": report.get("activity_continued"),
+    "pre_resume_graph_hash": report.get("pre_resume_graph_hash"),
+    "post_resume_graph_hash": report.get("post_resume_graph_hash"),
+    "proof_hash": report.get("proof_hash"),
+    "executed_tools": [entry.get("node_id") for entry in report.get("executed_tools", [])],
+    "written_artifacts": report.get("written_artifacts", []),
+}, indent=2, sort_keys=True))
+PY
+}
+
 status_cmd() {
   load_state "${1:-$PERMEANT_STATE_DIR/latest/state.json}"
   local id sg ip state
@@ -798,11 +883,13 @@ run_cmd() {
   provision
   trap 'collect_artifacts || true; cleanup_cmd "$STATE_FILE" || true' EXIT
   copy_repo_and_setup
+  copy_agent_graph_package_to_target
   start_target
   start_tunnel
   run_migration
   collect_artifacts
   analyze_artifacts
+  run_agent_activity_resume
   cleanup_cmd "$STATE_FILE"
   trap - EXIT
   log "run complete: $RUN_DIR"
