@@ -7,6 +7,26 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.27-complex-agent-e2e] - 2026-06-20
+
+### Added
+
+- Complex Agent Memory Graph harness scenario that exports/imports a 27-node
+  package with messages, artifacts, memories, retrieval evidence, credential
+  rebinding, completed tool calls, pending retry-safe work, and pending
+  user-approved external action policy.
+- AWS real-runtime complex-agent validation report proving the current
+  MLX-to-vLLM path can commit a graph-attached complex agent package with
+  exact 16-token continuation fidelity.
+
+### Changed
+
+- README, website white paper source, arXiv paper sources, and E2E checkpoint
+  docs now cite the complex-agent proof and distinguish the validated claim
+  from broader future runtime/model coverage.
+- Agent Memory Graph harness docs now document the `complex-demo` package used
+  by the real-runtime proof.
+
 ## [0.1.26-graph-attached-fp8-e2e] - 2026-06-20
 
 ### Added
@@ -382,7 +402,8 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.26-graph-attached-fp8-e2e...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.27-complex-agent-e2e...HEAD
+[0.1.27-complex-agent-e2e]: https://github.com/kabudu/permeant-os/compare/v0.1.26-graph-attached-fp8-e2e...v0.1.27-complex-agent-e2e
 [0.1.26-graph-attached-fp8-e2e]: https://github.com/kabudu/permeant-os/compare/v0.1.25-aws-source-exact-e2e...v0.1.26-graph-attached-fp8-e2e
 [0.1.25-aws-source-exact-e2e]: https://github.com/kabudu/permeant-os/compare/v0.1.24-versioning-policy...v0.1.25-aws-source-exact-e2e
 [0.1.24-versioning-policy]: https://github.com/kabudu/permeant-os/compare/v0.1.23-aws-e2e-preflight-validation...v0.1.24-versioning-policy

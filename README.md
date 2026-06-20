@@ -6,7 +6,7 @@
 
 PermeantOS is an experimental state-fluid hypervisor for live AI agent migration. It currently focuses on cross-host KV-cache migration between heterogeneous runtimes, with a longer-term roadmap toward full Agent Memory Graph migration. The first graph milestone, the v0 schema and specification, is now defined.
 
-The current prototype has demonstrated a real graph-attached end-to-end migration from a local Apple Silicon MLX source runtime to an AWS NVIDIA vLLM target runtime. In the validated run, PermeantOS migrated a `Qwen/Qwen2.5-0.5B-Instruct` KV cache, bound an Agent Memory Graph manifest into the same transaction, wrote matching KV blocks into vLLM, seeded vLLM prefix-cache metadata, and matched the source continuation exactly for a 16-token validation horizon.
+The current prototype has demonstrated that agents can move for the validated real-runtime path. In the latest complex-agent run, PermeantOS migrated a `Qwen/Qwen2.5-0.5B-Instruct` KV cache from local Apple Silicon MLX to an AWS NVIDIA vLLM target, bound a 27-node Agent Memory Graph package into the same transaction, wrote matching KV blocks into vLLM, seeded vLLM prefix-cache metadata, preserved four content-addressed artifacts, and matched the source continuation exactly for a 16-token validation horizon.
 
 ## Status
 
@@ -28,20 +28,20 @@ What works today:
 - Larger-context benchmark matrix planning with checked vLLM context-window requirements.
 - Exact short-horizon graph-attached MLX-to-vLLM continuation fidelity for one validated Qwen run.
 - Agent Memory Graph v0 schema and specification for portable conversation, tool, artifact, memory, checkpoint, provenance, and KV-span state.
-- Minimal local Agent Memory Graph export/import harness with deterministic prompt reconstruction, content-addressed artifact packaging, artifact hash verification, and restored-workspace validation.
+- Local Agent Memory Graph export/import harness with deterministic prompt reconstruction, complex-agent package generation, content-addressed artifact packaging, artifact hash verification, and restored-workspace validation.
 - Local artifact migration safety policies for redacted/excluded artifacts, explicit external rebind requirements, and streaming artifact verification/restoration.
 - Local tool-call replay safety audit for completed side effects, retry-safe read-only pending work, manual resume policies, and unsafe replay rejection.
 - Local vector/retrieval memory snapshot validation and external vector-store rebind reporting.
 - Agent Memory Graph adapter conformance layer with LangGraph-style durable-state and MCP-backed tool/resource session mappings.
 - Local Agent Memory Graph security policy gate with signed-root attestation, provenance chain checks, secret rejection, credential rebinding, and target/tool/artifact allowlists.
 - Optional Agent Memory Graph hash metadata in migration manifests.
-- Graph-attached AWS real-runtime E2E proof for the current MLX-to-vLLM path.
+- Complex graph-attached AWS real-runtime E2E proof for the current MLX-to-vLLM path.
 
 What is still experimental:
 
 - Runtime adapters rely on Python because MLX and vLLM expose the needed internals through Python APIs.
 - The vLLM attachment path uses implementation details that may change between vLLM versions.
-- Fidelity has been validated for one model family and a 16-token continuation horizon, including one graph-attached AWS run.
+- Fidelity has been validated for one model family and a 16-token continuation horizon, including graph-attached AWS runs and one complex-agent graph package.
 - Cloud validation is expensive and slow on cold hosts unless a prewarmed image is used.
 - Longer-horizon and larger-context benchmark tooling now exists, and
   transfer-quantization comparison tooling can analyze paired benchmark
@@ -81,6 +81,8 @@ What is still experimental:
 - `docs/transfer-quantization-comparison.md`: paired raw-vs-quantized manifest comparison tooling.
 - `docs/aws-real-runtime-transfer-quantization-2026-06-20.md`: raw-vs-FP8 AWS
   real-runtime comparison for the graph-attached MLX-to-vLLM validation path.
+- `docs/aws-real-runtime-complex-agent-2026-06-20.md`: complex Agent Memory
+  Graph package validation for the graph-attached MLX-to-vLLM path.
 - `docs/adaptive-transfer-codecs.md`: adaptive transfer codec planning, semantics, and fallback behavior.
 - `docs/aws-real-runtime-e2e-runner.md`: repeatable AWS real-runtime E2E runner and cleanup/resume runbook.
 - `docs/aws-prewarm-image.md`: conservative AWS image/container prewarm recipe and cost guardrails.
@@ -95,18 +97,18 @@ Latest successful fidelity run:
 
 | Field | Value |
 | --- | --- |
-| Run ID | `20260620-153138` |
-| Manifest | `migration-20260620-153940-11152-manifest.json` |
+| Run ID | `20260620-165344` |
+| Manifest | `migration-20260620-170130-37116-manifest.json` |
 | Source | local MLX on Apple Silicon |
 | Target | AWS `g4dn.xlarge`, vLLM `0.23.0` |
 | Model | `Qwen/Qwen2.5-0.5B-Instruct` |
 | Prefix length | 2016 tokens |
 | Transfer quantization | `none` |
-| Agent Memory Graph | bound and aligned |
+| Agent Memory Graph | 27 nodes, 25 edges, 4 packaged artifacts, bound and aligned |
 | Layers | 24 |
 | Hash validation | passed |
-| Slot probe max key diff | `0.0` |
-| Slot probe max value diff | `0.0` |
+| Slot probe max key diff | `5.000000025123796e-09` |
+| Slot probe max value diff | `5.000000025123796e-09` |
 | Prefix-cache seeded blocks | 16 |
 | Decode fidelity | exact source/post-migration match for 16 generated tokens |
 | Cleanup | instance, security group, and key pair deleted |
@@ -198,6 +200,7 @@ scripts/plan-transfer-codecs.py \
 
 | Run | Target | Source mode | Transport | Seq len | Total time (ms) | Effective bandwidth (Gbps) | Manifest |
 | --- | --- | --- | --- | ---: | ---: | ---: | --- |
+| AWS complex graph-attached real-runtime fidelity | `g4dn.xlarge` | live MLX | SSH tunnel + complex graph-bound vLLM prefix-cache attachment | 2016 | 426187.141167 | 0.005626112414656161 | `migration-20260620-170130-37116-manifest.json` |
 | AWS graph-attached FP8 fidelity | `g4dn.xlarge` | live MLX | SSH tunnel + FP8 graph-bound vLLM prefix-cache attachment | 2016 | 389689.972334 | 0.0015973124508454 | `migration-20260620-162809-25370-manifest.json` |
 | AWS graph-attached real-runtime fidelity | `g4dn.xlarge` | live MLX | SSH tunnel + graph-bound vLLM prefix-cache attachment | 2016 | 396126.852875 | 0.005531747332504151 | `migration-20260620-153940-11152-manifest.json` |
 | AWS real-runtime fidelity | `g4dn.xlarge` | live MLX | SSH tunnel + vLLM prefix-cache attachment | 2016 | see run doc | see run doc | `migration-20260616-231535-66524-manifest.json` |
@@ -218,7 +221,7 @@ Completed:
 - Published schema identifier: `https://www.permeantos.org/schemas/agent-memory-graph-v0.schema.json`.
 - Public versioning policy for USXF, Agent Memory Graph, report schemas, and
   lightweight roadmap releases.
-- Minimal local graph export/import harness with deterministic prompt reconstruction, artifact hash verification, prompt token hash capture, and simulated KV hash validation.
+- Local graph export/import harness with deterministic prompt reconstruction, complex-agent package generation, artifact hash verification, prompt token hash capture, and simulated KV hash validation.
 - Optional graph hash, artifact hash, prompt hash, and simulated KV hash fields in migration manifests.
 - Optional graph-to-KV span metadata in migration manifests when an Agent Memory Graph package is supplied.
 - Content-addressed artifact packaging and restored-workspace verification in the local graph harness.
@@ -235,6 +238,10 @@ Completed:
 - FP8 graph-attached AWS validation showing exact 16-token continuation
   fidelity with a 4x smaller transferred payload and expected lossy slot
   deltas.
+- Complex-agent AWS validation showing a 27-node graph, 25 edges, four packaged
+  artifacts, memory/retrieval state, completed and pending tool policies, one
+  graph/KV span, exact 16-token continuation fidelity, and verified AWS
+  cleanup.
 
 Remaining:
 

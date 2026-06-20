@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal local Agent Memory Graph export/import harness.
+"""Local Agent Memory Graph export/import harness.
 
 This example is intentionally small and deterministic. It demonstrates graph-only
 migration before live KV-cache attachment:
@@ -292,11 +292,11 @@ def base_node(node_id: str, node_type: str, payload: dict[str, Any]) -> dict[str
     return node
 
 
-def build_artifact_record(session: LocalSession, policy: ArtifactExportPolicy) -> ArtifactRecord:
-    artifact_hash = sha256_bytes(session.artifact_bytes)
-    disposition = policy.disposition_for(session.artifact_path)
+def build_artifact_record_from_bytes(path: str, artifact_bytes: bytes, policy: ArtifactExportPolicy) -> ArtifactRecord:
+    artifact_hash = sha256_bytes(artifact_bytes)
+    disposition = policy.disposition_for(path)
     if disposition == "packaged":
-        blob_path = content_addressed_blob_path(artifact_hash, session.artifact_path)
+        blob_path = content_addressed_blob_path(artifact_hash, path)
         restore_policy = "required"
         rebind_required = False
     else:
@@ -305,16 +305,20 @@ def build_artifact_record(session: LocalSession, policy: ArtifactExportPolicy) -
         rebind_required = True
 
     return ArtifactRecord(
-        path=session.artifact_path,
+        path=path,
         content_hash=artifact_hash,
-        size_bytes=len(session.artifact_bytes),
+        size_bytes=len(artifact_bytes),
         media_type="application/json",
         disposition=disposition,
         blob_path=blob_path,
         restore_policy=restore_policy,
-        target_path=session.artifact_path,
+        target_path=path,
         rebind_required=rebind_required,
     )
+
+
+def build_artifact_record(session: LocalSession, policy: ArtifactExportPolicy) -> ArtifactRecord:
+    return build_artifact_record_from_bytes(session.artifact_path, session.artifact_bytes, policy)
 
 
 def tool_call_nodes(graph: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1038,6 +1042,345 @@ def build_manifest(graph: dict[str, Any], session: LocalSession, prompt: str, ar
     }
 
 
+def complex_artifact_payloads() -> list[tuple[str, bytes]]:
+    payloads = [
+        (
+            "reports/result.json",
+            {
+                "status": "complete",
+                "title": "Complex Agent Memory Graph migration report",
+                "findings": [
+                    "workspace state is restorable",
+                    "retrieval memory survives export/import",
+                    "pending work is policy-gated",
+                    "graph/KV binding can attach to a live migration",
+                ],
+            },
+        ),
+        (
+            "reports/research/plan.json",
+            {
+                "plan_id": "plan:complex-agent-migration",
+                "steps": [
+                    {"id": "step:collect", "status": "complete"},
+                    {"id": "step:compare", "status": "complete"},
+                    {"id": "step:publish", "status": "needs_user"},
+                ],
+                "decision": "migrate live state after graph/KV evidence aligns",
+            },
+        ),
+        (
+            "reports/audit/retrieval.json",
+            {
+                "query": "which evidence proves the agent can continue after migration",
+                "selected_memory": "memory:complex-fidelity",
+                "score": 0.9875,
+                "policy": "continuity_aware",
+            },
+        ),
+    ]
+    encoded = [
+        (path, (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8"))
+        for path, payload in payloads
+    ]
+    encoded.append(
+        (
+            "reports/context/notes.md",
+            "\n".join(
+                [
+                    "# Complex Agent Continuity Notes",
+                    "",
+                    "- Maintains a working plan with completed and pending steps.",
+                    "- Carries retrieval memory and artifact references.",
+                    "- Requires explicit operator approval before external publish actions.",
+                    "",
+                ]
+            ).encode("utf-8")
+        )
+    )
+    return encoded
+
+
+def run_complex_session() -> LocalSession:
+    artifacts = dict(complex_artifact_payloads())
+    artifact_hash = sha256_bytes(artifacts["reports/result.json"])
+    messages = [
+        {"role": "system", "content": "You are the PermeantOS complex migration validation agent."},
+        {
+            "role": "user",
+            "content": "Investigate whether a live agent can move with working memory, artifacts, and pending work.",
+        },
+        {
+            "role": "assistant",
+            "content": "I will gather evidence, write artifacts, retain retrieval memory, and preserve a gated publish action.",
+        },
+        {"role": "tool", "content": f"fs.write_file wrote reports/result.json with {artifact_hash}."},
+        {
+            "role": "assistant",
+            "content": "The primary report is complete. I will also create a migration plan and retrieval audit.",
+        },
+        {
+            "role": "tool",
+            "content": "fs.write_file wrote reports/research/plan.json and reports/audit/retrieval.json.",
+        },
+        {
+            "role": "assistant",
+            "content": "The agent now has completed artifacts, semantic memory, and one pending publish action requiring approval.",
+        },
+        {"role": "user", "content": "Move now, but do not replay unsafe external writes after import."},
+        {
+            "role": "assistant",
+            "content": "Ready to migrate. Completed writes are preserved, read-only checks may retry, and publish remains gated.",
+        },
+    ]
+    prompt = reconstruct_prompt_from_messages(messages)
+    return LocalSession(
+        messages=messages,
+        artifact_path="reports/result.json",
+        artifact_bytes=artifacts["reports/result.json"],
+        deterministic_response=deterministic_continue(prompt, artifact_hash),
+    )
+
+
+def extend_graph_for_complex_agent(
+    graph: dict[str, Any],
+    artifact_records: list[ArtifactRecord],
+) -> None:
+    extra_artifacts = {record.path: record for record in artifact_records[1:]}
+    graph["graph_id"] = "graph:complex-agent:0001"
+    graph["agent"]["id"] = "agent:complex-continuity"
+    graph["participants"].append(
+        {"id": "operator:release-manager", "kind": "user", "name": "Release manager"}
+    )
+    graph["lineage"].append(
+        {
+            "graph_id": "graph:complex-agent:0001",
+            "event": "validated_for_real_runtime_e2e",
+            "created_at": CREATED_AT,
+        }
+    )
+    graph["policies"]["required_approval_for_publish"] = True
+
+    additional_nodes = [
+        base_node(
+            "tool:call:write-plan",
+            "tool_call",
+            {
+                "actor_id": AGENT_ID,
+                "memory_scope": "thread",
+                "memory_tier": "working",
+                "sensitivity": "internal",
+                "retention": "durable",
+                "redaction_state": "none",
+                "name": "fs.write_file",
+                "provider": "local-reference",
+                "call_id": "call:write-plan",
+                "arguments_hash": sha256_json({"path": "reports/research/plan.json"}),
+                "input_schema_hash": sha256_json({"path": "string", "content": "string"}),
+                "idempotency_key": "complex-write-plan",
+                "side_effect": "external_write",
+                "status": "completed",
+                "resume_policy": "never_retry",
+                "approval_state": "approved",
+                "external_resource_ids": ["file:reports/research/plan.json"],
+            },
+        ),
+        base_node(
+            "tool:call:read-aws-quota",
+            "tool_call",
+            {
+                "actor_id": AGENT_ID,
+                "memory_scope": "thread",
+                "memory_tier": "working",
+                "sensitivity": "internal",
+                "retention": "session",
+                "redaction_state": "none",
+                "name": "aws.ec2.describe_instances",
+                "provider": "aws",
+                "call_id": "call:read-aws-quota",
+                "arguments_hash": sha256_json({"filters": ["Project=permeant-os"]}),
+                "input_schema_hash": sha256_json({"filters": "array"}),
+                "idempotency_key": "complex-read-aws",
+                "side_effect": "read_only",
+                "status": "not_started",
+                "resume_policy": "retry_safe",
+                "approval_state": "not_required",
+            },
+        ),
+        base_node(
+            "tool:call:publish-release",
+            "tool_call",
+            {
+                "actor_id": AGENT_ID,
+                "memory_scope": "thread",
+                "memory_tier": "working",
+                "sensitivity": "internal",
+                "retention": "durable",
+                "redaction_state": "none",
+                "name": "fs.write_file",
+                "provider": "local-reference",
+                "call_id": "call:publish-release",
+                "arguments_hash": sha256_json({"path": "reports/publish/announcement.md"}),
+                "input_schema_hash": sha256_json({"path": "string", "content": "string"}),
+                "idempotency_key": "complex-publish-release",
+                "side_effect": "external_write",
+                "status": "needs_user",
+                "resume_policy": "ask_user",
+                "approval_state": "pending",
+                "external_resource_ids": ["file:reports/publish/announcement.md"],
+            },
+        ),
+        base_node(
+            "memory:complex-fidelity",
+            "memory",
+            {
+                "actor_id": AGENT_ID,
+                "memory_scope": "thread",
+                "memory_tier": "recall",
+                "sensitivity": "internal",
+                "retention": "durable",
+                "redaction_state": "none",
+                "quality_state": "verified",
+                "historical_state": "current",
+                "trust_level": "derived",
+                "valid_at": CREATED_AT,
+                "confidence": 0.99,
+                "memory_kind": "semantic",
+                "text_hash": sha256_bytes(b"complex agent migration preserves exact continuation"),
+                "subject": "migration:e2e",
+                "predicate": "continuation",
+                "object": "exact-16-token-fidelity",
+                "namespace": ["complex-agent", "evidence"],
+                "key": "continuation-fidelity",
+                "embedding_model": EMBEDDING_MODEL,
+                "embedding_dim": EMBEDDING_DIM,
+                "embedding_hash": embedding_hash(
+                    deterministic_embedding("migration:e2e continuation exact-16-token-fidelity")
+                ),
+                "distance_metric": "cosine",
+                "vector_store_ref": VECTOR_STORE_REF,
+                "episode": {
+                    "schema_version": "complex-agent-v0",
+                    "episode_id": "episode:complex-agent",
+                    "continuity_state": "open",
+                    "actor_ids": [AGENT_ID, USER_ID, "operator:release-manager"],
+                    "started_at": CREATED_AT,
+                    "boundary_labels": ["migration", "release", "validation"],
+                    "causal_record_ids": ["tool:call:write-report", "tool:call:write-plan"],
+                    "related_record_ids": ["artifact:report", "artifact:plan", "artifact:retrieval-audit"],
+                    "salience": {"reuse": 0.9, "novelty": 0.7, "unresolved": 0.4},
+                },
+                "conflict": {"review_state": "none", "conflicting_node_ids": [], "drift_score": 0.0},
+                "lineage_links": [{"node_id": "tool:call:write-plan", "relation": "derived_from"}],
+            },
+        ),
+        base_node(
+            "retrieval:complex-evidence",
+            "retrieval",
+            {
+                **vector_retrieval_payload("which evidence proves the agent can continue after migration"),
+                "results": [
+                    {
+                        "node_id": "memory:complex-fidelity",
+                        "rank": 1,
+                        "score": 0.9875,
+                        "score_kind": "cosine",
+                        "score_breakdown": [
+                            {"name": "semantic", "value": 0.82, "weight": 0.7},
+                            {"name": "recency", "value": 0.95, "weight": 0.2},
+                            {"name": "trust", "value": 0.99, "weight": 0.1},
+                        ],
+                        "candidate_source": "semantic_neighbor",
+                        "snippet_hash": sha256_bytes(b"exact continuation after migration"),
+                    }
+                ],
+                "selection_policy": "continuity_high_confidence",
+            },
+        ),
+        base_node(
+            "event:pending-release",
+            "event",
+            {
+                "actor_id": "operator:release-manager",
+                "event_kind": "approval_required",
+                "memory_scope": "thread",
+                "memory_tier": "working",
+                "sensitivity": "internal",
+                "retention": "session",
+                "redaction_state": "none",
+            },
+        ),
+    ]
+    for artifact_id, record in [
+        ("artifact:plan", extra_artifacts["reports/research/plan.json"]),
+        ("artifact:retrieval-audit", extra_artifacts["reports/audit/retrieval.json"]),
+        ("artifact:context-notes", extra_artifacts["reports/context/notes.md"]),
+    ]:
+        additional_nodes.append(base_node(artifact_id, "artifact", artifact_node_payload(record)))
+
+    graph["nodes"].extend(additional_nodes)
+    graph["edges"].extend(
+        [
+            {"from": "turn:assistant:5", "to": "tool:call:write-plan", "type": "caused"},
+            {"from": "tool:call:write-plan", "to": "artifact:plan", "type": "produced"},
+            {"from": "tool:call:write-plan", "to": "artifact:retrieval-audit", "type": "produced"},
+            {"from": "tool:call:write-plan", "to": "artifact:context-notes", "type": "produced"},
+            {"from": "artifact:plan", "to": "memory:complex-fidelity", "type": "produced"},
+            {"from": "retrieval:complex-evidence", "to": "memory:complex-fidelity", "type": "retrieved"},
+            {"from": "event:pending-release", "to": "tool:call:publish-release", "type": "caused"},
+            {"from": "tool:call:read-aws-quota", "to": "memory:complex-fidelity", "type": "references"},
+        ]
+    )
+    expected_vector_results = build_vector_snapshot(graph, "report artifact complete")["expected_results"]
+    for retrieval in retrieval_nodes(graph):
+        if retrieval.get("retrieval_kind") == "vector":
+            retrieval["results"] = expected_vector_results
+    graph["graph_hash"] = canonical_graph_hash(graph)
+
+
+def export_complex_session(
+    output_dir: Path,
+    artifact_policy: ArtifactExportPolicy | None = None,
+) -> dict[str, Any]:
+    artifact_policy = artifact_policy or ArtifactExportPolicy()
+    session = run_complex_session()
+    prompt = reconstruct_prompt_from_messages(session.messages)
+    artifact_records = [
+        build_artifact_record_from_bytes(path, data, artifact_policy)
+        for path, data in complex_artifact_payloads()
+    ]
+    graph = build_graph(session, artifact_records[0], prompt)
+    extend_graph_for_complex_agent(graph, artifact_records)
+    manifest = build_manifest(graph, session, prompt, artifact_records[0])
+    manifest["artifacts"] = [manifest_artifact(record) for record in artifact_records]
+    manifest["side_effect_audit"] = audit_tool_replay_safety(graph)
+    manifest["vector_memory"] = build_vector_snapshot(graph, "report artifact complete")
+    manifest["security"] = build_security_attestation(graph)
+    manifest["complexity"] = {
+        "profile": "complex-agent-continuity-v0",
+        "node_count": len(graph["nodes"]),
+        "edge_count": len(graph["edges"]),
+        "artifact_count": len(artifact_records),
+        "tool_call_count": len(tool_call_nodes(graph)),
+        "memory_count": len(memory_nodes(graph)),
+        "retrieval_count": len(retrieval_nodes(graph)),
+        "pending_tool_call_count": sum(
+            1 for node in tool_call_nodes(graph) if node.get("status") in PENDING_TOOL_STATUSES
+        ),
+    }
+
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    for record, (_, data) in zip(artifact_records, complex_artifact_payloads()):
+        if record.blob_path is not None:
+            artifact_file = output_dir / record.blob_path
+            artifact_file.parent.mkdir(parents=True, exist_ok=True)
+            artifact_file.write_bytes(data)
+    write_json(output_dir / "graph.json", graph)
+    write_json(output_dir / "manifest.json", manifest)
+    return manifest
+
+
 def export_session(
     output_dir: Path,
     artifact_policy: ArtifactExportPolicy | None = None,
@@ -1249,6 +1592,23 @@ def command_demo(args: argparse.Namespace) -> None:
     )
 
 
+def command_complex_demo(args: argparse.Namespace) -> None:
+    manifest = export_complex_session(Path(args.output))
+    result = import_session(Path(args.output))
+    print(
+        json.dumps(
+            {
+                "exported": str(args.output),
+                "graph_hash": manifest["graph_hash"],
+                "complexity": manifest["complexity"],
+                "imported": result,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subcommands = parser.add_subparsers(dest="command", required=True)
@@ -1280,6 +1640,13 @@ def build_parser() -> argparse.ArgumentParser:
     demo_parser = subcommands.add_parser("demo", help="export, import, and verify in one command")
     demo_parser.add_argument("--output", required=True, help="output package directory")
     demo_parser.set_defaults(func=command_demo)
+
+    complex_demo_parser = subcommands.add_parser(
+        "complex-demo",
+        help="export, import, and verify a complex multi-artifact agent graph",
+    )
+    complex_demo_parser.add_argument("--output", required=True, help="output package directory")
+    complex_demo_parser.set_defaults(func=command_complex_demo)
     return parser
 
 

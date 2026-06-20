@@ -140,6 +140,46 @@ def test_local_agent_graph_export_import_roundtrip():
         assert result["deterministic_next_response"] == manifest["deterministic_next_response"]
 
 
+def test_complex_agent_graph_export_import_roundtrip():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "complex-package"
+        workspace_dir = pathlib.Path(temp_dir) / "workspace"
+        manifest = harness.export_complex_session(package_dir)
+        result = harness.import_session(package_dir, workspace_dir)
+        graph = harness.read_json(package_dir / "graph.json")
+
+        assert manifest["complexity"] == {
+            "profile": "complex-agent-continuity-v0",
+            "node_count": 27,
+            "edge_count": 25,
+            "artifact_count": 4,
+            "tool_call_count": 4,
+            "memory_count": 2,
+            "retrieval_count": 2,
+            "pending_tool_call_count": 2,
+        }
+        assert result["graph_hash"] == manifest["graph_hash"]
+        assert result["prompt_byte_hash"] == manifest["prompt"]["byte_hash"]
+        assert result["prompt_token_hash"] == manifest["prompt"]["token_hash"]
+        assert result["kv_hash"] == manifest["kv"]["kv_hash"]
+        assert len(result["verified_artifacts"]) == 4
+        assert len(result["restore_report"]) == 4
+        assert {entry["action"] for entry in result["side_effect_audit"]} == {
+            "no_replay",
+            "retry_allowed",
+            "requires_user",
+        }
+        assert all(entry["safe_to_import"] for entry in result["side_effect_audit"])
+        assert result["vector_memory"]["status"] == "verified"
+        assert [entry["node_id"] for entry in result["vector_memory"]["expected_results"]] == [
+            "memory:report-fact",
+            "memory:complex-fidelity",
+        ]
+        assert any(node["id"] == "tool:call:publish-release" for node in graph["nodes"])
+        assert any(node["id"] == "artifact:context-notes" for node in graph["nodes"])
+
+
 def test_local_agent_graph_import_recomputes_vector_retrieval_equivalence():
     harness = load_harness()
     with tempfile.TemporaryDirectory() as temp_dir:

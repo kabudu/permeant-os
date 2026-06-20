@@ -6,7 +6,7 @@ import behavior is fully inspectable.
 
 The harness:
 
-- runs a deterministic local agent session;
+- runs deterministic local and complex agent sessions;
 - writes one JSON artifact through a simulated `fs.write_file` tool call;
 - exports `graph.json`, content-addressed artifact blobs, and `manifest.json`;
 - records graph hash, artifact hash, prompt byte hash, prompt token hash, and a
@@ -26,13 +26,24 @@ The harness:
 - verifies local security policy before activation, including graph-root
   attestation, provenance, target runtime, allowed tools, allowed artifact
   paths, raw secret rejection, and credential rebinding;
-- reconstructs the prompt byte-for-byte; and
+- reconstructs the prompt byte-for-byte;
+- can generate a complex 27-node package with messages, artifacts, memories,
+  retrieval evidence, credential rebinding, completed and pending tool policy,
+  and one graph/KV span; and
 - produces the same deterministic continuation after import.
 
 Run:
 
 ```bash
 python3 examples/agent-memory-graph/local_agent.py demo --output /tmp/permeant-agent-graph-demo
+```
+
+Generate and import the complex agent package used by the AWS real-runtime
+proof:
+
+```bash
+python3 examples/agent-memory-graph/local_agent.py complex-demo \
+  --output /tmp/permeant-complex-agent-graph
 ```
 
 The exported package layout is:
@@ -94,8 +105,9 @@ graph-root signatures, raw secret fields, untrusted target runtimes,
 disallowed tools, disallowed artifact paths, and credential references that do
 not require external rebind all fail import.
 
-This validates graph-only migration. Live KV-cache attachment remains a later
-roadmap item.
+This validates graph-only migration locally. The complex package can also be
+attached to the AWS real-runtime runner with `PERMEANT_AGENT_GRAPH_MANIFEST` to
+validate graph/KV transaction binding against the live MLX-to-vLLM path.
 
 To include the exported graph hashes in a local migration benchmark manifest,
 pass the generated package manifest to `sim-migrate`:

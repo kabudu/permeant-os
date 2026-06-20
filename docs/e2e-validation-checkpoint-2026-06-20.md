@@ -199,6 +199,56 @@ preserved exact 16-token continuation fidelity. Strict sampled slot equality
 failed because FP8 is lossy; for quantized runs, continuation fidelity and
 tolerance-aware slot deltas are the relevant checks.
 
+## Complex Agent AWS Proof
+
+The complex-agent proof used a richer Agent Memory Graph package than the
+earlier minimal graph-attached run:
+
+```text
+/tmp/permeant-complex-agent-graph/manifest.json
+.permeant-e2e/aws/20260620-165344/
+```
+
+Package evidence:
+
+- Graph ID: `graph:complex-agent:0001`
+- Graph hash:
+  `sha256:0aed9b05ca7e20ae43544f49191bf3f0c55ce21ec29beab20ac6a258f459a85b`
+- Graph shape: 27 nodes, 25 edges, 9 messages, 4 tool calls, 1 tool result,
+  4 artifact nodes, 2 memory nodes, 2 retrieval nodes, 1 credential reference,
+  and 1 KV span
+- Packaged artifacts: `reports/result.json`, `reports/research/plan.json`,
+  `reports/audit/retrieval.json`, and `reports/context/notes.md`
+- Tool policy mix: completed no-replay writes, retry-safe pending read-only
+  work, and a pending external write requiring user approval
+
+AWS evidence:
+
+- Run ID: `20260620-165344`
+- Migration manifest: `migration-20260620-170130-37116-manifest.json`
+- Transfer quantization: `none`
+- Migration phase status: `committed`
+- `alignment.overall_status: aligned`
+- `alignment.graph.status: aligned`
+- `alignment.kv.status: aligned`
+- `alignment.prompt.status: aligned`
+- `matches_source_exactly: true`
+- `matches_target_baseline_exactly: true`
+- `migrated_decode_attachment_supported: true`
+- `vllm_prefix_cache_seed_success: true`
+- Slot-probe validation: pass for every layer with max sampled key/value delta
+  `5.000000025123796e-09`
+- Cleanup verification timestamp: `2026-06-20T17:13:38Z`
+
+Independent AWS resource sweeps after cleanup found no remaining active/stopped
+E2E instances, no matching E2E security groups, and no matching E2E key pairs.
+The local MLX exporter was stopped and port `29101` was closed.
+
+This run proves that, for the current MLX source and AWS vLLM target
+configuration, PermeantOS can move a complex graph-attached agent package with
+KV state, artifacts, memory, retrieval evidence, credential rebinding, and
+pending tool policies, then resume with exact 16-token continuation fidelity.
+
 ## Decision
 
 The project now has fresh local E2E evidence, fresh AWS real-runtime
@@ -206,4 +256,6 @@ source-exact E2E evidence, a graph-attached AWS real-runtime proof, and a
 matched FP8 graph-attached AWS comparison for KV migration, target hash
 validation, slot writes, graph/KV transaction binding, prefix-cache attachment,
 16-token continuation fidelity, transfer-byte reduction, and cleanup
-verification.
+verification. The latest complex-agent proof extends that evidence from a
+minimal graph binding to a richer agent package with artifacts, memory,
+retrieval, credential rebinding, and pending tool policy.
