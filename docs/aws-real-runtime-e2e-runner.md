@@ -408,7 +408,51 @@ export PERMEANT_SOURCE_CONTINUATION_USE_PREFILL_PROMPT=1
 
 The AWS runner now sets `PERMEANT_VLLM_CONTINUATION_PROMPT_FROM_SOURCE=1` on the target, so the copied source reference prompt becomes the target continuation prompt. A fully working run should report both `migrated_decode_attachment_supported=true` and `vllm_prefix_cache_seed_success=true`; if the prompt has fewer than one full vLLM target block, seeding will fail by design.
 
-## Latest real-runtime E2E result: 2026-06-16 AWS g4dn.xlarge
+## Latest production transport E2E result: 2026-06-20 AWS g4dn.xlarge
+
+Run ID: `20260620-224819`
+Migration manifest: `migration-20260620-225636-64284-manifest.json`
+Source runtime: local MLX, `Qwen/Qwen2.5-0.5B-Instruct`, 2016-token exported prompt/cache
+Target runtime: AWS `g4dn.xlarge`, vLLM `0.23.0`, `Qwen/Qwen2.5-0.5B-Instruct`
+Transport: production `wss://`/mTLS byte proxy on target port `29443`
+Transfer codec: experimental `qatq`
+Cleanup: AWS instance, security group, and key pair were deleted; state recorded cleanup verification at `2026-06-20T23:08:47Z`.
+
+Observed result:
+
+- The new default production transport path completed the real cross-host
+  migration from local MLX to AWS vLLM.
+- Capability exchange, encrypted USXF header verification, payload streaming,
+  Agent Memory Graph binding, and two-phase commit all succeeded through WSS.
+- Hash validation succeeded, vLLM prefix-cache seeding succeeded for 16 target
+  blocks, and source/post-migration continuation matched exactly for 16
+  generated tokens.
+- The AWS target exported its decode boundary through the reverse runtime API,
+  and the origin MLX runtime imported the target-advanced boundary.
+- The AWS target resumed graph activity, executed approved tool work, wrote a
+  new artifact, and emitted proof hash
+  `sha256:b066a1dba9ed250eb54e1344c8d0092d8ad2d90dfe68bbfc1a0c740d18b6969c`.
+- The origin verified the AWS-updated graph/report/artifact evidence and
+  continued from the returned proof with proof hash
+  `sha256:052add6058521a13902515f759499b1350d5be4055d070d4e5428a9df0adb36d`.
+
+Transfer metrics:
+
+- Uncompressed bytes: `49,545,216`
+- Transferred bytes: `6,294,528`
+- Compression ratio: `0.12704613095238096`
+- Total time: `414,148.584541` ms
+- Effective bandwidth: `0.00048287964700385205` Gbps
+
+Verdict:
+
+The preferred default production transport works for the validated
+MLX-to-vLLM QATQ round-trip path. QATQ remains lossy at the tensor-slot level,
+so this proof is bounded-drift plus exact observed 16-token continuation, not
+bitwise tensor equality. See
+`docs/aws-real-runtime-production-transport-2026-06-20.md` for the full record.
+
+## Real-runtime E2E result: 2026-06-16 AWS g4dn.xlarge
 
 Run ID: `20260616-223959`
 Migration manifest: `migration-20260616-224810-41431-manifest.json`

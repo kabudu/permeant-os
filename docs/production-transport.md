@@ -5,8 +5,10 @@ PermeantOS now has a production-shaped transport foundation in
 provider-specific HTTP bridges with a private, authenticated, bidirectional
 streaming transport.
 
-This release implements the reusable protocol core. It does not yet cut the AWS
-E2E runner over from the current SSH tunnel path.
+This release implements the reusable protocol core and cuts the AWS
+real-runtime E2E runner over to the default production `wss://`/mTLS path. The
+runner still supports `PERMEANT_MIGRATION_TRANSPORT=ssh-tunnel` as an explicit
+compatibility fallback.
 
 ## Baseline
 
@@ -82,17 +84,54 @@ The frame format is deliberately compact and parser-friendly:
 - codec negotiation in the session hello so raw, FP8, QATQ, or future codecs can
   be selected without changing the frame format.
 
-## Cutover Plan
+## AWS Runner Cutover
 
-1. Wrap the current daemon migration protocol in the new binary frame transport.
-2. Add a `wss://` listener/client behind explicit CLI flags and certificate
-   paths.
-3. Require mTLS for non-loopback production transport.
-4. Move the AWS runner from SSH tunnel transport to private `wss://` once the
-   certificate bootstrap path is documented.
-5. Add throughput and latency benchmarks against the current framed TCP path.
-6. Evaluate QUIC and NIXL/RDMA only after the runtime adapters can keep the
-   transport saturated.
+The AWS runner now uses a stdlib Python production transport proxy to carry the
+existing daemon byte stream over WSS/mTLS while the Rust daemon/client are moved
+onto the native transport frame model incrementally:
+
+1. The runner generates one-day ephemeral CA, server, and client certificates.
+2. The server certificate includes `permeant-target` plus the target public IP
+   in its SAN extension.
+3. The target receives only `ca.crt`, `server.crt`, and `server.key`; the client
+   private key stays local.
+4. The AWS security group opens the WSS port only to the caller public IP.
+5. The local proxy listens on `127.0.0.1:$PERMEANT_LOCAL_TUNNEL_PORT` and
+   connects to the target WSS endpoint on
+   `$PERMEANT_PRODUCTION_TRANSPORT_PORT` (`29443` by default).
+6. `PERMEANT_MIGRATION_TRANSPORT=ssh-tunnel` remains available as an explicit
+   fallback and is recorded in the run state when used.
+
+Next transport work should move this proxy behavior into the Rust transport
+crate, add richer backpressure/resume semantics, and benchmark QUIC or
+NIXL/RDMA only after the runtime adapters can keep the transport saturated.
+
+## AWS Validation
+
+On June 20, 2026, the real AWS E2E runner completed a full production transport
+run:
+
+| Field | Value |
+| --- | --- |
+| AWS run ID | `20260620-224819` |
+| Migration manifest | `migration-20260620-225636-64284-manifest.json` |
+| Transport | production `wss://`/mTLS byte proxy, target port `29443` |
+| Source runtime | local Apple Silicon MLX |
+| Target runtime | AWS `g4dn.xlarge`, vLLM `0.23.0` |
+| Model | `Qwen/Qwen2.5-0.5B-Instruct` |
+| Transfer codec | experimental `qatq` |
+| Transfer bytes | `6,294,528` of `49,545,216`; ratio `0.12704613095238096` |
+| Fidelity | exact source/post-migration match for 16 generated tokens |
+| Graph proof | 27-node Agent Memory Graph bound, resumed on target, returned to origin |
+| Reverse import | vLLM target proof `sha256:cc27f81da25d629d36e5b680d8986acf385b867d334ce67515912f2fbc1cce2f`; MLX import proof `sha256:a4f0c01e5d02c9a07d6ca34fb95ce2d60232ea0a5583f88f0c45e61ae6a638d7` |
+| Target activity | AWS proof `sha256:b066a1dba9ed250eb54e1344c8d0092d8ad2d90dfe68bbfc1a0c740d18b6969c` |
+| Return home | origin proof `sha256:052add6058521a13902515f759499b1350d5be4055d070d4e5428a9df0adb36d` |
+| Cleanup | instance, security group, and key pair deleted; cleanup verified at `2026-06-20T23:08:47Z` |
+
+This proves the preferred default transport for the current validated
+MLX-to-vLLM path. QATQ remains a lossy transfer codec, so the evidence claim is
+bounded sampled tensor drift plus exact observed continuation for the configured
+validation horizon, not bitwise tensor equality.
 
 ## Current Validation
 
@@ -108,3 +147,7 @@ Automated tests cover:
 - oversized payload rejection;
 - duplicate frame replay rejection;
 - bidirectional stream IDs.
+
+The AWS runner static tests also cover production-WSS defaults, mTLS
+certificate generation/copying, WSS proxy startup, SSH fallback preservation,
+target Cargo retry hardening, and cleanup trap ordering.
