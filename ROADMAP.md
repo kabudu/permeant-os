@@ -419,6 +419,5 @@ Scope:
 - [x] Run a fresh AWS real-runtime structural E2E migration after the
   non-skipped preflight passes with a reachable local MLX exporter, refreshed
   AWS identity, visible target subnet, and visible target AMI.
-- [ ] Restore source-exact AWS decode fidelity by fixing or explicitly
-  configuring the continuation prompt/prefix-cache attachment path, then rerun
-  the AWS real-runtime E2E validation horizon.
+- [x] Rerun the AWS real-runtime E2E validation horizon after the runner's
+  source-continuation refresh fix to confirm source-exact decode fidelity.
