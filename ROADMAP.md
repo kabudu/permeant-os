@@ -263,23 +263,26 @@ Make repeated validation boring and affordable.
 
 Deliverables:
 
-- Conservative prewarmed AWS AMI or container recipe with Rust toolchain,
+- [x] Conservative prewarmed AWS AMI or container recipe with Rust toolchain,
   vLLM, and CUDA stack; model weights stay outside the image unless a later
   cost/latency calculation justifies baking them in.
-- Longer-horizon decode-fidelity benchmark suite.
-- Larger context runs beyond 2k tokens.
-- Transfer quantization comparison for real-runtime fidelity.
-- Adaptive KV transfer codec experiments: capability-negotiated raw, FP8,
+- [ ] Longer-horizon decode-fidelity benchmark suite.
+- [ ] Larger context runs beyond 2k tokens.
+- [ ] Transfer quantization comparison for real-runtime fidelity.
+- [ ] Adaptive KV transfer codec experiments: capability-negotiated raw, FP8,
   TurboQuant-style, and Quaternion-Augmented TurboQuant candidate codecs, with
   explicit reversible/lossy semantics and fallback to raw transfer or re-prefill.
-- Failure-injection tests for interrupted graph and KV migration.
-- Structured benchmark output suitable for paper updates.
+- [x] Failure-injection tests for interrupted graph and KV migration at the
+  transport frame boundary.
+- [x] Structured benchmark output suitable for paper updates, including JSON
+  aggregates, failure records, and Markdown table generation from migration
+  manifests.
 
 Exit criteria:
 
-- Real-runtime E2E runs complete without manual cloud setup.
-- Cleanup is verified automatically.
-- CI or scheduled external validation can run against disposable infrastructure.
+- [ ] Real-runtime E2E runs complete without manual cloud setup.
+- [ ] Cleanup is verified automatically.
+- [ ] CI or scheduled external validation can run against disposable infrastructure.
 
 ## Phase 10: Public API and release packaging
 
@@ -385,6 +388,8 @@ Scope:
 - [x] Add pull request CI for Rust and Python validation.
 - [ ] Add tag/release validation workflow once release packaging, binaries, or
   crate publishing become part of the product flow.
+- [x] Add structured benchmark manifest summary tooling and transport-level
+  failure-injection tests for interrupted graph/KV migration frames.
 - [x] Prototype graph-attached migration manifest extensions and analyzer
   checks behind the existing Agent Memory Graph manifest path.
 - [x] Add content-addressed artifact packaging and restored-workspace

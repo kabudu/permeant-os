@@ -4,6 +4,7 @@ use permeant_transport::{
     AgentGraphBindingKvSpan, MigrationMessage,
 };
 use std::collections::HashMap;
+use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use usxf_core::crypto::{open_packet, seal_packet, SigningKey};
 use usxf_core::{AttentionType, ExchangeDtype, ModelCacheSpec, ModelIdentity, UsxfHeader};
@@ -213,6 +214,74 @@ async fn test_protocol_abort_mid_stream() {
     .unwrap();
 
     // Drop socket to simulate abrupt crash / timeout
+    drop(client_socket);
+
+    server_handle.await.unwrap();
+}
+
+#[tokio::test]
+async fn test_interrupted_agent_graph_binding_frame_fails_cleanly() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let local_addr = listener.local_addr().unwrap();
+
+    let server_handle = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let result = recv_message(&mut socket).await;
+        assert!(result.is_err(), "expected truncated graph frame to fail");
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to read frame content"));
+    });
+
+    let mut client_socket = TcpStream::connect(local_addr).await.unwrap();
+    let payload =
+        br#"{"AgentGraphBinding":{"manifest_path":"manifest.json","graph_path":"graph.json"}}"#;
+    let declared_len = (payload.len() + 1) as u32;
+    client_socket
+        .write_all(&declared_len.to_be_bytes())
+        .await
+        .unwrap();
+    client_socket.write_all(&[0]).await.unwrap();
+    client_socket
+        .write_all(&payload[..payload.len() / 2])
+        .await
+        .unwrap();
+    drop(client_socket);
+
+    server_handle.await.unwrap();
+}
+
+#[tokio::test]
+async fn test_interrupted_payload_chunk_frame_fails_cleanly() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let local_addr = listener.local_addr().unwrap();
+
+    let server_handle = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let result = recv_message(&mut socket).await;
+        assert!(result.is_err(), "expected truncated payload frame to fail");
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to read frame content"));
+    });
+
+    let mut client_socket = TcpStream::connect(local_addr).await.unwrap();
+    let tensor_name = b"layer.0.key";
+    let declared_len = (1 + 4 + 4 + 4 + tensor_name.len() + 4 + 4 + 64) as u32;
+    client_socket
+        .write_all(&declared_len.to_be_bytes())
+        .await
+        .unwrap();
+    client_socket.write_all(&[1]).await.unwrap();
+    client_socket.write_all(&0u32.to_be_bytes()).await.unwrap();
+    client_socket.write_all(&0u32.to_be_bytes()).await.unwrap();
+    client_socket
+        .write_all(&(tensor_name.len() as u32).to_be_bytes())
+        .await
+        .unwrap();
+    client_socket.write_all(tensor_name).await.unwrap();
     drop(client_socket);
 
     server_handle.await.unwrap();
