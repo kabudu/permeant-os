@@ -435,3 +435,7 @@ Scope:
   to AWS, executing target-side work, returning the AWS-updated graph/artifact
   evidence to the origin, and requiring origin-side continuation that depends
   on the remote proof.
+- [x] Prove reverse vLLM-to-MLX runtime continuation by exporting the target
+  decode boundary through a live target API, importing it into the origin MLX
+  runtime, materializing origin-native KV state, and requiring a new origin
+  continuation from the target-advanced boundary.

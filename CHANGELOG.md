@@ -29,6 +29,11 @@ and this project uses release tags compatible with semantic versioning.
   migration, exact 16-token target continuation, AWS target graph activity,
   return of AWS-updated graph/artifact evidence, and origin-side continuation
   from the remote proof.
+- Reverse vLLM-to-MLX runtime export/import API and AWS real-runtime proof:
+  the target exports its post-migration decode boundary through
+  `/export_reverse_runtime_state`, the origin MLX exporter imports the
+  target-advanced boundary, materializes origin KV state, and emits a new
+  origin continuation proof.
 - Production secure bidirectional transport roadmap item covering private
   `wss://`/mTLS binary streaming and future QUIC/RDMA/UCX/NIXL evaluation.
 

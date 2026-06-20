@@ -34,6 +34,10 @@ The state directory contains:
   the target resume proof
 - `agent-activity-publish-announcement.md`: optional target-written artifact
   copied back for origin verification when publish approval is enabled
+- `vllm-reverse-runtime-state.json`: optional response from the target
+  `/export_reverse_runtime_state` API when `PERMEANT_REVERSE_RUNTIME_IMPORT=1`
+- `mlx-reverse-import-report.json`: optional origin-side MLX import and
+  continuation proof for the target-exported runtime boundary
 - `origin-roundtrip-workspace/reports/roundtrip/roundtrip-report.json`:
   optional origin return-home proof when `PERMEANT_AGENT_ACTIVITY_RETURN_HOME=1`
 - `origin-roundtrip-workspace/reports/roundtrip/returned-home-graph.json`:
@@ -69,6 +73,10 @@ The default target configuration matches the validated real-runtime runs:
 - origin return-home proof: disabled by default; set
   `PERMEANT_AGENT_ACTIVITY_RETURN_HOME=1` together with target resume and
   publish approval
+- reverse runtime import proof: disabled by default; set
+  `PERMEANT_REVERSE_RUNTIME_IMPORT=1` to call the live target
+  `/export_reverse_runtime_state` API and import the returned vLLM decode
+  boundary back into the live MLX source exporter
 - local tunnel port: `39099`
 
 For faster bootstrap, a conservative prewarmed image can be supplied through
@@ -93,12 +101,16 @@ PERMEANT_AGENT_GRAPH_MANIFEST=/tmp/permeant-agent-graph/manifest.json \
 PERMEANT_AGENT_ACTIVITY_RESUME=1 \
 PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH=1 \
 PERMEANT_AGENT_ACTIVITY_RETURN_HOME=1 \
+PERMEANT_REVERSE_RUNTIME_IMPORT=1 \
 scripts/aws-real-runtime-e2e.sh run
 ```
 
-The return-home proof validates Agent Memory Graph, artifact, and activity
-continuity back on the origin. It does not perform reverse live KV import from
-vLLM back into MLX.
+The reverse runtime proof validates target-runtime work moving back to the
+origin runtime. The target exports a canonical decode boundary from the live
+vLLM process, and the origin MLX exporter imports that target-generated boundary
+and materializes MLX-native KV state before producing a new origin
+continuation. The Agent Memory Graph return-home proof separately validates
+graph, artifact, and activity continuity back on the origin.
 
 For larger-than-2k context points, generate checked runner environment blocks
 with `scripts/plan-context-benchmarks.py`; see

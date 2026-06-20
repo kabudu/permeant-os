@@ -6,7 +6,7 @@
 
 PermeantOS is an experimental state-fluid hypervisor for live AI agent migration. It currently focuses on cross-host KV-cache migration between heterogeneous runtimes, with a longer-term roadmap toward full Agent Memory Graph migration. The first graph milestone, the v0 schema and specification, is now defined.
 
-The current prototype has demonstrated that agents can move for the validated real-runtime path. In the latest complex-agent run, PermeantOS migrated a `Qwen/Qwen2.5-0.5B-Instruct` KV cache from local Apple Silicon MLX to an AWS NVIDIA vLLM target, bound a 27-node Agent Memory Graph package into the same transaction, wrote matching KV blocks into vLLM, seeded vLLM prefix-cache metadata, preserved four content-addressed artifacts, matched the source continuation exactly for a 16-token validation horizon, resumed work on AWS, then returned the AWS-updated graph/artifact evidence to the origin and continued there.
+The current prototype has demonstrated that agents can move for the validated real-runtime path. In the latest complex-agent run, PermeantOS migrated a `Qwen/Qwen2.5-0.5B-Instruct` KV cache from local Apple Silicon MLX to an AWS NVIDIA vLLM target, bound a 27-node Agent Memory Graph package into the same transaction, wrote matching KV blocks into vLLM, seeded vLLM prefix-cache metadata, preserved four content-addressed artifacts, matched the source continuation exactly for a 16-token validation horizon, resumed work on AWS, exported the vLLM decode boundary through a reverse runtime API, imported that target-advanced runtime state back into MLX, continued at the origin, then returned the AWS-updated graph/artifact evidence to the origin and continued from that proof as well.
 
 ## Status
 
@@ -30,6 +30,10 @@ What works today:
 - Round-trip Agent Memory Graph continuity proof: origin to AWS, target-side
   work, AWS-updated graph/artifact evidence returned to origin, and origin-side
   continuation from that returned state.
+- Reverse vLLM-to-MLX runtime-state import proof: the AWS target exports its
+  post-migration decode boundary through `/export_reverse_runtime_state`, the
+  origin MLX exporter imports that target-generated boundary, materializes an
+  MLX KV cache at the advanced prompt, and emits a new origin continuation.
 - Agent Memory Graph v0 schema and specification for portable conversation, tool, artifact, memory, checkpoint, provenance, and KV-span state.
 - Local Agent Memory Graph export/import harness with deterministic prompt reconstruction, complex-agent package generation, content-addressed artifact packaging, artifact hash verification, and restored-workspace validation.
 - Local artifact migration safety policies for redacted/excluded artifacts, explicit external rebind requirements, and streaming artifact verification/restoration.
@@ -47,9 +51,10 @@ What is still experimental:
 - Runtime adapters rely on Python because MLX and vLLM expose the needed internals through Python APIs.
 - The vLLM attachment path uses implementation details that may change between vLLM versions.
 - Fidelity has been validated for one model family and a 16-token continuation horizon, including graph-attached AWS runs and one complex-agent graph package.
-- Reverse live KV import from vLLM back into MLX has not yet been implemented;
-  the current round-trip proof covers Agent Memory Graph, artifact, and activity
-  continuity back to the origin.
+- Reverse runtime-state import is validated for the current vLLM-to-MLX path by
+  canonical decode-boundary export and MLX cache materialization. Byte-for-byte
+  copying of vLLM GPU cache blocks into MLX is not a meaningful cross-runtime
+  contract because their physical KV layouts differ.
 - Cloud validation is expensive and slow on cold hosts unless a prewarmed image is used.
 - Longer-horizon and larger-context benchmark tooling now exists, and
   transfer-quantization comparison tooling can analyze paired benchmark
@@ -116,8 +121,8 @@ Latest successful fidelity run:
 
 | Field | Value |
 | --- | --- |
-| Run ID | `20260620-202425` |
-| Manifest | `migration-20260620-203118-94994-manifest.json` |
+| Run ID | `20260620-210358` |
+| Manifest | `migration-20260620-211207-46427-manifest.json` |
 | Source | local MLX on Apple Silicon |
 | Target | AWS `g4dn.xlarge`, vLLM `0.23.0` |
 | Model | `Qwen/Qwen2.5-0.5B-Instruct` |
@@ -126,10 +131,11 @@ Latest successful fidelity run:
 | Agent Memory Graph | 27 nodes, 25 edges, 4 packaged artifacts, bound/aligned/resumed on target/returned to origin |
 | Layers | 24 |
 | Hash validation | passed |
-| Slot probe max key diff | `0.008929999999999438` |
-| Slot probe max value diff | `0.0016742499999997662` |
+| Slot probe max key diff | `0.006696999999999065` |
+| Slot probe max value diff | `0.000558149999999813` |
 | Prefix-cache seeded blocks | 16 |
 | Decode fidelity | exact source/post-migration match for 16 generated tokens |
+| Reverse runtime import | vLLM exported target decode boundary with proof hash `sha256:cc27f81da25d629d36e5b680d8986acf385b867d334ce67515912f2fbc1cce2f`; MLX imported the 2032-token target-advanced boundary and emitted origin proof hash `sha256:a4f0c01e5d02c9a07d6ca34fb95ce2d60232ea0a5583f88f0c45e61ae6a638d7` |
 | Agent activity continuation | AWS target resumed pending work, wrote `reports/publish/announcement.md`, emitted proof hash `sha256:b066a1dba9ed250eb54e1344c8d0092d8ad2d90dfe68bbfc1a0c740d18b6969c` |
 | Return-home continuation | origin verified the AWS graph/report/artifact, wrote `reports/roundtrip/origin-continuation.md`, emitted proof hash `sha256:052add6058521a13902515f759499b1350d5be4055d070d4e5428a9df0adb36d` |
 | Cleanup | instance, security group, and key pair deleted |
@@ -223,7 +229,7 @@ scripts/plan-transfer-codecs.py \
 
 | Run | Target | Source mode | Transport | Seq len | Total time (ms) | Effective bandwidth (Gbps) | Manifest |
 | --- | --- | --- | --- | ---: | ---: | ---: | --- |
-| AWS QATQ round-trip continuation | `g4dn.xlarge` | live MLX | SSH tunnel + QATQ complex graph-bound vLLM prefix-cache attachment + target graph resume + origin return-home proof | 2016 | 383115.057833 | 0.000796456387448196 | `migration-20260620-203118-94994-manifest.json` |
+| AWS QATQ reverse runtime round trip | `g4dn.xlarge` | live MLX | SSH tunnel + QATQ complex graph-bound vLLM prefix-cache attachment + target graph resume + vLLM reverse export API + MLX reverse import + origin return-home proof | 2016 | 389327.437458 | 0.0007638025225847906 | `migration-20260620-211207-46427-manifest.json` |
 | AWS QATQ agent-activity continuation | `g4dn.xlarge` | live MLX | SSH tunnel + QATQ complex graph-bound vLLM prefix-cache attachment + target-side graph resume | 2016 | 389836.2535 | 0.0008036472740685385 | `migration-20260620-184608-67621-manifest.json` |
 | AWS QATQ complex graph-attached fidelity | `g4dn.xlarge` | live MLX | SSH tunnel + QATQ complex graph-bound vLLM prefix-cache attachment | 2016 | 386467.57175 | 0.0008050778400958065 | `migration-20260620-173846-50882-manifest.json` |
 | AWS complex graph-attached real-runtime fidelity | `g4dn.xlarge` | live MLX | SSH tunnel + complex graph-bound vLLM prefix-cache attachment | 2016 | 426187.141167 | 0.005626112414656161 | `migration-20260620-170130-37116-manifest.json` |

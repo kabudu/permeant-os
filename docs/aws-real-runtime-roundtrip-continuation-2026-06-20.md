@@ -1,20 +1,26 @@
 # AWS Real-Runtime Round-Trip Continuation Proof - 2026-06-20
 
-This run proves Agent Memory Graph round-trip continuity for the validated
-PermeantOS configuration:
+This run proves bidirectional runtime and Agent Memory Graph round-trip
+continuity for the validated PermeantOS configuration:
 
 1. origin local Apple Silicon MLX source exported live KV state and a complex
    Agent Memory Graph package;
 2. AWS `g4dn.xlarge` vLLM target imported the migrated KV state and graph;
 3. target-side vLLM continuation matched the source for the configured
    16-token horizon;
-4. the AWS target resumed pending graph activity and wrote a new artifact;
-5. the origin imported the AWS-updated graph/report/artifact evidence and
+4. the AWS target exported its post-migration decode boundary through the
+   reverse runtime API;
+5. the origin MLX runtime imported that target-advanced boundary, materialized
+   origin KV state, and produced a new origin continuation;
+6. the AWS target resumed pending graph activity and wrote a new artifact;
+7. the origin imported the AWS-updated graph/report/artifact evidence and
    wrote a new origin-side continuation artifact that depends on the AWS proof.
 
-This is a graph/artifact/activity round trip. It does not yet prove reverse
-live KV import from vLLM back into MLX; that remains a separate runtime-adapter
-milestone.
+The reverse runtime path is implemented as a canonical decode-boundary export
+rather than a byte-for-byte GPU block copy. vLLM and MLX use different physical
+KV layouts, so the portable contract is: export the target prompt/generated
+token boundary with proof hashes, import that boundary into MLX, materialize
+MLX-native KV state, and continue.
 
 ## Command
 
@@ -24,6 +30,7 @@ PERMEANT_AGENT_GRAPH_MANIFEST=/tmp/permeant-aws-roundtrip-package/manifest.json 
 PERMEANT_AGENT_ACTIVITY_RESUME=1 \
 PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH=1 \
 PERMEANT_AGENT_ACTIVITY_RETURN_HOME=1 \
+PERMEANT_REVERSE_RUNTIME_IMPORT=1 \
 scripts/aws-real-runtime-e2e.sh run
 ```
 
@@ -31,9 +38,9 @@ scripts/aws-real-runtime-e2e.sh run
 
 | Field | Value |
 | --- | --- |
-| AWS run ID | `20260620-202425` |
-| Migration manifest | `migration-20260620-203118-94994-manifest.json` |
-| Commit copied to target | `9fed3e4` |
+| AWS run ID | `20260620-210358` |
+| Migration manifest | `migration-20260620-211207-46427-manifest.json` |
+| Commit copied to target | `cae2ef1` |
 | Source runtime | local MLX exporter on Apple Silicon |
 | Target runtime | AWS `g4dn.xlarge`, vLLM `0.23.0` |
 | Model | `Qwen/Qwen2.5-0.5B-Instruct` |
@@ -48,10 +55,10 @@ scripts/aws-real-runtime-e2e.sh run
 - transferred bytes: `6,294,528`
 - uncompressed bytes: `49,545,216`
 - compression ratio: `0.12704613095238096`
-- transfer time: `63,225.337625 ms`
-- commit time: `308,381.092875 ms`
-- total migration time: `383,115.057833 ms`
-- effective bandwidth: `0.000796456387448196 Gbps`
+- transfer time: `65,928.329 ms`
+- commit time: `308,240.088208 ms`
+- total migration time: `389,327.437458 ms`
+- effective bandwidth: `0.0007638025225847906 Gbps`
 - chunks sent: `384`
 
 ## Runtime Fidelity
@@ -66,12 +73,51 @@ scripts/aws-real-runtime-e2e.sh run
 Expected QATQ lossy slot-probe deltas were present:
 
 - `all_layers_slot_probe_match: false`
-- `slot_probe_failure_count: 24`
-- `max_key_abs_diff: 0.008929999999999438`
-- `max_value_abs_diff: 0.0016742499999997662`
+- `slot_probe_failure_count: 17`
+- `max_key_abs_diff: 0.006696999999999065`
+- `max_value_abs_diff: 0.000558149999999813`
 
 The QATQ claim remains bounded lossy compression with exact observed decode
 fidelity over the configured horizon, not numerical losslessness.
+
+## Reverse Runtime Export/Import Proof
+
+After target continuation, the runner called the live target receiver API:
+
+```text
+POST http://127.0.0.1:29100/export_reverse_runtime_state
+```
+
+The API returned target runtime state from the same vLLM process that performed
+the migrated decode:
+
+```json
+{
+  "status": "target_runtime_state_exported",
+  "proof_hash": "sha256:cc27f81da25d629d36e5b680d8986acf385b867d334ce67515912f2fbc1cce2f",
+  "generated_token_count": 16,
+  "last_registered_hash": "sha256:752b47177c4c532507d41557f9c2079d59d7ae8c676281199e826a6636c76640",
+  "prompt_token_count": 2016
+}
+```
+
+The origin then posted that API response to the live MLX exporter
+`/import-reverse-state` endpoint. MLX imported the target-generated decode
+boundary, materialized MLX-native KV state for the 2032-token advanced prompt,
+and generated a new origin continuation:
+
+```json
+{
+  "status": "reverse_runtime_imported",
+  "reverse_runtime_imported": true,
+  "target_proof_hash": "sha256:cc27f81da25d629d36e5b680d8986acf385b867d334ce67515912f2fbc1cce2f",
+  "target_prompt_token_count": 2016,
+  "target_generated_token_count": 16,
+  "origin_advanced_prompt_token_count": 2032,
+  "origin_continuation_token_count": 16,
+  "proof_hash": "sha256:a4f0c01e5d02c9a07d6ca34fb95ce2d60232ea0a5583f88f0c45e61ae6a638d7"
+}
+```
 
 ## AWS Target Activity Proof
 
@@ -129,23 +175,25 @@ from the stale pre-migration origin graph.
 
 ## Evidence Files
 
-- `.permeant-e2e/aws/20260620-202425/fidelity-analysis.json`
-- `.permeant-e2e/aws/20260620-202425/fidelity-horizons.json`
-- `.permeant-e2e/aws/20260620-202425/slot-probe-summary.json`
-- `.permeant-e2e/aws/20260620-202425/agent-activity-resume-report.json`
-- `.permeant-e2e/aws/20260620-202425/agent-activity-resumed-graph.json`
-- `.permeant-e2e/aws/20260620-202425/agent-activity-publish-announcement.md`
-- `.permeant-e2e/aws/20260620-202425/origin-roundtrip-workspace/reports/roundtrip/roundtrip-report.json`
-- `.permeant-e2e/aws/20260620-202425/origin-roundtrip-workspace/reports/roundtrip/returned-home-graph.json`
-- `.permeant-e2e/aws/20260620-202425/origin-roundtrip-workspace/reports/roundtrip/origin-continuation.md`
+- `.permeant-e2e/aws/20260620-210358/fidelity-analysis.json`
+- `.permeant-e2e/aws/20260620-210358/fidelity-horizons.json`
+- `.permeant-e2e/aws/20260620-210358/slot-probe-summary.json`
+- `.permeant-e2e/aws/20260620-210358/vllm-reverse-runtime-state.json`
+- `.permeant-e2e/aws/20260620-210358/mlx-reverse-import-report.json`
+- `.permeant-e2e/aws/20260620-210358/agent-activity-resume-report.json`
+- `.permeant-e2e/aws/20260620-210358/agent-activity-resumed-graph.json`
+- `.permeant-e2e/aws/20260620-210358/agent-activity-publish-announcement.md`
+- `.permeant-e2e/aws/20260620-210358/origin-roundtrip-workspace/reports/roundtrip/roundtrip-report.json`
+- `.permeant-e2e/aws/20260620-210358/origin-roundtrip-workspace/reports/roundtrip/returned-home-graph.json`
+- `.permeant-e2e/aws/20260620-210358/origin-roundtrip-workspace/reports/roundtrip/origin-continuation.md`
 
 ## Cleanup
 
 The runner deleted the disposable AWS resources:
 
-- instance `i-0d502bec6b67ae774`
-- security group `sg-04475f9efe63c94ca`
-- key pair `permeantos-real-e2e-20260620-202425-key`
+- instance `i-082cdbbca11910f2b`
+- security group `sg-02171e42a36e97f82`
+- key pair `permeantos-real-e2e-20260620-210358-key`
 
 Independent cleanup sweeps confirmed:
 
@@ -160,9 +208,7 @@ For the validated configuration, PermeantOS now demonstrates:
 
 - live origin-to-AWS KV migration;
 - exact short-horizon target runtime continuation;
+- reverse vLLM-to-MLX runtime-state export/import and origin continuation;
 - AWS target-side Agent Memory Graph activity continuation;
 - return of AWS-updated graph/artifact evidence to the origin;
 - origin-side continuation that depends on the AWS-produced proof.
-
-The next stronger runtime milestone is reverse live KV/state attachment from the
-remote runtime back into the origin runtime.
