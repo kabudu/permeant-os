@@ -7,6 +7,7 @@ This runbook standardizes the MLX laptop to AWS `vLLM` real-runtime test path. T
 Use:
 
 ```bash
+scripts/aws-real-runtime-e2e.sh preflight
 scripts/aws-real-runtime-e2e.sh run
 ```
 
@@ -19,6 +20,8 @@ The runner creates a per-run state directory under:
 The state directory contains:
 
 - `state.json`: AWS IDs, connection metadata, model, source URL, artifact paths
+- `preflight-report.json`: non-provisioning readiness report when `preflight`
+  is run
 - `migration.log`: local migration output
 - `vllm-runtime-probe.json`: copied target probe artifact
 - `fidelity-analysis.json`: analyzer output, including prompt, graph, and
@@ -86,6 +89,34 @@ Before running:
 - `/tmp/permeant-source-continuation.json` exists for source/target comparison
 - current public IP can be reached by AWS security group ingress on SSH
 
+Run preflight before provisioning:
+
+```bash
+scripts/aws-real-runtime-e2e.sh preflight
+```
+
+The preflight command does not create AWS resources. It validates local command
+availability, numeric configuration, supported transfer quantization, local
+build/source prerequisites, AWS identity, default subnet lookup, and AMI
+visibility. It writes a structured report to:
+
+```text
+.permeant-e2e/aws/<run-id>/preflight-report.json
+```
+
+For CI or scheduled validation that must not depend on AWS credentials or a
+running local MLX source, use:
+
+```bash
+PERMEANT_PREFLIGHT_SKIP_AWS=1 \
+PERMEANT_PREFLIGHT_SKIP_BUILD=1 \
+PERMEANT_PREFLIGHT_SKIP_SOURCE=1 \
+scripts/aws-real-runtime-e2e.sh preflight
+```
+
+Skipped checks are recorded as `skip`, not `pass`, so a scheduled report cannot
+be mistaken for a full cloud-readiness proof.
+
 ## Process guarantees
 
 The runner avoids the manual mistakes from earlier ad hoc runs:
@@ -130,6 +161,8 @@ Cleanup verifies that:
 - the temporary security group no longer exists
 - the local PEM file is removed
 - the local tunnel process is stopped
+- `state.json` records `cleanup_verified_at` when the cleanup verification path
+  completes
 
 AWS may still show terminated instances in the EC2 console for a while. That is normal; terminated instance rows are historical records, not billable running compute.
 

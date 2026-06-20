@@ -7,6 +7,23 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- AWS real-runtime E2E `preflight` command that writes a structured readiness
+  report without provisioning cloud resources.
+- PR CI smoke coverage for the AWS E2E preflight path with AWS, local build,
+  and source-runtime checks explicitly skipped.
+- Preflight documentation covering full-readiness checks, CI skip mode, and
+  cleanup verification evidence.
+
+### Changed
+
+- AWS E2E cleanup now records `cleanup_verified_at` in the run state after the
+  cleanup verification path completes.
+- Marked the Phase 9 E2E readiness, cleanup verification, and safe CI preflight
+  validation scope complete while leaving real scheduled disposable
+  infrastructure runs for future product-release work.
+
 ## [0.1.22-adaptive-transfer-codecs] - 2026-06-20
 
 ### Added

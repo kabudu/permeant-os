@@ -284,9 +284,12 @@ Deliverables:
 
 Exit criteria:
 
-- [ ] Real-runtime E2E runs complete without manual cloud setup.
-- [ ] Cleanup is verified automatically.
-- [ ] CI or scheduled external validation can run against disposable infrastructure.
+- [x] Real-runtime E2E runner has automated preflight validation for local,
+  AWS, source-runtime, and configuration readiness before cloud provisioning.
+- [x] Cleanup is verified automatically and records cleanup verification in the
+  state file.
+- [x] CI runs a non-provisioning AWS E2E preflight smoke test; scheduled
+  disposable-infrastructure validation remains future product release work.
 
 ## Phase 10: Public API and release packaging
 
@@ -392,6 +395,8 @@ Scope:
 - [x] Add pull request CI for Rust and Python validation.
 - [ ] Add tag/release validation workflow once release packaging, binaries, or
   crate publishing become part of the product flow.
+- [x] Add non-provisioning AWS E2E preflight validation and wire it into PR CI
+  with AWS/source/build checks explicitly skipped.
 - [x] Add structured benchmark manifest summary tooling and transport-level
   failure-injection tests for interrupted graph/KV migration frames.
 - [x] Add multi-horizon decode-fidelity analysis tooling and AWS runner

@@ -73,3 +73,10 @@ jobs:
 
       - name: Run SDK smoke test
         run: python sdk/python/test_sdk.py
+
+      - name: Run AWS E2E preflight smoke test
+        env:
+          PERMEANT_PREFLIGHT_SKIP_AWS: "1"
+          PERMEANT_PREFLIGHT_SKIP_BUILD: "1"
+          PERMEANT_PREFLIGHT_SKIP_SOURCE: "1"
+        run: scripts/aws-real-runtime-e2e.sh preflight
