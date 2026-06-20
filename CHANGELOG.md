@@ -7,6 +7,8 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.25-aws-source-exact-e2e] - 2026-06-20
+
 ### Added
 
 - Fresh E2E validation checkpoint documenting current local migration passes,
@@ -356,7 +358,8 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.24-versioning-policy...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.25-aws-source-exact-e2e...HEAD
+[0.1.25-aws-source-exact-e2e]: https://github.com/kabudu/permeant-os/compare/v0.1.24-versioning-policy...v0.1.25-aws-source-exact-e2e
 [0.1.24-versioning-policy]: https://github.com/kabudu/permeant-os/compare/v0.1.23-aws-e2e-preflight-validation...v0.1.24-versioning-policy
 [0.1.23-aws-e2e-preflight-validation]: https://github.com/kabudu/permeant-os/compare/v0.1.22-adaptive-transfer-codecs...v0.1.23-aws-e2e-preflight-validation
 [0.1.22-adaptive-transfer-codecs]: https://github.com/kabudu/permeant-os/compare/v0.1.21-transfer-quantization-comparison...v0.1.22-adaptive-transfer-codecs
