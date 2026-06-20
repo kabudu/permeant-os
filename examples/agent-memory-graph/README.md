@@ -23,6 +23,9 @@ The harness:
 - packages a deterministic local vector-memory snapshot and verifies retrieval
   equivalence before import activation;
 - reports hosted/external vector stores as explicit rebind-required state;
+- verifies local security policy before activation, including graph-root
+  attestation, provenance, target runtime, allowed tools, allowed artifact
+  paths, raw secret rejection, and credential rebinding;
 - reconstructs the prompt byte-for-byte; and
 - produces the same deterministic continuation after import.
 
@@ -85,6 +88,11 @@ expected retrieval ranking must match after import. Vector `retrieval` nodes
 must also match the snapshot ranking. Hosted vector stores can be represented
 with `mode: "external_rebind"` and `rebind_required: true`; those imports report
 `rebind_required` instead of pretending retrieval behavior is preserved.
+
+The importer validates a security attestation before activation. Tampered
+graph-root signatures, raw secret fields, untrusted target runtimes,
+disallowed tools, disallowed artifact paths, and credential references that do
+not require external rebind all fail import.
 
 This validates graph-only migration. Live KV-cache attachment remains a later
 roadmap item.

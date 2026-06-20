@@ -239,23 +239,23 @@ Harden graph migration for real users and shared infrastructure.
 
 Deliverables:
 
-- Per-node signatures or signed graph roots.
-- Redaction policies for secrets and credentials.
-- Capability rebinding instead of raw credential copying.
-- Provenance chain across multi-hop migrations.
-- Policy hooks for allowed target runtimes, allowed tools, and allowed artifact paths.
-- Threat model document.
+- [x] Per-node signatures or signed graph roots.
+- [x] Redaction policies for secrets and credentials.
+- [x] Capability rebinding instead of raw credential copying.
+- [x] Provenance chain across multi-hop migrations.
+- [x] Policy hooks for allowed target runtimes, allowed tools, and allowed artifact paths.
+- [x] Threat model document.
 
 Validation:
 
-- Secret values are excluded or encrypted according to policy.
-- Tampered graph nodes are detected.
-- Target refuses incompatible or untrusted graph imports.
+- [x] Secret values are excluded or encrypted according to policy.
+- [x] Tampered graph nodes are detected.
+- [x] Target refuses incompatible or untrusted graph imports.
 
 Exit criteria:
 
-- A graph migration can be audited after the fact.
-- Sensitive external capabilities are not silently copied to new machines.
+- [x] A graph migration can be audited after the fact.
+- [x] Sensitive external capabilities are not silently copied to new machines.
 
 ## Phase 9: Performance and reliability hardening
 
