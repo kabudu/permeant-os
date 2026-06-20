@@ -733,8 +733,17 @@ if ! command -v cargo >/dev/null 2>&1; then
   curl https://sh.rustup.rs -sSf | sh -s -- -y
 fi
 export PATH=/home/ubuntu/.cargo/bin:$PATH
+export CARGO_HTTP_MULTIPLEXING=false
 cd /home/ubuntu/permeant-os
-cargo build
+for attempt in 1 2 3; do
+  if cargo build; then
+    break
+  fi
+  if [[ "$attempt" == "3" ]]; then
+    exit 1
+  fi
+  sleep "$((attempt * 10))"
+done
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -U pip setuptools wheel

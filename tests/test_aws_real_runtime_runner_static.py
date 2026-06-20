@@ -100,3 +100,13 @@ def test_target_starts_production_wss_proxy():
     assert "production_transport_proxy.py server" in remote_body
     assert "--target-port 29099" in remote_body
     assert "--cafile '$TARGET_PRODUCTION_TRANSPORT_CERT_DIR/ca.crt'" in remote_body
+
+
+def test_target_cargo_build_disables_http2_multiplexing_and_retries():
+    script = RUNNER.read_text()
+    setup_start = script.index('cat > "$REMOTE_SETUP_SCRIPT" <<\'REMOTE_SETUP\'')
+    setup_body = script[setup_start : script.index("\nREMOTE_SETUP", setup_start)]
+
+    assert "export CARGO_HTTP_MULTIPLEXING=false" in setup_body
+    assert "for attempt in 1 2 3; do" in setup_body
+    assert "if cargo build; then" in setup_body
