@@ -7,6 +7,21 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Local Agent Memory Graph artifact export policies for redacted and excluded
+  artifacts, with omitted blob bytes represented as explicit external rebind
+  requirements.
+- Streaming artifact hash verification and restore copy helpers in the local
+  graph harness for large-file-safe package import.
+- Harness tests for redacted/excluded artifact exports, unresolved external
+  artifact rejection, explicit rebind markers, and large artifact restore.
+
+### Changed
+
+- Marked Phase 4 artifact/filesystem migration complete in the roadmap for the
+  local Agent Memory Graph harness scope.
+
 ## [0.1.12-lazarus-hardening] - 2026-06-20
 
 ### Added
