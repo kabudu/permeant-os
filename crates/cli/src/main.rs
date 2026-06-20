@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use tokio::net::{TcpListener, TcpStream};
@@ -10,7 +10,7 @@ use permeant_injector::KVConnectorBase_V1;
 use permeant_orchestrator::{MigrationOrchestrator, ResourcePolicy};
 use permeant_transpiler::{
     canonical_to_vllm_block_key, canonical_to_vllm_block_value, compute_optimal_scale,
-    dequantize_e4m3_scaled, quantize_e4m3_scaled, Tensor,
+    dequantize_e4m3_scaled, dequantize_qatq_i4, quantize_e4m3_scaled, quantize_qatq_i4, Tensor,
 };
 use permeant_transport::{
     compute_crc32, recv_message, send_message, verify_chunk_crc32, AgentGraphBinding,
@@ -29,6 +29,31 @@ struct Cli {
     command: Commands,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum TransferCodec {
+    None,
+    Fp8,
+    Qatq,
+}
+
+impl TransferCodec {
+    fn manifest_value(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Fp8 => "fp8",
+            Self::Qatq => "qatq",
+        }
+    }
+
+    fn header_scheme(self) -> Option<&'static str> {
+        match self {
+            Self::None => None,
+            Self::Fp8 => Some("fp8"),
+            Self::Qatq => Some("qatq"),
+        }
+    }
+}
+
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Start a migration daemon target listener
@@ -44,6 +69,8 @@ enum Commands {
         seq_len: usize,
         #[arg(short, long)]
         quant: bool, // Enable FP8 transfer quantization
+        #[arg(long, value_enum, default_value_t = TransferCodec::None)]
+        transfer_codec: TransferCodec,
         #[arg(long)]
         agent_graph_manifest: Option<String>,
     },
@@ -67,16 +94,24 @@ async fn main() -> Result<()> {
             target_addr,
             seq_len,
             quant,
+            transfer_codec,
             agent_graph_manifest,
         } => {
+            let selected_codec = if quant && transfer_codec == TransferCodec::None {
+                TransferCodec::Fp8
+            } else {
+                transfer_codec
+            };
             println!(
-                "Starting end-to-end migration simulation to {} (Context: {} tokens, FP8 Quantization: {})...",
-                target_addr, seq_len, quant
+                "Starting end-to-end migration simulation to {} (Context: {} tokens, Transfer Codec: {})...",
+                target_addr,
+                seq_len,
+                selected_codec.manifest_value()
             );
             run_sim_migrate(
                 &target_addr,
                 seq_len,
-                quant,
+                selected_codec,
                 agent_graph_manifest.as_deref(),
             )
             .await?;
@@ -213,16 +248,34 @@ async fn handle_migration_connection(
                 &tensor_name,
                 &mut received_chunks,
             )?;
-            let decrypted_data = if let Some(_quant) = &header.transfer_quantization {
-                dequantize_e4m3_scaled(&data, 0.1)
-            } else {
-                let mut floats = vec![0.0f32; data.len() / 4];
-                for (i, chunk) in data.chunks_exact(4).enumerate() {
-                    let bytes: [u8; 4] = chunk.try_into()?;
-                    floats[i] = f32::from_be_bytes(bytes);
+            let expected_float_count = block_float_count(&header, &tensor_name);
+            let decrypted_data = match header
+                .transfer_quantization
+                .as_ref()
+                .map(|quant| quant.scheme.as_str())
+            {
+                Some("fp8") => dequantize_e4m3_scaled(&data, 0.1),
+                Some("qatq") => dequantize_qatq_i4(&data, expected_float_count)?,
+                Some(other) => bail!("Unsupported transfer quantization scheme: {other}"),
+                None => {
+                    let mut floats = vec![0.0f32; data.len() / 4];
+                    for (i, chunk) in data.chunks_exact(4).enumerate() {
+                        let bytes: [u8; 4] = chunk.try_into()?;
+                        floats[i] = f32::from_be_bytes(bytes);
+                    }
+                    floats
                 }
-                floats
             };
+
+            if decrypted_data.len() != expected_float_count {
+                bail!(
+                    "Decoded payload length mismatch for {} block {}: expected {}, got {}",
+                    tensor_name,
+                    chunk_index,
+                    expected_float_count,
+                    decrypted_data.len()
+                );
+            }
 
             let shape = if tensor_name.ends_with(".key") {
                 vec![
@@ -931,10 +984,35 @@ fn normalize_canonical_kv_tensor(tensor_name: &str, tensor: &Tensor) -> Result<T
     }
 }
 
+fn block_float_count(header: &UsxfHeader, tensor_name: &str) -> usize {
+    if tensor_name.ends_with(".key") {
+        header.model_cache_spec.n_kv_heads * header.model_cache_spec.head_dim * header.block_size
+    } else {
+        header.model_cache_spec.n_kv_heads * header.block_size * header.model_cache_spec.head_dim
+    }
+}
+
+fn encode_payload(data: &[f32], transfer_codec: TransferCodec) -> Vec<u8> {
+    match transfer_codec {
+        TransferCodec::None => {
+            let mut bytes = Vec::with_capacity(data.len() * 4);
+            for &f in data {
+                bytes.extend_from_slice(&f.to_be_bytes());
+            }
+            bytes
+        }
+        TransferCodec::Fp8 => {
+            let scale = compute_optimal_scale(data, 448.0);
+            quantize_e4m3_scaled(data, scale)
+        }
+        TransferCodec::Qatq => quantize_qatq_i4(data),
+    }
+}
+
 async fn run_sim_migrate(
     target_addr_str: &str,
     seq_len: usize,
-    quantize: bool,
+    transfer_codec: TransferCodec,
     agent_graph_manifest_path: Option<&str>,
 ) -> Result<()> {
     let total_start = std::time::Instant::now();
@@ -1024,9 +1102,9 @@ async fn run_sim_migrate(
     let checksum =
         "sha256:0000000000000000000000000000000000000000000000000000000000000000".to_string();
 
-    let transfer_quant = if quantize {
+    let transfer_quant = if let Some(scheme) = transfer_codec.header_scheme() {
         Some(usxf_core::QuantizationInfo {
-            scheme: "fp8".to_string(),
+            scheme: scheme.to_string(),
             group_size: None,
             scales: None,
         })
@@ -1127,27 +1205,8 @@ async fn run_sim_migrate(
             let v_data = &vllm_value.data[v_start..(v_start + v_block_size)];
 
             // Format data payload (with optional quantization)
-            let (k_payload, v_payload) = if quantize {
-                // Quantize to FP8 (simulate compression)
-                let scale = compute_optimal_scale(k_data, 448.0);
-                let k_quant = quantize_e4m3_scaled(k_data, scale);
-
-                let scale_v = compute_optimal_scale(v_data, 448.0);
-                let v_quant = quantize_e4m3_scaled(v_data, scale_v);
-
-                (k_quant, v_quant)
-            } else {
-                // Raw f32 bytes
-                let mut k_bytes = Vec::with_capacity(k_data.len() * 4);
-                for &f in k_data {
-                    k_bytes.extend_from_slice(&f.to_be_bytes());
-                }
-                let mut v_bytes = Vec::with_capacity(v_data.len() * 4);
-                for &f in v_data {
-                    v_bytes.extend_from_slice(&f.to_be_bytes());
-                }
-                (k_bytes, v_bytes)
-            };
+            let k_payload = encode_payload(k_data, transfer_codec);
+            let v_payload = encode_payload(v_data, transfer_codec);
 
             total_transferred_bytes += (k_payload.len() + v_payload.len()) as u64;
 
@@ -1245,11 +1304,7 @@ async fn run_sim_migrate(
                     block_hash_count,
                     dtype: "float32".to_string(),
                     source_quantization: "none".to_string(),
-                    transfer_quantization: if quantize {
-                        "fp8".to_string()
-                    } else {
-                        "none".to_string()
-                    },
+                    transfer_quantization: transfer_codec.manifest_value().to_string(),
                     uncompressed_bytes,
                     transferred_bytes: total_transferred_bytes,
                     compression_ratio,
@@ -1318,11 +1373,7 @@ async fn run_sim_migrate(
                 block_hash_count,
                 dtype: "float32".to_string(),
                 source_quantization: "none".to_string(),
-                transfer_quantization: if quantize {
-                    "fp8".to_string()
-                } else {
-                    "none".to_string()
-                },
+                transfer_quantization: transfer_codec.manifest_value().to_string(),
                 uncompressed_bytes,
                 transferred_bytes: total_transferred_bytes,
                 compression_ratio,
@@ -1366,11 +1417,7 @@ async fn run_sim_migrate(
                 block_hash_count,
                 dtype: "float32".to_string(),
                 source_quantization: "none".to_string(),
-                transfer_quantization: if quantize {
-                    "fp8".to_string()
-                } else {
-                    "none".to_string()
-                },
+                transfer_quantization: transfer_codec.manifest_value().to_string(),
                 uncompressed_bytes,
                 transferred_bytes: total_transferred_bytes,
                 compression_ratio,

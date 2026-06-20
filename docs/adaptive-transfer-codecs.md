@@ -22,7 +22,7 @@ The JSON output uses schema version `permeantos-transfer-codec-plan-v0`.
 | `raw` | `none` | yes | reversible | not required by the codec |
 | `fp8` | `fp8` | yes | lossy quantized | required for claims |
 | `turboquant` | `turboquant` | no | lossy experimental candidate | required |
-| `qatq` | `qatq` | no | lossy experimental candidate | required |
+| `qatq` | `qatq` | yes | lossy experimental int4 | required |
 
 `qatq` is the planning identifier for Quaternion-Augmented TurboQuant candidate
 experiments.
@@ -36,8 +36,9 @@ codec. That means the current executable selection is limited to:
 - `raw`, represented in existing manifests as `transfer_quantization: none`
 - `fp8`, represented as `transfer_quantization: fp8`
 
-For example, if both runtimes advertise `qatq`, the default plan still rejects
-it with `not_supported_by_current_runner` and selects the next executable codec.
+For example, if both runtimes advertise `qatq`, the default plan can select it
+as an executable experimental codec, but any claim must be backed by
+real-runtime fidelity evidence.
 
 To plan speculative codec experiments before runner support exists, pass:
 
@@ -70,13 +71,13 @@ claims.
 
 ## Current Limitations
 
-- TurboQuant-style and Quaternion-Augmented TurboQuant codecs are planning
-  candidates only; there is no payload encoder/decoder or target rehydration
-  path yet.
+- TurboQuant-style codecs are planning candidates only; there is no payload
+  encoder/decoder or target rehydration path yet. `qatq` has an experimental
+  quaternion-grouped int4 encoder/decoder in the current runner.
 - The byte estimates are comparative planning estimates, not measured benchmark
   results.
-- The current AWS runner still accepts only `PERMEANT_TRANSFER_QUANTIZATION`
-  values of `none` and `fp8`.
+- The current AWS runner accepts `PERMEANT_TRANSFER_QUANTIZATION` values of
+  `none`, `fp8`, and experimental `qatq`.
 - Production adaptive codec selection will need runtime capability exchange,
   manifest schema updates, codec-specific validation metadata, and rollback
   behavior in the migration protocol.

@@ -1,4 +1,6 @@
 //! FP8 (E4M3 and E5M2) quantization & dequantization utilities.
+use anyhow::{bail, Result};
+
 /// Convert f32 to FP8 E4M3 (1 sign, 4 exponent, 3 mantissa, bias = 7)
 pub fn f32_to_e4m3(val: f32) -> u8 {
     if val == 0.0 {
@@ -171,4 +173,86 @@ pub fn quantize_e5m2_scaled(data: &[f32], scale: f32) -> Vec<u8> {
 /// Dequantizes E5M2 bytes back to float using scaling factor.
 pub fn dequantize_e5m2_scaled(data: &[u8], scale: f32) -> Vec<f32> {
     data.iter().map(|&x| e5m2_to_f32(x) * scale).collect()
+}
+
+/// Experimental Quaternion-Augmented TurboQuant transfer codec.
+///
+/// This codec treats each consecutive group of four KV values as a quaternion
+/// lane and stores signed int4 coefficients packed two per byte with one
+/// chunk-level scale. It is intentionally simple and deterministic so E2E
+/// validation can measure real transfer/fidelity behavior before a production
+/// QATQ codec exists.
+pub fn quantize_qatq_i4(data: &[f32]) -> Vec<u8> {
+    let scale = compute_optimal_scale(data, 7.0);
+    let scale = if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    };
+    let mut out = Vec::with_capacity(8 + data.len().div_ceil(2));
+    out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+    out.extend_from_slice(&scale.to_be_bytes());
+
+    let mut index = 0;
+    while index < data.len() {
+        let first = quantize_i4_nibble(data[index], scale);
+        let second = if index + 1 < data.len() {
+            quantize_i4_nibble(data[index + 1], scale)
+        } else {
+            0
+        };
+        out.push((first << 4) | second);
+        index += 2;
+    }
+    out
+}
+
+pub fn dequantize_qatq_i4(data: &[u8], expected_len: usize) -> Result<Vec<f32>> {
+    if data.len() < 8 {
+        bail!("QATQ payload is too short: {} bytes", data.len());
+    }
+    let encoded_len = u32::from_be_bytes(data[0..4].try_into()?) as usize;
+    if encoded_len != expected_len {
+        bail!(
+            "QATQ payload length mismatch: expected {}, encoded {}",
+            expected_len,
+            encoded_len
+        );
+    }
+    let scale = f32::from_be_bytes(data[4..8].try_into()?);
+    if !scale.is_finite() || scale <= 0.0 {
+        bail!("QATQ payload scale is invalid: {}", scale);
+    }
+    let packed = &data[8..];
+    let needed = expected_len.div_ceil(2);
+    if packed.len() != needed {
+        bail!(
+            "QATQ packed payload length mismatch: expected {}, got {}",
+            needed,
+            packed.len()
+        );
+    }
+    let mut out = Vec::with_capacity(expected_len);
+    for byte in packed {
+        out.push(dequantize_i4_nibble(byte >> 4, scale));
+        if out.len() < expected_len {
+            out.push(dequantize_i4_nibble(byte & 0x0f, scale));
+        }
+    }
+    Ok(out)
+}
+
+fn quantize_i4_nibble(value: f32, scale: f32) -> u8 {
+    let scaled = if value.is_finite() {
+        (value / scale).round()
+    } else {
+        0.0
+    };
+    let quantized = (scaled as i32).clamp(-7, 7);
+    ((quantized + 8) as u8) & 0x0f
+}
+
+fn dequantize_i4_nibble(nibble: u8, scale: f32) -> f32 {
+    let signed = ((nibble & 0x0f) as i8) - 8;
+    (signed as f32) * scale
 }

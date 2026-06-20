@@ -17,7 +17,7 @@ Environment overrides:
   PERMEANT_MODEL                     default: Qwen/Qwen2.5-0.5B-Instruct
   PERMEANT_SEQ_LEN                   default: 2016
   PERMEANT_VLLM_MAX_MODEL_LEN        default: 2048
-  PERMEANT_TRANSFER_QUANTIZATION     default: none
+  PERMEANT_TRANSFER_QUANTIZATION     default: none (none, fp8, qatq)
   PERMEANT_CONTINUATION_MAX_TOKENS   default: 16
   PERMEANT_FIDELITY_HORIZONS         default: 16,32,64,128
   PERMEANT_SOURCE_URL                default: http://127.0.0.1:29101
@@ -372,7 +372,7 @@ preflight_cmd() {
     check_status fail "configuration:numeric" "invalid numeric configuration or vLLM max model length does not exceed migrated sequence length" >> "$checks_file"
   fi
 
-  if [[ "$PERMEANT_TRANSFER_QUANTIZATION" == "none" || "$PERMEANT_TRANSFER_QUANTIZATION" == "fp8" ]]; then
+  if [[ "$PERMEANT_TRANSFER_QUANTIZATION" == "none" || "$PERMEANT_TRANSFER_QUANTIZATION" == "fp8" || "$PERMEANT_TRANSFER_QUANTIZATION" == "qatq" ]]; then
     check_status pass "configuration:transfer_quantization" "$PERMEANT_TRANSFER_QUANTIZATION is supported by the current runner" >> "$checks_file"
   else
     check_status fail "configuration:transfer_quantization" "unsupported PERMEANT_TRANSFER_QUANTIZATION: $PERMEANT_TRANSFER_QUANTIZATION" >> "$checks_file"
@@ -627,6 +627,8 @@ run_migration() {
     local quant_args=()
     if [[ "$PERMEANT_TRANSFER_QUANTIZATION" == "fp8" ]]; then
       quant_args+=(--quant)
+    elif [[ "$PERMEANT_TRANSFER_QUANTIZATION" == "qatq" ]]; then
+      quant_args+=(--transfer-codec qatq)
     elif [[ "$PERMEANT_TRANSFER_QUANTIZATION" != "none" ]]; then
       die "unsupported PERMEANT_TRANSFER_QUANTIZATION: $PERMEANT_TRANSFER_QUANTIZATION"
     fi

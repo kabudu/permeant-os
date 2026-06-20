@@ -61,17 +61,30 @@ def test_preflight_passes_with_explicit_ci_skips():
         assert names["source:agent_graph_manifest"] == "skip"
 
 
-def test_preflight_fails_for_unsupported_transfer_quantization():
+def test_preflight_passes_for_qatq_transfer_quantization():
     with tempfile.TemporaryDirectory() as raw_temp_dir:
         temp_dir = pathlib.Path(raw_temp_dir)
         result = run_preflight(temp_dir, PERMEANT_TRANSFER_QUANTIZATION="qatq")
+
+        assert result.returncode == 0, result.stderr + result.stdout
+        report = latest_report(temp_dir)
+        checks = {check["name"]: check for check in report["checks"]}
+        assert report["ok"] is True
+        assert checks["configuration:transfer_quantization"]["status"] == "pass"
+        assert "qatq is supported" in checks["configuration:transfer_quantization"]["message"]
+
+
+def test_preflight_fails_for_unsupported_transfer_quantization():
+    with tempfile.TemporaryDirectory() as raw_temp_dir:
+        temp_dir = pathlib.Path(raw_temp_dir)
+        result = run_preflight(temp_dir, PERMEANT_TRANSFER_QUANTIZATION="turboquant")
 
         assert result.returncode == 1
         report = latest_report(temp_dir)
         assert report["ok"] is False
         failed = {check["name"]: check for check in report["checks"] if check["status"] == "fail"}
         assert "configuration:transfer_quantization" in failed
-        assert "unsupported PERMEANT_TRANSFER_QUANTIZATION: qatq" in failed["configuration:transfer_quantization"]["message"]
+        assert "unsupported PERMEANT_TRANSFER_QUANTIZATION: turboquant" in failed["configuration:transfer_quantization"]["message"]
 
 
 def test_preflight_passes_with_agent_graph_manifest():
