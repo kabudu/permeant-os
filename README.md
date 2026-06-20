@@ -28,6 +28,7 @@ What works today:
 - Minimal local Agent Memory Graph export/import harness with deterministic prompt reconstruction, content-addressed artifact packaging, artifact hash verification, and restored-workspace validation.
 - Local artifact migration safety policies for redacted/excluded artifacts, explicit external rebind requirements, and streaming artifact verification/restoration.
 - Local tool-call replay safety audit for completed side effects, retry-safe read-only pending work, manual resume policies, and unsafe replay rejection.
+- Local vector/retrieval memory snapshot validation and external vector-store rebind reporting.
 - Optional Agent Memory Graph hash metadata in migration manifests.
 
 What is still experimental:
@@ -148,6 +149,7 @@ Completed:
 - Content-addressed artifact packaging and restored-workspace verification in the local graph harness.
 - Artifact redaction/exclusion policies, explicit external rebind validation, and streaming large-file artifact verification/restoration in the local graph harness.
 - Tool-call replay safety audit in the local graph harness, including no-replay preservation for completed external writes, retry-safe read-only pending calls, manual resume requirements, and rejection of unsafe side-effect retries.
+- Vector/retrieval memory support in the local graph harness, including deterministic vector snapshots, embedding/index compatibility checks, retrieval equivalence validation, and hosted vector-store rebind reporting.
 - Adapter-side graph span metadata emitted by the MLX live runtime and validated against the vLLM target tokenizer view before target ingest.
 - Daemon transaction binding for manifest-referenced graph packages, rejected before commit when required graph/KV evidence is incomplete or does not match the migrated KV header.
 - Analyzer reporting for prompt, graph, graph/KV span, and KV alignment in fidelity summaries.

@@ -241,6 +241,17 @@ chunks, and external bindings:
 - `lineage_links`: optional links to source, superseded, compacted, archived, or
   imported records.
 
+The local reference harness supports a deterministic small-vector snapshot for
+portable package imports. The manifest records the vector store reference,
+embedding model, embedding dimension, query hash, record embedding hashes, and
+expected retrieval ranking. Import recomputes the query and memory embeddings,
+verifies embedding/index compatibility, and fails if retrieval results drift.
+Vector `retrieval` nodes are checked against the same snapshot ranking so graph
+evidence cannot drift independently of the manifest.
+Hosted vector stores can instead be represented as `mode: "external_rebind"`
+with `rebind_required: true`, which imports as degraded/rebind-required state
+rather than silently claiming retrieval continuity.
+
 ### Retrieval Nodes
 
 Retrieval nodes preserve why a memory or artifact entered context:
