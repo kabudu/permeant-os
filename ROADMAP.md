@@ -196,20 +196,20 @@ Support external and embedded memory stores.
 
 Deliverables:
 
-- Memory node type for semantic memories and retrieval chunks.
-- Vector store binding metadata.
-- Snapshot mode for small/local vector stores.
-- Rebind mode for hosted vector stores.
-- Embedding model identity and index compatibility checks.
+- [x] Memory node type for semantic memories and retrieval chunks.
+- [x] Vector store binding metadata.
+- [x] Snapshot mode for small/local vector stores.
+- [x] Rebind mode for hosted vector stores.
+- [x] Embedding model identity and index compatibility checks.
 
 Validation:
 
-- Query results before and after migration are equivalent for a test corpus.
-- Missing external vector store credentials produce a clear rebind-required state.
+- [x] Query results before and after migration are equivalent for a test corpus.
+- [x] Missing external vector store credentials produce a clear rebind-required state.
 
 Exit criteria:
 
-- Agent retrieval behavior is preserved or safely marked degraded.
+- [x] Agent retrieval behavior is preserved or safely marked degraded.
 
 ## Phase 7: Runtime adapters for real agent frameworks
 

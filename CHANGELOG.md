@@ -7,6 +7,21 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Local Agent Memory Graph vector/retrieval memory snapshot validation,
+  including deterministic embedding records, query/retrieval equivalence checks,
+  embedding model/dimension compatibility checks, and explicit hosted
+  vector-store rebind reporting.
+- Harness tests for vector retrieval equivalence, embedding model/hash mismatch,
+  manifest and retrieval-node result mismatch, external vector rebind reporting,
+  and missing rebind marker rejection.
+
+### Changed
+
+- Marked Phase 6 vector and retrieval memory support complete in the roadmap for
+  the local Agent Memory Graph harness scope.
+
 ## [0.1.14-tool-replay-safety] - 2026-06-20
 
 ### Added

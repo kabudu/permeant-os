@@ -20,6 +20,11 @@ def rewrite_graph_and_manifest(harness, package_dir, graph, manifest):
     graph["graph_hash"] = harness.canonical_graph_hash(graph)
     manifest["graph_hash"] = graph["graph_hash"]
     manifest["side_effect_audit"] = harness.audit_tool_replay_safety(graph)
+    if manifest.get("vector_memory", {}).get("mode") == "snapshot":
+        manifest["vector_memory"] = harness.build_vector_snapshot(
+            graph,
+            manifest["vector_memory"]["query_text"],
+        )
     harness.write_json(package_dir / "graph.json", graph)
     harness.write_json(package_dir / "manifest.json", manifest)
 
@@ -66,6 +71,37 @@ def test_local_agent_graph_export_import_roundtrip():
         assert result["kv_hash"] == manifest["kv"]["kv_hash"]
         assert manifest["kv_spans"] == graph["kv_spans"]
         assert manifest["kv_spans"][0]["cache_ref"] == manifest["kv"]["cache_ref"]
+        assert manifest["vector_memory"]["mode"] == "snapshot"
+        assert manifest["vector_memory"]["embedding_model"] == harness.EMBEDDING_MODEL
+        assert manifest["vector_memory"]["embedding_dim"] == harness.EMBEDDING_DIM
+        assert manifest["vector_memory"]["expected_results"] == [
+            {
+                "node_id": "memory:report-fact",
+                "rank": 1,
+                "score": manifest["vector_memory"]["expected_results"][0]["score"],
+            }
+        ]
+        retrieval = next(node for node in graph["nodes"] if node["id"] == "retrieval:report-memory")
+        assert retrieval["retrieval_kind"] == "vector"
+        assert retrieval["results"] == [
+            {
+                "node_id": "memory:report-fact",
+                "rank": 1,
+                "score": manifest["vector_memory"]["expected_results"][0]["score"],
+                "score_kind": "cosine",
+                "score_breakdown": [
+                    {
+                        "name": "semantic",
+                        "score": manifest["vector_memory"]["expected_results"][0]["score"],
+                        "weight": 1.0,
+                    }
+                ],
+                "candidate_source": "semantic_neighbor",
+                "snippet_hash": harness.sha256_bytes(b"artifact:report status complete"),
+            }
+        ]
+        assert result["vector_memory"]["status"] == "verified"
+        assert result["vector_memory"]["expected_results"] == manifest["vector_memory"]["expected_results"]
         assert manifest["side_effect_audit"] == [
             {
                 "node_id": "tool:call:write-report",
@@ -91,6 +127,136 @@ def test_local_agent_graph_export_import_roundtrip():
             }
         ]
         assert result["deterministic_next_response"] == manifest["deterministic_next_response"]
+
+
+def test_local_agent_graph_import_recomputes_vector_retrieval_equivalence():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        manifest = harness.export_session(package_dir)
+        graph = harness.read_json(package_dir / "graph.json")
+
+        result = harness.import_session(package_dir)
+        expected_snapshot = harness.build_vector_snapshot(
+            graph,
+            manifest["vector_memory"]["query_text"],
+        )
+
+        assert result["vector_memory"]["status"] == "verified"
+        assert result["vector_memory"]["expected_results"] == expected_snapshot["expected_results"]
+        assert result["vector_memory"]["query_hash"] == expected_snapshot["query_hash"]
+
+
+def test_local_agent_graph_import_rejects_vector_embedding_model_mismatch():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        manifest = harness.export_session(package_dir)
+        manifest["vector_memory"]["embedding_model"] = "other-embedding-model"
+        harness.write_json(package_dir / "manifest.json", manifest)
+
+        try:
+            harness.import_session(package_dir)
+        except harness.ImportVerificationError as exc:
+            assert "embedding model mismatch" in str(exc)
+        else:
+            raise AssertionError("embedding model mismatch should have failed")
+
+
+def test_local_agent_graph_import_rejects_memory_node_embedding_hash_mismatch():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        manifest = harness.export_session(package_dir)
+        graph = harness.read_json(package_dir / "graph.json")
+        memory = next(node for node in graph["nodes"] if node["id"] == "memory:report-fact")
+        memory["embedding_hash"] = harness.sha256_bytes(b"wrong-memory-embedding")
+        rewrite_graph_and_manifest(harness, package_dir, graph, manifest)
+
+        try:
+            harness.import_session(package_dir)
+        except harness.ImportVerificationError as exc:
+            assert "memory node embedding hash mismatch" in str(exc)
+        else:
+            raise AssertionError("memory node embedding hash mismatch should have failed")
+
+
+def test_local_agent_graph_import_rejects_vector_retrieval_mismatch():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        manifest = harness.export_session(package_dir)
+        manifest["vector_memory"]["expected_results"][0]["score"] = -1.0
+        harness.write_json(package_dir / "manifest.json", manifest)
+
+        try:
+            harness.import_session(package_dir)
+        except harness.ImportVerificationError as exc:
+            assert "vector retrieval results mismatch" in str(exc)
+        else:
+            raise AssertionError("vector retrieval mismatch should have failed")
+
+
+def test_local_agent_graph_import_rejects_vector_retrieval_node_mismatch():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        manifest = harness.export_session(package_dir)
+        graph = harness.read_json(package_dir / "graph.json")
+        retrieval = next(node for node in graph["nodes"] if node["id"] == "retrieval:report-memory")
+        retrieval["results"][0]["score"] = -1.0
+        rewrite_graph_and_manifest(harness, package_dir, graph, manifest)
+
+        try:
+            harness.import_session(package_dir)
+        except harness.ImportVerificationError as exc:
+            assert "retrieval node retrieval:report-memory does not match vector snapshot results" in str(exc)
+        else:
+            raise AssertionError("vector retrieval node mismatch should have failed")
+
+
+def test_local_agent_graph_import_reports_external_vector_rebind_required():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        manifest = harness.export_session(package_dir)
+        manifest["vector_memory"] = {
+            "mode": "external_rebind",
+            "vector_store_ref": "vector:hosted:customer-memory",
+            "embedding_model": harness.EMBEDDING_MODEL,
+            "embedding_dim": harness.EMBEDDING_DIM,
+            "rebind_required": True,
+        }
+        harness.write_json(package_dir / "manifest.json", manifest)
+
+        result = harness.import_session(package_dir)
+
+        assert result["vector_memory"] == {
+            "status": "rebind_required",
+            "vector_store_ref": "vector:hosted:customer-memory",
+            "embedding_model": harness.EMBEDDING_MODEL,
+        }
+
+
+def test_local_agent_graph_import_rejects_external_vector_without_rebind_marker():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        manifest = harness.export_session(package_dir)
+        manifest["vector_memory"] = {
+            "mode": "external_rebind",
+            "vector_store_ref": "vector:hosted:customer-memory",
+            "embedding_model": harness.EMBEDDING_MODEL,
+            "embedding_dim": harness.EMBEDDING_DIM,
+        }
+        harness.write_json(package_dir / "manifest.json", manifest)
+
+        try:
+            harness.import_session(package_dir)
+        except harness.ImportVerificationError as exc:
+            assert "external vector memory must be explicitly marked rebind_required" in str(exc)
+        else:
+            raise AssertionError("external vector memory without rebind marker should have failed")
 
 
 def test_local_agent_graph_import_preserves_completed_cloud_write_without_replay():

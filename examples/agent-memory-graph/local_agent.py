@@ -31,6 +31,9 @@ TOOL_ID = "tool:local-fs"
 MODEL_ID = "deterministic-local-agent-v0"
 RUNTIME_ID = "examples/agent-memory-graph"
 TOKENIZER_HASH = "sha256:" + hashlib.sha256(b"permeant-local-byte-tokenizer-v0").hexdigest()
+EMBEDDING_MODEL = "deterministic-local-byte-embedding-v0"
+EMBEDDING_DIM = 8
+VECTOR_STORE_REF = "vector:local-reference:session"
 ARTIFACT_STORE_VERSION = "content-addressed-v0"
 RESTORE_POLICY_VERSION = "workspace-relative-v0"
 STREAM_CHUNK_SIZE = 1024 * 1024
@@ -162,6 +165,24 @@ def token_hash(token_ids: list[int]) -> str:
     return "sha256:" + hasher.hexdigest()
 
 
+def deterministic_embedding(text: str, dim: int = EMBEDDING_DIM) -> list[float]:
+    buckets = [0.0 for _ in range(dim)]
+    for index, byte in enumerate(text.encode("utf-8")):
+        buckets[index % dim] += (byte % 31) / 31.0
+    magnitude = sum(value * value for value in buckets) ** 0.5
+    if magnitude == 0:
+        return buckets
+    return [round(value / magnitude, 8) for value in buckets]
+
+
+def embedding_hash(vector: list[float]) -> str:
+    return sha256_json([round(value, 8) for value in vector])
+
+
+def cosine_similarity(left: list[float], right: list[float]) -> float:
+    return sum(a * b for a, b in zip(left, right))
+
+
 def simulated_kv_hash(token_ids: list[int]) -> str:
     hasher = hashlib.sha256()
     hasher.update(b"permeant-local-kv-v0\0")
@@ -269,6 +290,14 @@ def tool_call_nodes(graph: dict[str, Any]) -> list[dict[str, Any]]:
     return [node for node in graph.get("nodes", []) if node.get("type") == "tool_call"]
 
 
+def memory_nodes(graph: dict[str, Any]) -> list[dict[str, Any]]:
+    return [node for node in graph.get("nodes", []) if node.get("type") == "memory"]
+
+
+def retrieval_nodes(graph: dict[str, Any]) -> list[dict[str, Any]]:
+    return [node for node in graph.get("nodes", []) if node.get("type") == "retrieval"]
+
+
 def audit_tool_replay_safety(graph: dict[str, Any]) -> list[dict[str, Any]]:
     audit = []
     for node in tool_call_nodes(graph):
@@ -351,11 +380,164 @@ def audit_tool_replay_safety(graph: dict[str, Any]) -> list[dict[str, Any]]:
     return audit
 
 
+def build_vector_snapshot(graph: dict[str, Any], query_text: str) -> dict[str, Any]:
+    query_embedding = deterministic_embedding(query_text)
+    records = []
+    for node in memory_nodes(graph):
+        if node.get("embedding_model") != EMBEDDING_MODEL:
+            continue
+        text = " ".join(
+            str(value)
+            for value in [node.get("subject"), node.get("predicate"), node.get("object")]
+            if value
+        )
+        vector = deterministic_embedding(text)
+        records.append(
+            {
+                "node_id": node["id"],
+                "embedding": vector,
+                "embedding_hash": embedding_hash(vector),
+                "text_hash": node.get("text_hash"),
+            }
+        )
+    results = sorted(
+        (
+            {
+                "node_id": record["node_id"],
+                "score": round(cosine_similarity(query_embedding, record["embedding"]), 8),
+            }
+            for record in records
+        ),
+        key=lambda item: (-item["score"], item["node_id"]),
+    )
+    return {
+        "mode": "snapshot",
+        "vector_store_ref": VECTOR_STORE_REF,
+        "embedding_model": EMBEDDING_MODEL,
+        "embedding_dim": EMBEDDING_DIM,
+        "distance_metric": "cosine",
+        "query_text": query_text,
+        "query_hash": sha256_bytes(query_text.encode("utf-8")),
+        "query_embedding_hash": embedding_hash(query_embedding),
+        "records": records,
+        "expected_results": [
+            {
+                "node_id": result["node_id"],
+                "rank": index,
+                "score": result["score"],
+            }
+            for index, result in enumerate(results, start=1)
+        ],
+    }
+
+
+def validate_vector_memory(graph: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
+    vector_memory = manifest.get("vector_memory")
+    if not vector_memory:
+        return {"status": "not_present"}
+    mode = vector_memory.get("mode")
+    if mode == "external_rebind":
+        if vector_memory.get("rebind_required") is not True:
+            raise ImportVerificationError("external vector memory must be explicitly marked rebind_required")
+        return {
+            "status": "rebind_required",
+            "vector_store_ref": vector_memory.get("vector_store_ref"),
+            "embedding_model": vector_memory.get("embedding_model"),
+        }
+    if mode != "snapshot":
+        raise ImportVerificationError(f"unsupported vector memory mode: {mode}")
+    if vector_memory.get("embedding_model") != EMBEDDING_MODEL:
+        raise ImportVerificationError("vector memory embedding model mismatch")
+    if vector_memory.get("embedding_dim") != EMBEDDING_DIM:
+        raise ImportVerificationError("vector memory embedding dimension mismatch")
+    if vector_memory.get("distance_metric") != "cosine":
+        raise ImportVerificationError("vector memory distance metric mismatch")
+
+    expected = build_vector_snapshot(graph, vector_memory["query_text"])
+    expected_memory_nodes = {node["id"]: node for node in memory_nodes(graph)}
+    expected_records = {record["node_id"]: record for record in expected["records"]}
+    for record in vector_memory.get("records", []):
+        expected_record = expected_records.get(record.get("node_id"))
+        if expected_record is None:
+            raise ImportVerificationError(f"vector snapshot references unknown memory node: {record.get('node_id')}")
+        memory_node = expected_memory_nodes[record["node_id"]]
+        if memory_node.get("embedding_hash") != expected_record["embedding_hash"]:
+            raise ImportVerificationError(f"memory node embedding hash mismatch for {record.get('node_id')}")
+        if record.get("embedding_hash") != expected_record["embedding_hash"]:
+            raise ImportVerificationError(f"vector embedding hash mismatch for {record.get('node_id')}")
+    if vector_memory.get("expected_results") != expected["expected_results"]:
+        raise ImportVerificationError("vector retrieval results mismatch")
+    for retrieval in retrieval_nodes(graph):
+        if retrieval.get("retrieval_kind") != "vector":
+            continue
+        retrieval_results = [
+            {
+                "node_id": result["node_id"],
+                "rank": result["rank"],
+                "score": result.get("score"),
+            }
+            for result in retrieval.get("results", [])
+        ]
+        if retrieval_results != expected["expected_results"]:
+            raise ImportVerificationError(f"retrieval node {retrieval['id']} does not match vector snapshot results")
+    return {
+        "status": "verified",
+        "vector_store_ref": vector_memory["vector_store_ref"],
+        "embedding_model": vector_memory["embedding_model"],
+        "embedding_dim": vector_memory["embedding_dim"],
+        "query_hash": vector_memory["query_hash"],
+        "expected_results": vector_memory["expected_results"],
+    }
+
+
 def reject_unsafe_tool_replay(side_effect_audit: list[dict[str, Any]]) -> None:
     unsafe = [entry for entry in side_effect_audit if not entry["safe_to_import"]]
     if unsafe:
         summary = ", ".join(f"{entry['node_id']}: {entry['reason']}" for entry in unsafe)
         raise ImportVerificationError(f"unsafe tool replay policy: {summary}")
+
+
+def vector_retrieval_payload(query_text: str) -> dict[str, Any]:
+    query_embedding = deterministic_embedding(query_text)
+    memory_text = "artifact:report status complete"
+    memory_embedding = deterministic_embedding(memory_text)
+    score = round(cosine_similarity(query_embedding, memory_embedding), 8)
+    return {
+        "actor_id": AGENT_ID,
+        "memory_scope": "thread",
+        "memory_tier": "recall",
+        "sensitivity": "internal",
+        "retention": "session",
+        "redaction_state": "none",
+        "query_hash": sha256_bytes(query_text.encode("utf-8")),
+        "retrieval_kind": "vector",
+        "planner_profile": "continuity_aware",
+        "policy_profile": "autonomous_agent",
+        "scorer_kind": "semantic",
+        "selected_channels": ["semantic"],
+        "candidate_sources": ["semantic_neighbor"],
+        "planner_stages": ["embed_query", "score_snapshot", "rank_results"],
+        "graph_expansion_max_hops": 0,
+        "historical_mode": "current_only",
+        "results": [
+            {
+                "node_id": "memory:report-fact",
+                "rank": 1,
+                "score": score,
+                "score_kind": "cosine",
+                "score_breakdown": [
+                    {
+                        "name": "semantic",
+                        "score": score,
+                        "weight": 1.0,
+                    }
+                ],
+                "candidate_source": "semantic_neighbor",
+                "snippet_hash": sha256_bytes(memory_text.encode("utf-8")),
+            }
+        ],
+        "selection_policy": "top_vector_score",
+    }
 
 
 def artifact_node_payload(record: ArtifactRecord) -> dict[str, Any]:
@@ -504,10 +686,11 @@ def build_graph(session: LocalSession, artifact_record: ArtifactRecord, prompt: 
                     "object": "complete",
                     "namespace": ["local-reference", "facts"],
                     "key": "report-status",
-                    "embedding_model": "deterministic-local-byte-tokenizer-v0",
-                    "embedding_dim": 32,
-                    "embedding_hash": sha256_bytes(b"report artifact is complete embedding"),
+                    "embedding_model": EMBEDDING_MODEL,
+                    "embedding_dim": EMBEDDING_DIM,
+                    "embedding_hash": embedding_hash(deterministic_embedding("artifact:report status complete")),
                     "distance_metric": "cosine",
+                    "vector_store_ref": VECTOR_STORE_REF,
                     "episode": {
                         "schema_version": "local-reference-v0",
                         "episode_id": "episode:local-export",
@@ -537,6 +720,11 @@ def build_graph(session: LocalSession, artifact_record: ArtifactRecord, prompt: 
                     "state_hash": sha256_bytes(prompt.encode("utf-8")),
                     "resume_ref": "local-reference-session",
                 },
+            ),
+            base_node(
+                "retrieval:report-memory",
+                "retrieval",
+                vector_retrieval_payload("report artifact complete"),
             ),
             base_node(
                 "kv:span:prompt",
@@ -569,6 +757,7 @@ def build_graph(session: LocalSession, artifact_record: ArtifactRecord, prompt: 
             {"from": "tool:call:write-report", "to": "tool:result:write-report", "type": "produced"},
             {"from": "tool:call:write-report", "to": "artifact:report", "type": "produced"},
             {"from": "tool:result:write-report", "to": "memory:report-fact", "type": "produced"},
+            {"from": "retrieval:report-memory", "to": "memory:report-fact", "type": "retrieved"},
             {"from": "checkpoint:prompt", "to": "turn:user:2", "type": "checkpointed"},
             {"from": "kv:span:prompt", "to": "checkpoint:prompt", "type": "references"},
         ]
@@ -638,6 +827,7 @@ def artifact_policy_entries(record: ArtifactRecord, disposition: str) -> list[di
 
 def build_manifest(graph: dict[str, Any], session: LocalSession, prompt: str, artifact_record: ArtifactRecord) -> dict[str, Any]:
     prompt_tokens = tokenize_prompt(prompt)
+    vector_snapshot = build_vector_snapshot(graph, "report artifact complete")
     return {
         "manifest_version": "0.1",
         "created_at": CREATED_AT,
@@ -669,6 +859,7 @@ def build_manifest(graph: dict[str, Any], session: LocalSession, prompt: str, ar
             "kv_hash": simulated_kv_hash(prompt_tokens),
         },
         "kv_spans": graph["kv_spans"],
+        "vector_memory": vector_snapshot,
         "side_effect_audit": audit_tool_replay_safety(graph),
         "artifact_policy": {
             "version": "artifact-export-policy-v0",
@@ -819,6 +1010,7 @@ def import_session(package_dir: Path, workspace_dir: Path | None = None) -> dict
     verify_graph(graph, manifest["graph_hash"])
     side_effect_audit = audit_tool_replay_safety(graph)
     reject_unsafe_tool_replay(side_effect_audit)
+    vector_memory_report = validate_vector_memory(graph, manifest)
     verified_artifacts = verify_artifacts(package_dir, manifest)
     if workspace_dir is None:
         workspace_dir = package_dir / "restored-workspace"
@@ -850,6 +1042,7 @@ def import_session(package_dir: Path, workspace_dir: Path | None = None) -> dict
         "restored_workspace": str(workspace_dir),
         "restore_report": restore_report,
         "side_effect_audit": side_effect_audit,
+        "vector_memory": vector_memory_report,
         "prompt_byte_hash": prompt_byte_hash,
         "prompt_token_hash": prompt_token_hash,
         "kv_hash": kv_hash,

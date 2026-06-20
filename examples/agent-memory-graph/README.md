@@ -20,6 +20,9 @@ The harness:
   files do not need to be loaded into memory as one buffer;
 - records and recomputes a side-effect audit for tool calls before import
   activation;
+- packages a deterministic local vector-memory snapshot and verifies retrieval
+  equivalence before import activation;
+- reports hosted/external vector stores as explicit rebind-required state;
 - reconstructs the prompt byte-for-byte; and
 - produces the same deterministic continuation after import.
 
@@ -75,6 +78,13 @@ side-effecting calls are marked `no_replay`, pending read-only calls marked
 `retry_safe` may retry, and pending write/unknown calls must use an explicit
 manual policy such as `ask_user`, `rebind`, or `compensate`. Unsafe automatic
 replay policies fail import.
+
+The importer validates vector memory continuity for the local snapshot mode:
+embedding model, dimension, distance metric, record embedding hashes, and the
+expected retrieval ranking must match after import. Vector `retrieval` nodes
+must also match the snapshot ranking. Hosted vector stores can be represented
+with `mode: "external_rebind"` and `rebind_required: true`; those imports report
+`rebind_required` instead of pretending retrieval behavior is preserved.
 
 This validates graph-only migration. Live KV-cache attachment remains a later
 roadmap item.
