@@ -1,8 +1,8 @@
 # Graph-Attached Live KV Migration Plan
 
-Status: planning notes and acceptance criteria for the Phase 3 KV-attached
-graph migration milestone. Adapter-side graph span metadata now exists as a
-sidecar contract, while daemon wire-protocol changes remain future work.
+Status: implementation notes and remaining acceptance criteria for the Phase 3
+KV-attached graph migration milestone. Adapter-side graph span metadata and
+daemon transaction binding now exist for manifest-referenced graph packages.
 
 PermeantOS can already migrate live KV tensors and can already export an Agent
 Memory Graph package locally. Phase 3 joins those two surfaces into one
@@ -12,12 +12,13 @@ prove that the graph and KV state still describe the same model context.
 
 ## Scope
 
-This milestone defines the contract that future code must satisfy before the
-wire protocol or runtime adapters are changed.
+This milestone defines the contract that graph-attached KV migration code must
+satisfy.
 
 In scope:
 
 - A transaction model for moving graph state and KV state together.
+- A daemon protocol binding step that gates commit on graph/KV evidence.
 - Manifest fields that bind graph hashes, artifact hashes, prompt hashes,
   tokenizer identity, token spans, and KV hashes.
 - Source and target adapter responsibilities.
@@ -25,10 +26,11 @@ In scope:
 - Acceptance criteria and failure cases for the first real MLX-to-vLLM
   graph-attached validation run.
 
-Out of scope for the planning item:
+Out of scope for the current implementation:
 
-- Changing the daemon wire protocol.
 - Publishing the Agent Memory Graph schema as a stable public API.
+- Streaming graph package bytes over the daemon protocol.
+- Durable target-side graph session storage after commit.
 - Migrating vector stores, raw credentials, or non-idempotent side effects.
 
 Implemented follow-up:
@@ -43,6 +45,10 @@ Implemented follow-up:
 - When the target payload provides prompt text, token IDs, token count, or
   tokenizer hash, the vLLM import worker compares that target tokenizer view
   against the graph span metadata and rejects mismatches before ingest.
+- The daemon protocol accepts an optional `AgentGraphBinding` frame before
+  `CommitRequest`; graph-bound runs are rejected before commit if the binding is
+  missing required prompt, tokenizer, KV hash, KV span, artifact, or migrated
+  block-hash evidence.
 
 ## Current Inputs
 
@@ -52,8 +58,9 @@ The plan builds on existing repo surfaces:
   deterministic graph hashing, and KV span linkage.
 - `examples/agent-memory-graph/local_agent.py` exports graph packages with graph,
   artifact, prompt, tokenizer, and simulated KV hashes.
-- `permeant-cli sim-migrate --agent-graph-manifest <path>` embeds optional graph
-  metadata in migration benchmark manifests.
+- `permeant-cli sim-migrate --agent-graph-manifest <path>` sends graph binding
+  evidence to the daemon before commit and embeds the same metadata in migration
+  benchmark manifests.
 - `adapters/analyze_real_runtime_fidelity.py` reports combined prompt, graph,
   and KV alignment when graph metadata is present.
 - The live MLX and vLLM adapters already expose prompt tokenization evidence and
@@ -75,8 +82,10 @@ The first implementation should follow these stages:
    hashes, prompt byte hash, prompt token hash, tokenizer hash, KV span metadata,
    and expected KV hash.
 3. `stream_kv`: source streams the signed/encrypted USXF tensor state as today.
-4. `attach_graph`: source provides the graph package manifest or a
-   content-addressed reference that the target can verify before activation.
+4. `attach_graph`: source sends an `AgentGraphBinding` protocol frame with the
+   manifest path, graph hash, prompt/tokenizer hashes, KV hash, KV spans,
+   artifact hashes, and migrated block hashes that the target must verify
+   before activation.
 5. `validate_alignment`: target validates graph hash, artifact hashes, prompt
    hashes, tokenizer identity, KV span coverage, KV block hashes, and runtime
    slot probes.
@@ -85,10 +94,10 @@ The first implementation should follow these stages:
 7. `rollback`: any validation failure leaves no active migrated graph/KV session
    on the target.
 
-The initial implementation can keep graph package transfer local or
-manifest-referenced while the protocol is still research-grade. The acceptance
-criteria require the target to verify the package contents before commit, not
-necessarily to invent a new streaming format immediately.
+The current implementation keeps graph package transfer manifest-referenced
+while the protocol is still research-grade. The daemon validates required
+evidence before commit; future work should stream graph package bytes or bind
+the verified package into durable target-side graph storage.
 
 ## Required Invariants
 

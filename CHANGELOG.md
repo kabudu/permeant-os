@@ -7,6 +7,11 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Daemon protocol support for Agent Memory Graph transaction binding, including
+  target-side graph/KV evidence validation before the final KV commit.
+
 ## [0.1.10-target-tokenizer-span-validation] - 2026-06-20
 
 ### Added

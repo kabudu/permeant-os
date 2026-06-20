@@ -1,14 +1,14 @@
 use clap::{Parser, Subcommand};
 use anyhow::{Result, Context, bail};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use tokio::net::{TcpListener, TcpStream};
 use chrono::Utc;
 
 use usxf_core::{UsxfHeader, ModelIdentity, ModelCacheSpec, AttentionType, ExchangeDtype, seal_packet, open_packet, validate_header, compute_token_block_hashes, compute_sha256};
 use permeant_transpiler::{Tensor, canonical_to_vllm_block_key, canonical_to_vllm_block_value, quantize_e4m3_scaled, dequantize_e4m3_scaled, compute_optimal_scale};
-use permeant_transport::{MigrationMessage, send_message, recv_message, compute_crc32, verify_chunk_crc32};
-use permeant_orchestrator::{MigrationOrchestrator, ResourcePolicy, MigrationState};
+use permeant_transport::{AgentGraphBinding, AgentGraphBindingArtifact, AgentGraphBindingKvSpan, MigrationMessage, send_message, recv_message, compute_crc32, verify_chunk_crc32};
+use permeant_orchestrator::{MigrationOrchestrator, ResourcePolicy};
 use permeant_extractor::extract_kv_cache;
 use permeant_injector::KVConnectorBase_V1;
 
@@ -186,12 +186,35 @@ async fn handle_migration_connection(
         }
     }
     
-    println!("[Daemon] All layers and blocks streamed. Injecting into KVConnectorBase_V1...");
+    println!("[Daemon] All layers and blocks streamed. Waiting for graph binding or commit request...");
+    let mut msg = recv_message(socket).await?;
+    if let MigrationMessage::AgentGraphBinding(binding) = msg {
+        println!("[Daemon] Received Agent Memory Graph binding. Validating graph/KV transaction evidence...");
+        if let Err(error) = validate_agent_graph_binding(&binding, &header) {
+            let error_message = error.to_string();
+            send_message(socket, &MigrationMessage::AgentGraphBindingAck {
+                accepted: false,
+                error_message: Some(error_message.clone()),
+            }).await?;
+            orchestrator.record_failure();
+            bail!("Agent Memory Graph binding rejected: {}", error_message);
+        }
+        send_message(socket, &MigrationMessage::AgentGraphBindingAck {
+            accepted: true,
+            error_message: None,
+        }).await?;
+        println!(
+            "[Daemon] Agent Memory Graph binding verified for {} KV span(s).",
+            binding.kv_spans.len()
+        );
+        msg = recv_message(socket).await?;
+    }
+
+    println!("[Daemon] Injecting staged blocks into KVConnectorBase_V1...");
     for (hash, tensors) in accumulated_blocks {
         injector.inject_block_tensors(hash, tensors)?;
     }
-    
-    let msg = recv_message(socket).await?;
+
     if let MigrationMessage::CommitRequest = msg {
         println!("[Daemon] Commit requested. Running numerical continuation validation...");
         injector.verify_continuation(&header.block_hashes)?;
@@ -276,6 +299,33 @@ struct AgentGraphManifest {
     kv_hash: Option<String>,
     kv_spans: Vec<AgentGraphKvSpan>,
     artifacts: Vec<AgentGraphArtifactHash>,
+}
+
+impl AgentGraphManifest {
+    fn to_binding(&self, header: &UsxfHeader) -> AgentGraphBinding {
+        AgentGraphBinding {
+            manifest_path: self.manifest_path.clone(),
+            graph_path: self.graph_path.clone(),
+            graph_hash: self.graph_hash.clone(),
+            prompt_byte_hash: self.prompt_byte_hash.clone(),
+            prompt_token_hash: self.prompt_token_hash.clone(),
+            tokenizer_hash: self.tokenizer_hash.clone(),
+            kv_hash: self.kv_hash.clone(),
+            kv_spans: self.kv_spans.iter().map(|span| AgentGraphBindingKvSpan {
+                node_id: span.node_id.clone(),
+                token_start: span.token_start,
+                token_end: span.token_end,
+                cache_ref: span.cache_ref.clone(),
+                tokenizer_hash: span.tokenizer_hash.clone(),
+                block_hashes: block_hashes_for_span(header, span.token_start, span.token_end),
+            }).collect(),
+            artifacts: self.artifacts.iter().map(|artifact| AgentGraphBindingArtifact {
+                path: artifact.path.clone(),
+                sha256: artifact.sha256.clone(),
+                size_bytes: artifact.size_bytes,
+            }).collect(),
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -435,6 +485,21 @@ fn validate_agent_graph_kv_span(span: AgentGraphPackageKvSpan, index: usize) -> 
     })
 }
 
+fn block_hashes_for_span(header: &UsxfHeader, token_start: usize, token_end: usize) -> Vec<String> {
+    if token_end <= token_start || token_start >= header.seq_len || header.block_size == 0 {
+        return Vec::new();
+    }
+    let start_block = token_start / header.block_size;
+    let end_token = token_end.min(header.seq_len) - 1;
+    let end_block = end_token / header.block_size;
+
+    header
+        .block_hashes
+        .get(start_block..=end_block)
+        .unwrap_or(&[])
+        .to_vec()
+}
+
 fn load_agent_graph_manifest(path: Option<&str>) -> Result<Option<AgentGraphManifest>> {
     let Some(path) = path else {
         return Ok(None);
@@ -480,6 +545,91 @@ fn load_agent_graph_manifest(path: Option<&str>) -> Result<Option<AgentGraphMani
         kv_spans,
         artifacts,
     }))
+}
+
+fn validate_agent_graph_binding(binding: &AgentGraphBinding, header: &UsxfHeader) -> Result<()> {
+    if binding.manifest_path.trim().is_empty() {
+        bail!("agent graph binding manifest_path must not be empty");
+    }
+    if binding.graph_path.trim().is_empty() {
+        bail!("agent graph binding graph_path must not be empty");
+    }
+    ensure_sha256_field("agent_graph.graph_hash", &binding.graph_hash)?;
+    validate_optional_sha256("agent_graph.prompt_byte_hash", binding.prompt_byte_hash.as_ref())?;
+    validate_optional_sha256("agent_graph.prompt_token_hash", binding.prompt_token_hash.as_ref())?;
+    validate_optional_sha256("agent_graph.tokenizer_hash", binding.tokenizer_hash.as_ref())?;
+    validate_optional_sha256("agent_graph.kv_hash", binding.kv_hash.as_ref())?;
+
+    if binding.prompt_token_hash.is_none() {
+        bail!("agent graph binding must include prompt_token_hash");
+    }
+    if binding.tokenizer_hash.is_none() {
+        bail!("agent graph binding must include tokenizer_hash");
+    }
+    if binding.kv_hash.is_none() {
+        bail!("agent graph binding must include kv_hash");
+    }
+    if binding.kv_spans.is_empty() {
+        bail!("agent graph binding must include at least one KV span");
+    }
+
+    let migrated_blocks: HashSet<&str> = header.block_hashes.iter().map(String::as_str).collect();
+    for (index, span) in binding.kv_spans.iter().enumerate() {
+        if span.node_id.trim().is_empty() {
+            bail!("agent_graph.kv_spans[{}].node_id must not be empty", index);
+        }
+        if span.cache_ref.trim().is_empty() {
+            bail!("agent_graph.kv_spans[{}].cache_ref must not be empty", index);
+        }
+        if span.token_end <= span.token_start {
+            bail!(
+                "agent_graph.kv_spans[{}].token_end must be greater than token_start",
+                index
+            );
+        }
+        if span.token_end > header.seq_len {
+            bail!(
+                "agent_graph.kv_spans[{}] exceeds target context window {}",
+                index,
+                header.seq_len
+            );
+        }
+        validate_optional_sha256(
+            &format!("agent_graph.kv_spans[{}].tokenizer_hash", index),
+            span.tokenizer_hash.as_ref(),
+        )?;
+        if let (Some(span_tokenizer), Some(binding_tokenizer)) =
+            (span.tokenizer_hash.as_ref(), binding.tokenizer_hash.as_ref())
+        {
+            if span_tokenizer != binding_tokenizer {
+                bail!("agent_graph.kv_spans[{}].tokenizer_hash does not match binding tokenizer_hash", index);
+            }
+        }
+        if span.block_hashes.is_empty() {
+            bail!("agent_graph.kv_spans[{}].block_hashes must not be empty", index);
+        }
+        for block_hash in &span.block_hashes {
+            ensure_sha256_field(
+                &format!("agent_graph.kv_spans[{}].block_hashes", index),
+                block_hash,
+            )?;
+            if !migrated_blocks.contains(block_hash.as_str()) {
+                bail!(
+                    "agent_graph.kv_spans[{}].block_hashes contains a block not present in the migrated KV header",
+                    index
+                );
+            }
+        }
+    }
+
+    for (index, artifact) in binding.artifacts.iter().enumerate() {
+        if artifact.path.trim().is_empty() {
+            bail!("agent_graph.artifacts[{}].path must not be empty", index);
+        }
+        ensure_sha256_field(&format!("agent_graph.artifacts[{}].sha256", index), &artifact.sha256)?;
+    }
+
+    Ok(())
 }
 
 fn configured_model_architecture() -> String {
@@ -823,16 +973,7 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool, 
         }
     }
     let transfer_time = transfer_start.elapsed().as_secs_f64() * 1000.0;
-    
-    // 5. Commitment Phase
-    println!("Step 5: Invoking Two-Phase Commit...");
-    let commit_start = std::time::Instant::now();
-    send_message(&mut socket, &MigrationMessage::CommitRequest).await?;
-    
-    let commit_resp = recv_message(&mut socket).await?;
-    let commit_time = commit_start.elapsed().as_secs_f64() * 1000.0;
-    
-    let total_time = total_start.elapsed().as_secs_f64() * 1000.0;
+
     let uncompressed_bytes = (n_layers * 2 * n_kv_heads * head_dim * seq_len * 4) as u64; // float32 = 4 bytes
     let compression_ratio = if uncompressed_bytes > 0 {
         total_transferred_bytes as f64 / uncompressed_bytes as f64
@@ -852,6 +993,75 @@ async fn run_sim_migrate(target_addr_str: &str, seq_len: usize, quantize: bool, 
         0.0
     };
 
+    if let Some(agent_graph) = &agent_graph_manifest {
+        println!("Step 5: Binding Agent Memory Graph package to staged KV transaction...");
+        send_message(&mut socket, &MigrationMessage::AgentGraphBinding(agent_graph.to_binding(&header))).await?;
+        let binding_resp = recv_message(&mut socket).await?;
+        match binding_resp {
+            MigrationMessage::AgentGraphBindingAck { accepted: true, .. } => {
+                println!("Target accepted Agent Memory Graph binding.");
+            }
+            MigrationMessage::AgentGraphBindingAck { accepted: false, error_message } => {
+                let error_text = format!("{:?}", error_message);
+                let total_time = total_start.elapsed().as_secs_f64() * 1000.0;
+                let manifest = MigrationManifest {
+                    manifest_version: "1.0".to_string(),
+                    run_id,
+                    timestamp: Utc::now().to_rfc3339(),
+                    source_environment,
+                    target_addr: target_addr_str.to_string(),
+                    target_device: target_device_name,
+                    model_architecture: model_architecture.clone(),
+                    model_identity: model_identity.clone(),
+                    usxf_version: "1.1".to_string(),
+                    attention_type: "gqa".to_string(),
+                    sequence_length: seq_len,
+                    batch_size: 1,
+                    layers: n_layers,
+                    n_q_heads,
+                    n_kv_heads,
+                    head_dim,
+                    block_size,
+                    expected_blocks,
+                    block_hash_count,
+                    dtype: "float32".to_string(),
+                    source_quantization: "none".to_string(),
+                    transfer_quantization: if quantize { "fp8".to_string() } else { "none".to_string() },
+                    uncompressed_bytes,
+                    transferred_bytes: total_transferred_bytes,
+                    compression_ratio,
+                    chunks_sent,
+                    average_chunk_bytes,
+                    handshake_time_ms: handshake_time,
+                    header_time_ms: header_time,
+                    transfer_time_ms: transfer_time,
+                    commit_time_ms: 0.0,
+                    total_time_ms: total_time,
+                    effective_bandwidth_gbps,
+                    phase_status: "graph_binding_failed".to_string(),
+                    success: false,
+                    error_message: Some(error_text.clone()),
+                    agent_graph: agent_graph_manifest,
+                };
+                let filename = write_migration_manifest(&manifest)?;
+                println!("Saved failed migration benchmark manifest: {}", filename);
+                bail!("Target daemon rejected Agent Memory Graph binding: {}", error_text);
+            }
+            _ => bail!("Unexpected Agent Memory Graph binding response"),
+        }
+    } else {
+        println!("Step 5: No Agent Memory Graph package supplied; continuing KV-only commit.");
+    }
+
+    // 6. Commitment Phase
+    println!("Step 6: Invoking Two-Phase Commit...");
+    let commit_start = std::time::Instant::now();
+    send_message(&mut socket, &MigrationMessage::CommitRequest).await?;
+    
+    let commit_resp = recv_message(&mut socket).await?;
+    let commit_time = commit_start.elapsed().as_secs_f64() * 1000.0;
+    
+    let total_time = total_start.elapsed().as_secs_f64() * 1000.0;
     if let MigrationMessage::CommitResponse { success, error_message } = commit_resp {
         if success {
             println!("\nMigration completed successfully! All layers injected and verified.");
@@ -987,6 +1197,90 @@ mod tests {
         ))
     }
 
+    fn test_header(block_hashes: Vec<String>, seq_len: usize) -> UsxfHeader {
+        UsxfHeader {
+            usxf_version: "1.1".to_string(),
+            model_architecture: "test-model".to_string(),
+            model_identity: ModelIdentity {
+                config_hash: "sha256:1111111111111111111111111111111111111111111111111111111111111111".to_string(),
+                weights_revision: "test".to_string(),
+            },
+            attention_type: AttentionType::Gqa,
+            model_cache_spec: ModelCacheSpec {
+                n_layers: 1,
+                n_q_heads: 2,
+                n_kv_heads: 1,
+                head_dim: 4,
+                hidden_size: 8,
+                max_position_embeddings: Some(128),
+                rope_theta: Some(10000.0),
+                sliding_window: None,
+            },
+            mla_spec: None,
+            chat_state: None,
+            token_ids: vec![42; seq_len],
+            seq_len,
+            batch_size: 1,
+            dtype: ExchangeDtype::Float32,
+            source_quantization: None,
+            transfer_quantization: None,
+            block_size: seq_len,
+            block_hashes,
+            position_ids: None,
+            extra: HashMap::new(),
+            created_at: Utc::now(),
+            extractor_id: "test-extractor".to_string(),
+            checksum: "sha256:0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            signature: "".to_string(),
+        }
+    }
+
+    fn test_graph_binding(block_hash: &str) -> AgentGraphBinding {
+        AgentGraphBinding {
+            manifest_path: "manifest.json".to_string(),
+            graph_path: "graph.json".to_string(),
+            graph_hash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+            prompt_byte_hash: Some("sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string()),
+            prompt_token_hash: Some("sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".to_string()),
+            tokenizer_hash: Some("sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".to_string()),
+            kv_hash: Some("sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string()),
+            kv_spans: vec![AgentGraphBindingKvSpan {
+                node_id: "checkpoint:prompt".to_string(),
+                token_start: 0,
+                token_end: 8,
+                cache_ref: "kv:prefix:0".to_string(),
+                tokenizer_hash: Some("sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".to_string()),
+                block_hashes: vec![block_hash.to_string()],
+            }],
+            artifacts: vec![AgentGraphBindingArtifact {
+                path: "reports/result.json".to_string(),
+                sha256: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string(),
+                size_bytes: Some(42),
+            }],
+        }
+    }
+
+    fn test_agent_graph_manifest(original_block_hash: &str) -> AgentGraphManifest {
+        AgentGraphManifest {
+            manifest_path: "manifest.json".to_string(),
+            graph_path: "graph.json".to_string(),
+            graph_hash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+            prompt_byte_hash: Some("sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string()),
+            prompt_token_hash: Some("sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".to_string()),
+            tokenizer_hash: Some("sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".to_string()),
+            kv_hash: Some("sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string()),
+            kv_spans: vec![AgentGraphKvSpan {
+                node_id: "checkpoint:prompt".to_string(),
+                token_start: 0,
+                token_end: 8,
+                cache_ref: "kv:prefix:0".to_string(),
+                tokenizer_hash: Some("sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".to_string()),
+                block_hashes: vec![original_block_hash.to_string()],
+            }],
+            artifacts: vec![],
+        }
+    }
+
     #[test]
     fn loads_agent_graph_manifest_hash_fields() {
         let path = temp_manifest_path("agent-graph-manifest");
@@ -1098,5 +1392,54 @@ mod tests {
         assert!(error.to_string().contains("agent_graph.kv_spans[0].token_end"));
 
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn validates_agent_graph_binding_against_migrated_header() {
+        let block_hash = "sha256:9999999999999999999999999999999999999999999999999999999999999999";
+        let header = test_header(vec![block_hash.to_string()], 8);
+        let binding = test_graph_binding(block_hash);
+
+        validate_agent_graph_binding(&binding, &header).unwrap();
+    }
+
+    #[test]
+    fn graph_binding_uses_migrated_header_block_hashes_for_spans() {
+        let header_block_hash = "sha256:9999999999999999999999999999999999999999999999999999999999999999";
+        let simulated_manifest_block_hash =
+            "sha256:7777777777777777777777777777777777777777777777777777777777777777";
+        let header = test_header(vec![header_block_hash.to_string()], 8);
+        let manifest = test_agent_graph_manifest(simulated_manifest_block_hash);
+        let binding = manifest.to_binding(&header);
+
+        assert_eq!(binding.kv_spans[0].block_hashes, vec![header_block_hash.to_string()]);
+        validate_agent_graph_binding(&binding, &header).unwrap();
+    }
+
+    #[test]
+    fn rejects_agent_graph_binding_with_unmigrated_block_hash() {
+        let header = test_header(
+            vec!["sha256:9999999999999999999999999999999999999999999999999999999999999999".to_string()],
+            8,
+        );
+        let binding = test_graph_binding(
+            "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+        );
+
+        let error = validate_agent_graph_binding(&binding, &header)
+            .expect_err("binding with an unmigrated block hash should fail");
+        assert!(error.to_string().contains("not present in the migrated KV header"));
+    }
+
+    #[test]
+    fn rejects_agent_graph_binding_without_required_kv_evidence() {
+        let block_hash = "sha256:9999999999999999999999999999999999999999999999999999999999999999";
+        let header = test_header(vec![block_hash.to_string()], 8);
+        let mut binding = test_graph_binding(block_hash);
+        binding.kv_hash = None;
+
+        let error = validate_agent_graph_binding(&binding, &header)
+            .expect_err("binding without a KV hash should fail");
+        assert!(error.to_string().contains("must include kv_hash"));
     }
 }
