@@ -16,6 +16,18 @@ def load_harness():
     return module
 
 
+def rewrite_graph_and_manifest(harness, package_dir, graph, manifest):
+    graph["graph_hash"] = harness.canonical_graph_hash(graph)
+    manifest["graph_hash"] = graph["graph_hash"]
+    manifest["side_effect_audit"] = harness.audit_tool_replay_safety(graph)
+    harness.write_json(package_dir / "graph.json", graph)
+    harness.write_json(package_dir / "manifest.json", manifest)
+
+
+def first_tool_call(graph):
+    return next(node for node in graph["nodes"] if node["type"] == "tool_call")
+
+
 def test_local_agent_graph_export_import_roundtrip():
     harness = load_harness()
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -54,6 +66,20 @@ def test_local_agent_graph_export_import_roundtrip():
         assert result["kv_hash"] == manifest["kv"]["kv_hash"]
         assert manifest["kv_spans"] == graph["kv_spans"]
         assert manifest["kv_spans"][0]["cache_ref"] == manifest["kv"]["cache_ref"]
+        assert manifest["side_effect_audit"] == [
+            {
+                "node_id": "tool:call:write-report",
+                "name": "fs.write_file",
+                "side_effect": "external_write",
+                "status": "completed",
+                "resume_policy": "never_retry",
+                "approval_state": "approved",
+                "action": "no_replay",
+                "safe_to_import": True,
+                "reason": "tool call is completed and must not be replayed",
+            }
+        ]
+        assert result["side_effect_audit"] == manifest["side_effect_audit"]
         assert result["restore_report"] == [
             {
                 "path": manifest["artifacts"][0]["path"],
@@ -65,6 +91,114 @@ def test_local_agent_graph_export_import_roundtrip():
             }
         ]
         assert result["deterministic_next_response"] == manifest["deterministic_next_response"]
+
+
+def test_local_agent_graph_import_preserves_completed_cloud_write_without_replay():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        workspace_dir = pathlib.Path(temp_dir) / "workspace"
+        manifest = harness.export_session(package_dir)
+        graph = harness.read_json(package_dir / "graph.json")
+        tool_call = first_tool_call(graph)
+        tool_call["name"] = "aws.ec2.run_instances"
+        tool_call["provider"] = "aws"
+        tool_call["external_resource_ids"] = ["aws:ec2:instance/i-1234567890abcdef0"]
+        tool_call["side_effect"] = "external_write"
+        tool_call["status"] = "completed"
+        tool_call["resume_policy"] = "never_retry"
+        tool_call["approval_state"] = "approved"
+        rewrite_graph_and_manifest(harness, package_dir, graph, manifest)
+
+        result = harness.import_session(package_dir, workspace_dir)
+
+        assert result["side_effect_audit"][0]["action"] == "no_replay"
+        assert result["side_effect_audit"][0]["safe_to_import"] is True
+        assert result["side_effect_audit"][0]["name"] == "aws.ec2.run_instances"
+
+
+def test_local_agent_graph_import_allows_pending_read_only_retry_safe_tool():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        manifest = harness.export_session(package_dir)
+        graph = harness.read_json(package_dir / "graph.json")
+        tool_call = first_tool_call(graph)
+        tool_call["name"] = "aws.ec2.describe_instances"
+        tool_call["side_effect"] = "read_only"
+        tool_call["status"] = "in_progress"
+        tool_call["resume_policy"] = "retry_safe"
+        tool_call["approval_state"] = "not_required"
+        rewrite_graph_and_manifest(harness, package_dir, graph, manifest)
+
+        result = harness.import_session(package_dir)
+
+        assert result["side_effect_audit"][0]["action"] == "retry_allowed"
+        assert result["side_effect_audit"][0]["safe_to_import"] is True
+
+
+def test_local_agent_graph_import_requires_manual_policy_for_pending_external_write():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        manifest = harness.export_session(package_dir)
+        graph = harness.read_json(package_dir / "graph.json")
+        tool_call = first_tool_call(graph)
+        tool_call["name"] = "aws.ec2.run_instances"
+        tool_call["side_effect"] = "external_write"
+        tool_call["status"] = "in_progress"
+        tool_call["resume_policy"] = "ask_user"
+        tool_call["approval_state"] = "requested"
+        rewrite_graph_and_manifest(harness, package_dir, graph, manifest)
+
+        result = harness.import_session(package_dir)
+
+        assert result["side_effect_audit"][0]["action"] == "requires_user"
+        assert result["side_effect_audit"][0]["safe_to_import"] is True
+
+
+def test_local_agent_graph_import_rejects_unsafe_pending_external_write_retry():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        manifest = harness.export_session(package_dir)
+        graph = harness.read_json(package_dir / "graph.json")
+        tool_call = first_tool_call(graph)
+        tool_call["name"] = "aws.ec2.run_instances"
+        tool_call["side_effect"] = "external_write"
+        tool_call["status"] = "in_progress"
+        tool_call["resume_policy"] = "retry_safe"
+        tool_call["approval_state"] = "approved"
+        rewrite_graph_and_manifest(harness, package_dir, graph, manifest)
+
+        try:
+            harness.import_session(package_dir)
+        except harness.ImportVerificationError as exc:
+            assert "unsafe tool replay policy" in str(exc)
+            assert "pending side-effecting tool call is not safe to replay automatically" in str(exc)
+        else:
+            raise AssertionError("unsafe pending external write replay should have failed")
+
+
+def test_local_agent_graph_import_rejects_expired_pending_tool_approval():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        manifest = harness.export_session(package_dir)
+        graph = harness.read_json(package_dir / "graph.json")
+        tool_call = first_tool_call(graph)
+        tool_call["side_effect"] = "external_write"
+        tool_call["status"] = "needs_user"
+        tool_call["resume_policy"] = "ask_user"
+        tool_call["approval_state"] = "expired"
+        rewrite_graph_and_manifest(harness, package_dir, graph, manifest)
+
+        try:
+            harness.import_session(package_dir)
+        except harness.ImportVerificationError as exc:
+            assert "approval is expired" in str(exc)
+        else:
+            raise AssertionError("pending tool call with expired approval should have failed")
 
 
 def test_local_agent_graph_import_rejects_artifact_tampering():

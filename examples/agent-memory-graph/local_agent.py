@@ -34,6 +34,8 @@ TOKENIZER_HASH = "sha256:" + hashlib.sha256(b"permeant-local-byte-tokenizer-v0")
 ARTIFACT_STORE_VERSION = "content-addressed-v0"
 RESTORE_POLICY_VERSION = "workspace-relative-v0"
 STREAM_CHUNK_SIZE = 1024 * 1024
+PENDING_TOOL_STATUSES = {"not_started", "in_progress", "failed", "needs_user"}
+MANUAL_RESUME_POLICIES = {"ask_user", "rebind", "compensate"}
 
 
 class ImportVerificationError(ValueError):
@@ -261,6 +263,99 @@ def build_artifact_record(session: LocalSession, policy: ArtifactExportPolicy) -
         target_path=session.artifact_path,
         rebind_required=rebind_required,
     )
+
+
+def tool_call_nodes(graph: dict[str, Any]) -> list[dict[str, Any]]:
+    return [node for node in graph.get("nodes", []) if node.get("type") == "tool_call"]
+
+
+def audit_tool_replay_safety(graph: dict[str, Any]) -> list[dict[str, Any]]:
+    audit = []
+    for node in tool_call_nodes(graph):
+        side_effect = node.get("side_effect", "unknown")
+        status = node.get("status", "needs_user")
+        resume_policy = node.get("resume_policy", graph.get("policies", {}).get("default_replay_policy", "ask_user"))
+        approval_state = node.get("approval_state", "not_required")
+        entry = {
+            "node_id": node["id"],
+            "name": node.get("name"),
+            "side_effect": side_effect,
+            "status": status,
+            "resume_policy": resume_policy,
+            "approval_state": approval_state,
+            "action": "manual_review",
+            "safe_to_import": True,
+            "reason": "manual review required before tool resume",
+        }
+
+        if status in {"completed", "cancelled"}:
+            entry.update(
+                {
+                    "action": "no_replay",
+                    "safe_to_import": True,
+                    "reason": f"tool call is {status} and must not be replayed",
+                }
+            )
+            if side_effect in {"external_write", "unknown"} and resume_policy == "retry_safe":
+                entry.update(
+                    {
+                        "action": "reject",
+                        "safe_to_import": False,
+                        "reason": "completed side-effecting tool call cannot be marked retry_safe",
+                    }
+                )
+        elif side_effect in {"none", "read_only"} and resume_policy == "retry_safe":
+            entry.update(
+                {
+                    "action": "retry_allowed",
+                    "safe_to_import": True,
+                    "reason": "pending non-mutating tool call is marked retry_safe",
+                }
+            )
+        elif side_effect in {"external_write", "unknown"}:
+            if resume_policy in MANUAL_RESUME_POLICIES:
+                entry.update(
+                    {
+                        "action": "requires_user" if resume_policy == "ask_user" else f"{resume_policy}_required",
+                        "safe_to_import": True,
+                        "reason": "side-effecting tool call requires explicit resume policy before activation",
+                    }
+                )
+            else:
+                entry.update(
+                    {
+                        "action": "reject",
+                        "safe_to_import": False,
+                        "reason": "pending side-effecting tool call is not safe to replay automatically",
+                    }
+                )
+        elif status in PENDING_TOOL_STATUSES:
+            entry.update(
+                {
+                    "action": "manual_review",
+                    "safe_to_import": True,
+                    "reason": "pending tool call requires explicit operator review",
+                }
+            )
+
+        if approval_state in {"denied", "expired"} and status in PENDING_TOOL_STATUSES:
+            entry.update(
+                {
+                    "action": "reject",
+                    "safe_to_import": False,
+                    "reason": f"pending tool call approval is {approval_state}",
+                }
+            )
+
+        audit.append(entry)
+    return audit
+
+
+def reject_unsafe_tool_replay(side_effect_audit: list[dict[str, Any]]) -> None:
+    unsafe = [entry for entry in side_effect_audit if not entry["safe_to_import"]]
+    if unsafe:
+        summary = ", ".join(f"{entry['node_id']}: {entry['reason']}" for entry in unsafe)
+        raise ImportVerificationError(f"unsafe tool replay policy: {summary}")
 
 
 def artifact_node_payload(record: ArtifactRecord) -> dict[str, Any]:
@@ -574,6 +669,7 @@ def build_manifest(graph: dict[str, Any], session: LocalSession, prompt: str, ar
             "kv_hash": simulated_kv_hash(prompt_tokens),
         },
         "kv_spans": graph["kv_spans"],
+        "side_effect_audit": audit_tool_replay_safety(graph),
         "artifact_policy": {
             "version": "artifact-export-policy-v0",
             "excluded_artifacts": artifact_policy_entries(artifact_record, "excluded"),
@@ -721,6 +817,8 @@ def import_session(package_dir: Path, workspace_dir: Path | None = None) -> dict
     manifest = read_json(package_dir / "manifest.json")
     graph = read_json(package_dir / safe_package_relative_path(manifest["graph_path"]))
     verify_graph(graph, manifest["graph_hash"])
+    side_effect_audit = audit_tool_replay_safety(graph)
+    reject_unsafe_tool_replay(side_effect_audit)
     verified_artifacts = verify_artifacts(package_dir, manifest)
     if workspace_dir is None:
         workspace_dir = package_dir / "restored-workspace"
@@ -751,6 +849,7 @@ def import_session(package_dir: Path, workspace_dir: Path | None = None) -> dict
         "verified_artifacts": verified_artifacts,
         "restored_workspace": str(workspace_dir),
         "restore_report": restore_report,
+        "side_effect_audit": side_effect_audit,
         "prompt_byte_hash": prompt_byte_hash,
         "prompt_token_hash": prompt_token_hash,
         "kv_hash": kv_hash,

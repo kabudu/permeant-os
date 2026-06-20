@@ -18,6 +18,8 @@ The harness:
   bytes and force explicit target rebind before use;
 - verifies and restores artifact blobs with streaming hash/copy helpers so large
   files do not need to be loaded into memory as one buffer;
+- records and recomputes a side-effect audit for tool calls before import
+  activation;
 - reconstructs the prompt byte-for-byte; and
 - produces the same deterministic continuation after import.
 
@@ -67,6 +69,12 @@ python3 examples/agent-memory-graph/local_agent.py export \
 
 `--exclude-artifact reports/result.json` follows the same safety boundary but
 records the omission as an exclusion instead of a redaction.
+
+The importer also audits every `tool_call` node before activation. Completed
+side-effecting calls are marked `no_replay`, pending read-only calls marked
+`retry_safe` may retry, and pending write/unknown calls must use an explicit
+manual policy such as `ask_user`, `rebind`, or `compensate`. Unsafe automatic
+replay policies fail import.
 
 This validates graph-only migration. Live KV-cache attachment remains a later
 roadmap item.

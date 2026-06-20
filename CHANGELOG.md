@@ -7,6 +7,21 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Local Agent Memory Graph side-effect audit for tool calls, including
+  no-replay preservation for completed external writes, retry-safe read-only
+  pending calls, explicit manual policies for side-effecting pending work, and
+  unsafe replay rejection before import activation.
+- Harness tests for completed cloud provisioning calls, pending read-only retry,
+  manual resume policy enforcement, unsafe external-write retry rejection, and
+  expired approval rejection.
+
+### Changed
+
+- Marked Phase 5 tool-call replay and side-effect safety complete in the roadmap
+  for the local Agent Memory Graph harness scope.
+
 ## [0.1.13-artifact-safety-policies] - 2026-06-20
 
 ### Added
