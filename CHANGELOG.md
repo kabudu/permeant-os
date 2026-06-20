@@ -7,6 +7,8 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.19-fidelity-horizon-suite] - 2026-06-20
+
 ### Added
 
 - Multi-horizon decode-fidelity analyzer for captured source, target-baseline,
@@ -250,7 +252,8 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.18-reliability-benchmark-pack...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.19-fidelity-horizon-suite...HEAD
+[0.1.19-fidelity-horizon-suite]: https://github.com/kabudu/permeant-os/compare/v0.1.18-reliability-benchmark-pack...v0.1.19-fidelity-horizon-suite
 [0.1.18-reliability-benchmark-pack]: https://github.com/kabudu/permeant-os/compare/v0.1.17-graph-security-policy...v0.1.18-reliability-benchmark-pack
 [0.1.17-graph-security-policy]: https://github.com/kabudu/permeant-os/compare/v0.1.16-agent-framework-adapters...v0.1.17-graph-security-policy
 [0.1.16-agent-framework-adapters]: https://github.com/kabudu/permeant-os/compare/v0.1.15-vector-retrieval-memory...v0.1.16-agent-framework-adapters
