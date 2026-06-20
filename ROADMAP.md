@@ -268,7 +268,8 @@ Deliverables:
   cost/latency calculation justifies baking them in.
 - [x] Longer-horizon decode-fidelity benchmark suite for captured source,
   baseline, and post-migration continuations.
-- [ ] Larger context runs beyond 2k tokens.
+- [x] Larger context benchmark matrix planning and runner configuration beyond
+  2k tokens.
 - [ ] Transfer quantization comparison for real-runtime fidelity.
 - [ ] Adaptive KV transfer codec experiments: capability-negotiated raw, FP8,
   TurboQuant-style, and Quaternion-Augmented TurboQuant candidate codecs, with
@@ -393,6 +394,8 @@ Scope:
   failure-injection tests for interrupted graph/KV migration frames.
 - [x] Add multi-horizon decode-fidelity analysis tooling and AWS runner
   integration for captured continuation artifacts.
+- [x] Add larger-than-2k context benchmark matrix planning with checked target
+  context-window requirements.
 - [x] Prototype graph-attached migration manifest extensions and analyzer
   checks behind the existing Agent Memory Graph manifest path.
 - [x] Add content-addressed artifact packaging and restored-workspace

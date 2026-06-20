@@ -25,6 +25,7 @@ What works today:
 - Conservative AWS prewarm image/container recipe for faster E2E bootstrap without always-on infrastructure.
 - Structured benchmark manifest summaries for paper/update tables and failure records.
 - Multi-horizon decode-fidelity analysis over captured source, baseline, and post-migration continuations.
+- Larger-context benchmark matrix planning with checked vLLM context-window requirements.
 - Exact short-horizon MLX-to-vLLM continuation fidelity for one validated Qwen run.
 - Agent Memory Graph v0 schema and specification for portable conversation, tool, artifact, memory, checkpoint, provenance, and KV-span state.
 - Minimal local Agent Memory Graph export/import harness with deterministic prompt reconstruction, content-addressed artifact packaging, artifact hash verification, and restored-workspace validation.
@@ -67,6 +68,7 @@ What is still experimental:
 - `docs/deployment-and-testing-guide.md`: local, cloud-host, manifest, benchmark, and Runpod workflow guide.
 - `docs/benchmark-summary-tooling.md`: structured manifest summary and paper-table tooling.
 - `docs/fidelity-horizon-suite.md`: multi-horizon decode-fidelity comparison tooling.
+- `docs/context-benchmark-matrix.md`: larger-than-2k context benchmark planning.
 - `docs/aws-real-runtime-e2e-runner.md`: repeatable AWS real-runtime E2E runner and cleanup/resume runbook.
 - `docs/aws-prewarm-image.md`: conservative AWS image/container prewarm recipe and cost guardrails.
 - `docs/graph-attached-kv-migration-plan.md`: Phase 3 graph-attached live KV migration plan and acceptance criteria.
@@ -146,6 +148,14 @@ scripts/analyze-fidelity-horizons.py \
   --probe .permeant-e2e/aws/<run-id>/vllm-runtime-probe.json \
   --horizons 16,32,64 \
   --markdown-out .permeant-e2e/aws/<run-id>/fidelity-horizons.md
+```
+
+Plan larger-than-2k context benchmark points:
+
+```bash
+scripts/plan-context-benchmarks.py \
+  --markdown-out benchmark-manifests/context-matrix.md \
+  --env-out benchmark-manifests/context-matrix.env
 ```
 
 ## Benchmark snapshot
