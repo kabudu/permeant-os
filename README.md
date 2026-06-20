@@ -30,6 +30,7 @@ What works today:
 - Local tool-call replay safety audit for completed side effects, retry-safe read-only pending work, manual resume policies, and unsafe replay rejection.
 - Local vector/retrieval memory snapshot validation and external vector-store rebind reporting.
 - Agent Memory Graph adapter conformance layer with LangGraph-style durable-state and MCP-backed tool/resource session mappings.
+- Local Agent Memory Graph security policy gate with signed-root attestation, provenance chain checks, secret rejection, credential rebinding, and target/tool/artifact allowlists.
 - Optional Agent Memory Graph hash metadata in migration manifests.
 
 What is still experimental:
@@ -55,6 +56,7 @@ What is still experimental:
 
 - `ROADMAP.md`: full roadmap, including Agent Memory Graph migration phases.
 - `docs/agent-memory-graph.md`: Agent Memory Graph v0 schema specification.
+- `docs/agent-memory-graph-threat-model.md`: local graph import threat model and Phase 8 security controls.
 - `docs/schemas/agent-memory-graph-v0.schema.json`: machine-readable JSON Schema for the graph envelope.
 - `docs/agent-framework-adapters.md`: Agent Memory Graph adapter capability manifest, compatibility matrix, and conformance rules.
 - `docs/usxf-arxiv-paper.md`: paper draft covering USXF, PermeantOS, and real-runtime E2E findings.
@@ -153,6 +155,7 @@ Completed:
 - Tool-call replay safety audit in the local graph harness, including no-replay preservation for completed external writes, retry-safe read-only pending calls, manual resume requirements, and rejection of unsafe side-effect retries.
 - Vector/retrieval memory support in the local graph harness, including deterministic vector snapshots, embedding/index compatibility checks, retrieval equivalence validation, and hosted vector-store rebind reporting.
 - Agent framework adapter conformance for two independent runtime families: LangGraph-style durable state and MCP-backed tool/resource sessions.
+- Security, provenance, and policy hardening in the local graph harness, including signed-root metadata, provenance-chain audit evidence, raw secret rejection, credential rebind enforcement, and target/tool/artifact allowlists.
 - Adapter-side graph span metadata emitted by the MLX live runtime and validated against the vLLM target tokenizer view before target ingest.
 - Daemon transaction binding for manifest-referenced graph packages, rejected before commit when required graph/KV evidence is incomplete or does not match the migrated KV header.
 - Analyzer reporting for prompt, graph, graph/KV span, and KV alignment in fidelity summaries.

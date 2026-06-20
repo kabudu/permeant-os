@@ -36,6 +36,22 @@ EMBEDDING_DIM = 8
 VECTOR_STORE_REF = "vector:local-reference:session"
 ARTIFACT_STORE_VERSION = "content-addressed-v0"
 RESTORE_POLICY_VERSION = "workspace-relative-v0"
+SECURITY_POLICY_VERSION = "agent-graph-security-policy-v0"
+ROOT_SIGNATURE_ALGORITHM = "sha256-local-root-signature-v0"
+TRUSTED_SIGNER_ID = "signer:local-reference"
+ALLOWED_TARGET_RUNTIMES = {RUNTIME_ID}
+ALLOWED_TOOL_NAMES = {"fs.write_file", "aws.ec2.describe_instances", "aws.ec2.run_instances"}
+ALLOWED_ARTIFACT_PATH_PREFIXES = ("reports/",)
+FORBIDDEN_SECRET_KEYS = {
+    "secret_value",
+    "raw_secret",
+    "raw_credential",
+    "private_key",
+    "access_token",
+    "refresh_token",
+    "api_key",
+    "password",
+}
 STREAM_CHUNK_SIZE = 1024 * 1024
 PENDING_TOOL_STATUSES = {"not_started", "in_progress", "failed", "needs_user"}
 MANUAL_RESUME_POLICIES = {"ask_user", "rebind", "compensate"}
@@ -147,9 +163,24 @@ def safe_package_relative_path(path: str) -> Path:
     return safe_relative_path(path, "package path")
 
 
+def path_allowed_by_prefix(path: str) -> bool:
+    normalized = safe_workspace_relative_path(path).as_posix()
+    return any(normalized.startswith(prefix) for prefix in ALLOWED_ARTIFACT_PATH_PREFIXES)
+
+
 def canonical_graph_hash(graph: dict[str, Any]) -> str:
     payload = copy.deepcopy(graph)
     payload.pop("graph_hash", None)
+    return sha256_json(payload)
+
+
+def graph_root_signature(graph_hash: str, signer_id: str = TRUSTED_SIGNER_ID) -> str:
+    payload = {
+        "algorithm": ROOT_SIGNATURE_ALGORITHM,
+        "graph_hash": graph_hash,
+        "policy_version": SECURITY_POLICY_VERSION,
+        "signer_id": signer_id,
+    }
     return sha256_json(payload)
 
 
@@ -497,6 +528,117 @@ def reject_unsafe_tool_replay(side_effect_audit: list[dict[str, Any]]) -> None:
         raise ImportVerificationError(f"unsafe tool replay policy: {summary}")
 
 
+def find_forbidden_secret_material(value: Any, path: str = "$") -> list[str]:
+    findings = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            child_path = f"{path}.{key}"
+            if key.lower() in FORBIDDEN_SECRET_KEYS:
+                findings.append(child_path)
+            findings.extend(find_forbidden_secret_material(child, child_path))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            findings.extend(find_forbidden_secret_material(child, f"{path}[{index}]"))
+    return findings
+
+
+def credential_ref_nodes(graph: dict[str, Any]) -> list[dict[str, Any]]:
+    return [node for node in graph.get("nodes", []) if node.get("type") == "credential_ref"]
+
+
+def artifact_nodes(graph: dict[str, Any]) -> list[dict[str, Any]]:
+    return [node for node in graph.get("nodes", []) if node.get("type") == "artifact"]
+
+
+def build_security_attestation(graph: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "policy_version": SECURITY_POLICY_VERSION,
+        "signature_algorithm": ROOT_SIGNATURE_ALGORITHM,
+        "signer_id": TRUSTED_SIGNER_ID,
+        "graph_root_signature": graph_root_signature(graph["graph_hash"]),
+        "trusted_signer_ids": [TRUSTED_SIGNER_ID],
+        "provenance_chain": [
+            {
+                "graph_id": graph["graph_id"],
+                "event": "exported",
+                "created_at": CREATED_AT,
+                "graph_hash": graph["graph_hash"],
+                "signer_id": TRUSTED_SIGNER_ID,
+            }
+        ],
+        "policy_hooks": {
+            "allowed_target_runtimes": sorted(ALLOWED_TARGET_RUNTIMES),
+            "allowed_tools": sorted(ALLOWED_TOOL_NAMES),
+            "allowed_artifact_path_prefixes": list(ALLOWED_ARTIFACT_PATH_PREFIXES),
+            "credential_policy": "rebind_only",
+            "secret_material_policy": "reject_raw_secret_keys",
+        },
+    }
+
+
+def validate_security_policy(graph: dict[str, Any], manifest: dict[str, Any], target_runtime: str = RUNTIME_ID) -> dict[str, Any]:
+    security = manifest.get("security")
+    if not security:
+        raise ImportVerificationError("missing security attestation")
+    if security.get("policy_version") != SECURITY_POLICY_VERSION:
+        raise ImportVerificationError("unsupported security policy version")
+    if security.get("signature_algorithm") != ROOT_SIGNATURE_ALGORITHM:
+        raise ImportVerificationError("unsupported graph root signature algorithm")
+    signer_id = security.get("signer_id")
+    if signer_id not in set(security.get("trusted_signer_ids", [])):
+        raise ImportVerificationError("graph root signer is not trusted")
+    expected_signature = graph_root_signature(graph["graph_hash"], signer_id)
+    if security.get("graph_root_signature") != expected_signature:
+        raise ImportVerificationError("graph root signature mismatch")
+
+    policy_hooks = security.get("policy_hooks", {})
+    allowed_targets = set(policy_hooks.get("allowed_target_runtimes", []))
+    if target_runtime not in allowed_targets:
+        raise ImportVerificationError(f"target runtime is not allowed by security policy: {target_runtime}")
+    allowed_tools = set(policy_hooks.get("allowed_tools", []))
+    for node in tool_call_nodes(graph):
+        if node.get("name") not in allowed_tools:
+            raise ImportVerificationError(f"tool is not allowed by security policy: {node.get('name')}")
+
+    for artifact in manifest.get("artifacts", []):
+        if not path_allowed_by_prefix(artifact.get("path", "")):
+            raise ImportVerificationError(f"artifact path is not allowed by security policy: {artifact.get('path')}")
+        target_path = artifact.get("target_path", artifact.get("path", ""))
+        if not path_allowed_by_prefix(target_path):
+            raise ImportVerificationError(f"artifact target path is not allowed by security policy: {target_path}")
+    for node in artifact_nodes(graph):
+        path = node.get("path")
+        if path and not path_allowed_by_prefix(path):
+            raise ImportVerificationError(f"artifact node path is not allowed by security policy: {path}")
+
+    secret_findings = find_forbidden_secret_material(graph) + find_forbidden_secret_material(manifest)
+    if secret_findings:
+        raise ImportVerificationError(f"raw secret material is not allowed: {', '.join(secret_findings)}")
+
+    for node in credential_ref_nodes(graph):
+        if node.get("redaction_state") != "external_only":
+            raise ImportVerificationError(f"credential reference must be external_only: {node['id']}")
+        if node.get("required") is not True:
+            raise ImportVerificationError(f"credential reference must require target rebind: {node['id']}")
+        if not node.get("binding"):
+            raise ImportVerificationError(f"credential reference must include a rebind hint: {node['id']}")
+
+    provenance_chain = security.get("provenance_chain", [])
+    if not provenance_chain:
+        raise ImportVerificationError("missing provenance chain")
+    latest = provenance_chain[-1]
+    if latest.get("graph_id") != graph.get("graph_id") or latest.get("graph_hash") != graph.get("graph_hash"):
+        raise ImportVerificationError("provenance chain does not match graph root")
+
+    return {
+        "status": "verified",
+        "policy_version": SECURITY_POLICY_VERSION,
+        "signer_id": signer_id,
+        "target_runtime": target_runtime,
+        "provenance_events": len(provenance_chain),
+    }
+
+
 def vector_retrieval_payload(query_text: str) -> dict[str, Any]:
     query_embedding = deterministic_embedding(query_text)
     memory_text = "artifact:report status complete"
@@ -743,6 +885,21 @@ def build_graph(session: LocalSession, artifact_record: ArtifactRecord, prompt: 
                     "block_hashes": [token_hash(prompt_tokens)],
                 },
             ),
+            base_node(
+                "credential:local-filesystem",
+                "credential_ref",
+                {
+                    "actor_id": TOOL_ID,
+                    "memory_scope": "external",
+                    "memory_tier": "external",
+                    "sensitivity": "secret",
+                    "retention": "delete_on_import",
+                    "redaction_state": "external_only",
+                    "capability": "local.filesystem.write",
+                    "binding": "target runtime must authorize reports/ artifact writes",
+                    "required": True,
+                },
+            ),
         ]
     )
 
@@ -760,6 +917,7 @@ def build_graph(session: LocalSession, artifact_record: ArtifactRecord, prompt: 
             {"from": "retrieval:report-memory", "to": "memory:report-fact", "type": "retrieved"},
             {"from": "checkpoint:prompt", "to": "turn:user:2", "type": "checkpointed"},
             {"from": "kv:span:prompt", "to": "checkpoint:prompt", "type": "references"},
+            {"from": "credential:local-filesystem", "to": "tool:call:write-report", "type": "approves"},
         ]
     )
 
@@ -777,6 +935,14 @@ def build_graph(session: LocalSession, artifact_record: ArtifactRecord, prompt: 
             {"id": AGENT_ID, "kind": "agent", "name": "Local reference agent", "model": MODEL_ID},
             {"id": USER_ID, "kind": "user", "name": "Local reference user"},
             {"id": TOOL_ID, "kind": "tool", "provider": "local-reference"},
+            {"id": "runtime:local-reference", "kind": "runtime", "provider": "local-reference"},
+        ],
+        "lineage": [
+            {
+                "graph_id": "graph:local-reference:0001",
+                "event": "exported",
+                "created_at": CREATED_AT,
+            }
         ],
         "policies": {
             "default_replay_policy": "ask_user",
@@ -866,6 +1032,7 @@ def build_manifest(graph: dict[str, Any], session: LocalSession, prompt: str, ar
             "excluded_artifacts": artifact_policy_entries(artifact_record, "excluded"),
             "redacted_artifacts": artifact_policy_entries(artifact_record, "redacted"),
         },
+        "security": build_security_attestation(graph),
         "artifacts": [manifest_artifact(artifact_record)],
         "deterministic_next_response": session.deterministic_response,
     }
@@ -1004,10 +1171,11 @@ def restore_artifacts(
     return report
 
 
-def import_session(package_dir: Path, workspace_dir: Path | None = None) -> dict[str, Any]:
+def import_session(package_dir: Path, workspace_dir: Path | None = None, target_runtime: str = RUNTIME_ID) -> dict[str, Any]:
     manifest = read_json(package_dir / "manifest.json")
     graph = read_json(package_dir / safe_package_relative_path(manifest["graph_path"]))
     verify_graph(graph, manifest["graph_hash"])
+    security_report = validate_security_policy(graph, manifest, target_runtime)
     side_effect_audit = audit_tool_replay_safety(graph)
     reject_unsafe_tool_replay(side_effect_audit)
     vector_memory_report = validate_vector_memory(graph, manifest)
@@ -1041,6 +1209,7 @@ def import_session(package_dir: Path, workspace_dir: Path | None = None) -> dict
         "verified_artifacts": verified_artifacts,
         "restored_workspace": str(workspace_dir),
         "restore_report": restore_report,
+        "security": security_report,
         "side_effect_audit": side_effect_audit,
         "vector_memory": vector_memory_report,
         "prompt_byte_hash": prompt_byte_hash,

@@ -25,6 +25,7 @@ def rewrite_graph_and_manifest(harness, package_dir, graph, manifest):
             graph,
             manifest["vector_memory"]["query_text"],
         )
+    manifest["security"] = harness.build_security_attestation(graph)
     harness.write_json(package_dir / "graph.json", graph)
     harness.write_json(package_dir / "manifest.json", manifest)
 
@@ -60,6 +61,7 @@ def test_local_agent_graph_export_import_roundtrip():
             "agent",
             "participants",
             "policies",
+            "lineage",
             "nodes",
             "edges",
             "kv_spans",
@@ -102,6 +104,15 @@ def test_local_agent_graph_export_import_roundtrip():
         ]
         assert result["vector_memory"]["status"] == "verified"
         assert result["vector_memory"]["expected_results"] == manifest["vector_memory"]["expected_results"]
+        assert result["security"] == {
+            "status": "verified",
+            "policy_version": harness.SECURITY_POLICY_VERSION,
+            "signer_id": harness.TRUSTED_SIGNER_ID,
+            "target_runtime": harness.RUNTIME_ID,
+            "provenance_events": 1,
+        }
+        assert manifest["security"]["graph_root_signature"] == harness.graph_root_signature(graph["graph_hash"])
+        assert manifest["security"]["policy_hooks"]["credential_policy"] == "rebind_only"
         assert manifest["side_effect_audit"] == [
             {
                 "node_id": "tool:call:write-report",
@@ -257,6 +268,108 @@ def test_local_agent_graph_import_rejects_external_vector_without_rebind_marker(
             assert "external vector memory must be explicitly marked rebind_required" in str(exc)
         else:
             raise AssertionError("external vector memory without rebind marker should have failed")
+
+
+def test_local_agent_graph_import_rejects_tampered_graph_root_signature():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        manifest = harness.export_session(package_dir)
+        manifest["security"]["graph_root_signature"] = harness.sha256_bytes(b"tampered-signature")
+        harness.write_json(package_dir / "manifest.json", manifest)
+
+        try:
+            harness.import_session(package_dir)
+        except harness.ImportVerificationError as exc:
+            assert "graph root signature mismatch" in str(exc)
+        else:
+            raise AssertionError("tampered graph root signature should have failed")
+
+
+def test_local_agent_graph_import_rejects_raw_secret_material():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        manifest = harness.export_session(package_dir)
+        graph = harness.read_json(package_dir / "graph.json")
+        credential = next(node for node in graph["nodes"] if node["type"] == "credential_ref")
+        credential["secret_value"] = "not-for-export"
+        rewrite_graph_and_manifest(harness, package_dir, graph, manifest)
+
+        try:
+            harness.import_session(package_dir)
+        except harness.ImportVerificationError as exc:
+            assert "raw secret material is not allowed" in str(exc)
+            assert "secret_value" in str(exc)
+        else:
+            raise AssertionError("raw secret material should have failed")
+
+
+def test_local_agent_graph_import_rejects_untrusted_target_runtime():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        harness.export_session(package_dir)
+
+        try:
+            harness.import_session(package_dir, target_runtime="runtime:untrusted")
+        except harness.ImportVerificationError as exc:
+            assert "target runtime is not allowed by security policy" in str(exc)
+        else:
+            raise AssertionError("untrusted target runtime should have failed")
+
+
+def test_local_agent_graph_import_rejects_disallowed_tool():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        manifest = harness.export_session(package_dir)
+        graph = harness.read_json(package_dir / "graph.json")
+        tool_call = first_tool_call(graph)
+        tool_call["name"] = "shell.exec"
+        rewrite_graph_and_manifest(harness, package_dir, graph, manifest)
+
+        try:
+            harness.import_session(package_dir)
+        except harness.ImportVerificationError as exc:
+            assert "tool is not allowed by security policy" in str(exc)
+        else:
+            raise AssertionError("disallowed tool should have failed")
+
+
+def test_local_agent_graph_import_rejects_disallowed_artifact_path():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        manifest = harness.export_session(package_dir)
+        manifest["artifacts"][0]["path"] = "secrets/result.json"
+        manifest["security"] = harness.build_security_attestation(harness.read_json(package_dir / "graph.json"))
+        harness.write_json(package_dir / "manifest.json", manifest)
+
+        try:
+            harness.import_session(package_dir)
+        except harness.ImportVerificationError as exc:
+            assert "artifact path is not allowed by security policy" in str(exc)
+        else:
+            raise AssertionError("disallowed artifact path should have failed")
+
+
+def test_local_agent_graph_import_rejects_credential_ref_without_external_rebind():
+    harness = load_harness()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        package_dir = pathlib.Path(temp_dir) / "package"
+        manifest = harness.export_session(package_dir)
+        graph = harness.read_json(package_dir / "graph.json")
+        credential = next(node for node in graph["nodes"] if node["type"] == "credential_ref")
+        credential["redaction_state"] = "none"
+        rewrite_graph_and_manifest(harness, package_dir, graph, manifest)
+
+        try:
+            harness.import_session(package_dir)
+        except harness.ImportVerificationError as exc:
+            assert "credential reference must be external_only" in str(exc)
+        else:
+            raise AssertionError("credential ref without external rebind should have failed")
 
 
 def test_local_agent_graph_import_preserves_completed_cloud_write_without_replay():

@@ -7,6 +7,23 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Local Agent Memory Graph security policy gate with graph-root attestation,
+  trusted signer checks, provenance-chain audit evidence, raw secret rejection,
+  credential rebind enforcement, target runtime allowlists, tool allowlists,
+  and artifact path allowlists.
+- Threat model for local Agent Memory Graph imports, including current controls
+  and limitations.
+- Harness tests for tampered graph-root signatures, raw secret fields,
+  untrusted target runtimes, disallowed tools, disallowed artifact paths, and
+  unsafe credential references.
+
+### Changed
+
+- Marked Phase 8 security, provenance, and policy complete for the local Agent
+  Memory Graph harness security boundary.
+
 ## [0.1.16-agent-framework-adapters] - 2026-06-20
 
 ### Added

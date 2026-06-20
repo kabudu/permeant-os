@@ -45,6 +45,12 @@ The first adapter conformance mappings are documented in
 LangGraph-style durable state and MCP-backed tool/resource sessions without
 adding third-party runtime dependencies to CI.
 
+The local import security boundary is documented in
+`docs/agent-memory-graph-threat-model.md`. The reference harness verifies
+signed graph-root metadata, provenance-chain evidence, target/runtime policy,
+tool and artifact allowlists, raw secret exclusion, and credential rebinding
+before activating an imported package.
+
 ## Goals
 
 - Represent a simple chat, tool, and artifact session as a portable graph.
@@ -301,6 +307,10 @@ target runtime can rebind a capability:
 - `capability`: provider-specific capability name.
 - `binding`: target rebinding hint.
 - `required`: whether import must fail if the credential cannot be rebound.
+
+The local reference importer rejects credential references unless they are
+marked `redaction_state: "external_only"`, include a binding hint, and require
+target rebind.
 
 ## Edge Types
 
