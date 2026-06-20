@@ -5,6 +5,7 @@ usage() {
   cat <<'USAGE'
 Usage:
   scripts/aws-real-runtime-e2e.sh run
+  scripts/aws-real-runtime-e2e.sh preflight
   scripts/aws-real-runtime-e2e.sh status [STATE_FILE]
   scripts/aws-real-runtime-e2e.sh cleanup [STATE_FILE]
 
@@ -23,6 +24,9 @@ Environment overrides:
   PERMEANT_SOURCE_CONTINUATION_FILE  default: /tmp/permeant-source-continuation.json
   PERMEANT_LOCAL_TUNNEL_PORT         default: 39099
   PERMEANT_STATE_DIR                 default: .permeant-e2e/aws
+  PERMEANT_PREFLIGHT_SKIP_AWS        default: 0
+  PERMEANT_PREFLIGHT_SKIP_BUILD      default: 0
+  PERMEANT_PREFLIGHT_SKIP_SOURCE     default: 0
 
 The runner is state-file driven. If anything fails after provisioning, run:
   scripts/aws-real-runtime-e2e.sh cleanup .permeant-e2e/aws/<run-id>/state.json
@@ -46,6 +50,9 @@ PERMEANT_SOURCE_URL="${PERMEANT_SOURCE_URL:-http://127.0.0.1:29101}"
 PERMEANT_SOURCE_CONTINUATION_FILE="${PERMEANT_SOURCE_CONTINUATION_FILE:-/tmp/permeant-source-continuation.json}"
 PERMEANT_LOCAL_TUNNEL_PORT="${PERMEANT_LOCAL_TUNNEL_PORT:-39099}"
 PERMEANT_STATE_DIR="${PERMEANT_STATE_DIR:-$ROOT_DIR/.permeant-e2e/aws}"
+PERMEANT_PREFLIGHT_SKIP_AWS="${PERMEANT_PREFLIGHT_SKIP_AWS:-0}"
+PERMEANT_PREFLIGHT_SKIP_BUILD="${PERMEANT_PREFLIGHT_SKIP_BUILD:-0}"
+PERMEANT_PREFLIGHT_SKIP_SOURCE="${PERMEANT_PREFLIGHT_SKIP_SOURCE:-0}"
 
 STATE_FILE=""
 RUN_DIR=""
@@ -67,6 +74,13 @@ log() {
 die() {
   printf 'error: %s\n' "$*" >&2
   exit 1
+}
+
+check_status() {
+  local status="$1"
+  local name="$2"
+  local message="$3"
+  printf '%s\t%s\t%s\n' "$status" "$name" "$message"
 }
 
 need() {
@@ -224,6 +238,143 @@ data = {
 with open("$STATE_FILE", "w") as f:
     json.dump(data, f, indent=2, sort_keys=True)
     f.write("\\n")
+PY
+}
+
+validate_numeric_config() {
+  [[ "$PERMEANT_SEQ_LEN" =~ ^[0-9]+$ ]] || return 1
+  [[ "$PERMEANT_VLLM_MAX_MODEL_LEN" =~ ^[0-9]+$ ]] || return 1
+  [[ "$PERMEANT_CONTINUATION_MAX_TOKENS" =~ ^[0-9]+$ ]] || return 1
+  [[ "$PERMEANT_LOCAL_TUNNEL_PORT" =~ ^[0-9]+$ ]] || return 1
+  (( PERMEANT_SEQ_LEN > 0 )) || return 1
+  (( PERMEANT_VLLM_MAX_MODEL_LEN > PERMEANT_SEQ_LEN )) || return 1
+  (( PERMEANT_CONTINUATION_MAX_TOKENS > 0 )) || return 1
+  (( PERMEANT_LOCAL_TUNNEL_PORT > 0 && PERMEANT_LOCAL_TUNNEL_PORT <= 65535 )) || return 1
+}
+
+write_preflight_report() {
+  local report_file="$1"
+  local checks_file="$2"
+  python3 - "$report_file" "$STATE_FILE" "$checks_file" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+report_path, state_path, checks_path = sys.argv[1], sys.argv[2], sys.argv[3]
+checks = []
+for raw in Path(checks_path).read_text().splitlines():
+    status, name, message = raw.split("\t", 2)
+    checks.append({"status": status, "name": name, "message": message})
+failed = [check for check in checks if check["status"] == "fail"]
+skipped = [check for check in checks if check["status"] == "skip"]
+state = json.loads(Path(state_path).read_text())
+report = {
+    "schema_version": "permeantos-aws-e2e-preflight-v0",
+    "ok": not failed,
+    "failed_count": len(failed),
+    "skipped_count": len(skipped),
+    "checks": checks,
+    "state_file": state_path,
+    "run_id": state.get("run_id"),
+    "region": state.get("region"),
+    "az": state.get("az"),
+    "instance_type": state.get("instance_type"),
+    "ami_id": state.get("ami_id"),
+    "seq_len": state.get("seq_len"),
+    "vllm_max_model_len": state.get("vllm_max_model_len"),
+    "transfer_quantization": state.get("transfer_quantization"),
+}
+Path(report_path).write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+print(json.dumps(report, indent=2, sort_keys=True))
+PY
+}
+
+preflight_cmd() {
+  create_state
+  rm -f "$PERMEANT_STATE_DIR/latest"
+  ln -s "$RUN_DIR" "$PERMEANT_STATE_DIR/latest"
+  local checks_file report_file
+  checks_file="$RUN_DIR/preflight-checks.tsv"
+  report_file="$RUN_DIR/preflight-report.json"
+  : > "$checks_file"
+
+  local required_commands=(curl git python3 scp ssh ssh-keyscan)
+  if [[ "$PERMEANT_PREFLIGHT_SKIP_AWS" != "1" ]]; then
+    required_commands+=(aws)
+  fi
+  for command_name in "${required_commands[@]}"; do
+    if command -v "$command_name" >/dev/null 2>&1; then
+      check_status pass "command:$command_name" "found" >> "$checks_file"
+    else
+      check_status fail "command:$command_name" "missing required command" >> "$checks_file"
+    fi
+  done
+
+  if validate_numeric_config; then
+    check_status pass "configuration:numeric" "sequence length, context window, continuation tokens, and tunnel port are valid" >> "$checks_file"
+  else
+    check_status fail "configuration:numeric" "invalid numeric configuration or vLLM max model length does not exceed migrated sequence length" >> "$checks_file"
+  fi
+
+  if [[ "$PERMEANT_TRANSFER_QUANTIZATION" == "none" || "$PERMEANT_TRANSFER_QUANTIZATION" == "fp8" ]]; then
+    check_status pass "configuration:transfer_quantization" "$PERMEANT_TRANSFER_QUANTIZATION is supported by the current runner" >> "$checks_file"
+  else
+    check_status fail "configuration:transfer_quantization" "unsupported PERMEANT_TRANSFER_QUANTIZATION: $PERMEANT_TRANSFER_QUANTIZATION" >> "$checks_file"
+  fi
+
+  if [[ "$PERMEANT_PREFLIGHT_SKIP_BUILD" == "1" ]]; then
+    check_status skip "local:permeant_cli" "skipped by PERMEANT_PREFLIGHT_SKIP_BUILD=1" >> "$checks_file"
+  elif [[ -x "$ROOT_DIR/target/debug/permeant-cli" ]]; then
+    check_status pass "local:permeant_cli" "target/debug/permeant-cli exists" >> "$checks_file"
+  else
+    check_status fail "local:permeant_cli" "missing local target/debug/permeant-cli; run cargo build before E2E" >> "$checks_file"
+  fi
+
+  if [[ "$PERMEANT_PREFLIGHT_SKIP_SOURCE" == "1" ]]; then
+    check_status skip "source:continuation_file" "skipped by PERMEANT_PREFLIGHT_SKIP_SOURCE=1" >> "$checks_file"
+    check_status skip "source:mlx_exporter" "skipped by PERMEANT_PREFLIGHT_SKIP_SOURCE=1" >> "$checks_file"
+  else
+    if [[ -f "$PERMEANT_SOURCE_CONTINUATION_FILE" ]]; then
+      check_status pass "source:continuation_file" "$PERMEANT_SOURCE_CONTINUATION_FILE exists" >> "$checks_file"
+    else
+      check_status fail "source:continuation_file" "missing source continuation file: $PERMEANT_SOURCE_CONTINUATION_FILE" >> "$checks_file"
+    fi
+    if curl -fsS --max-time 2 "$PERMEANT_SOURCE_URL" >/dev/null 2>&1; then
+      check_status pass "source:mlx_exporter" "$PERMEANT_SOURCE_URL is reachable" >> "$checks_file"
+    else
+      check_status fail "source:mlx_exporter" "$PERMEANT_SOURCE_URL is not reachable" >> "$checks_file"
+    fi
+  fi
+
+  if [[ "$PERMEANT_PREFLIGHT_SKIP_AWS" == "1" ]]; then
+    check_status skip "aws:identity" "skipped by PERMEANT_PREFLIGHT_SKIP_AWS=1" >> "$checks_file"
+    check_status skip "aws:network" "skipped by PERMEANT_PREFLIGHT_SKIP_AWS=1" >> "$checks_file"
+    check_status skip "aws:ami" "skipped by PERMEANT_PREFLIGHT_SKIP_AWS=1" >> "$checks_file"
+  else
+    if aws sts get-caller-identity --region "$AWS_REGION" >/dev/null 2>&1; then
+      check_status pass "aws:identity" "AWS caller identity is available" >> "$checks_file"
+    else
+      check_status fail "aws:identity" "AWS caller identity is not available" >> "$checks_file"
+    fi
+    if aws ec2 describe-subnets --region "$AWS_REGION" --filters "Name=availability-zone,Values=$AWS_AZ" "Name=default-for-az,Values=true" --query 'Subnets[0].SubnetId' --output text >/dev/null 2>&1; then
+      check_status pass "aws:network" "default subnet lookup succeeded for $AWS_AZ" >> "$checks_file"
+    else
+      check_status fail "aws:network" "default subnet lookup failed for $AWS_AZ" >> "$checks_file"
+    fi
+    if aws ec2 describe-images --region "$AWS_REGION" --image-ids "$AWS_AMI_ID" >/dev/null 2>&1; then
+      check_status pass "aws:ami" "$AWS_AMI_ID is visible in $AWS_REGION" >> "$checks_file"
+    else
+      check_status fail "aws:ami" "$AWS_AMI_ID is not visible in $AWS_REGION" >> "$checks_file"
+    fi
+  fi
+
+  write_preflight_report "$report_file" "$checks_file"
+  json_set "$STATE_FILE" preflight_report "$report_file"
+  log "preflight report: $report_file"
+  python3 - "$report_file" <<'PY'
+import json, sys
+report = json.load(open(sys.argv[1]))
+raise SystemExit(0 if report["ok"] else 1)
 PY
 }
 
@@ -543,6 +694,7 @@ cleanup_cmd() {
   if [[ -n "$key" ]]; then
     aws ec2 describe-key-pairs --region "$AWS_REGION" --key-names "$key" >/dev/null 2>&1 && die "key pair still exists: $key" || true
   fi
+  json_set "$STATE_FILE" cleanup_verified_at "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   log "cleanup complete"
 }
 
@@ -576,6 +728,9 @@ run_cmd() {
 }
 
 case "$COMMAND" in
+  preflight)
+    preflight_cmd
+    ;;
   run)
     run_cmd
     ;;

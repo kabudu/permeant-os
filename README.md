@@ -134,10 +134,16 @@ In another terminal, run a simulated migration:
 For real-runtime MLX-to-vLLM validation, start with:
 
 ```bash
+scripts/aws-real-runtime-e2e.sh preflight
 scripts/aws-real-runtime-e2e.sh run
 ```
 
-Read `docs/aws-real-runtime-e2e-runner.md` first. The script provisions billable AWS GPU infrastructure and is designed to clean up after itself, but you should understand the state file and cleanup command before running it. To reduce cold-start setup time without leaving infrastructure running, see `docs/aws-prewarm-image.md`.
+Read `docs/aws-real-runtime-e2e-runner.md` first. The preflight command does
+not provision infrastructure. The `run` command provisions billable AWS GPU
+infrastructure and is designed to clean up after itself, but you should
+understand the state file and cleanup command before running it. To reduce
+cold-start setup time without leaving infrastructure running, see
+`docs/aws-prewarm-image.md`.
 
 Summarize migration manifests after a local or cloud batch:
 
