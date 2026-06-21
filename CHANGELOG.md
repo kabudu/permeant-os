@@ -37,6 +37,12 @@ and this project uses release tags compatible with semantic versioning.
   K/V tensors can be written directly into `llama_kv_cache` backend tensors:
   deliberate KV corruption changes decode, and direct canonical KV restore
   returns exact source continuation without using llama.cpp state files.
+- Added a cross-runtime MLX-to-llama.cpp canonical KV feed proof: a live MLX
+  source exports canonical f32 K/V tensors and prompt-span metadata, llama.cpp
+  tokenization matches the exported span, the raw writer imports the external
+  tensors into `llama_kv_cache`, deliberate corruption changes decode, and the
+  restored llama.cpp continuation matches the MLX source token-for-token at the
+  aligned decode boundary.
 
 ### Changed
 

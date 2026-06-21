@@ -193,16 +193,20 @@ load migrated libllama state into a fresh context and decode exact matching
 greedy continuation tokens. The raw internal proof uses matching private
 llama.cpp headers to write canonical f32 K/V directly into `llama_kv_cache`
 backend tensors; deliberate corruption changes decode, and canonical restore
-returns exact source continuation.
+returns exact source continuation. The cross-runtime proof feeds MLX-exported
+canonical Qwen2.5 K/V tensors into the raw writer with tokenizer/span and
+position alignment, then validates exact source/target continuation at the
+aligned decode boundary.
 
 | Field | Value |
 | --- | --- |
 | Local proof | `docs/llama-cpp-target-runtime-local-proof-2026-06-21.md` |
 | Live binding proof | `docs/llama-cpp-live-state-binding-proof-2026-06-21.md` |
 | Raw internal KV proof | `docs/llama-cpp-raw-kv-internal-write-proof-2026-06-21.md` |
+| Cross-runtime canonical KV proof | `docs/llama-cpp-cross-runtime-canonical-kv-proof-2026-06-21.md` |
 | Adapter | `adapters/llamacpp_injector.py` |
 | Live hook | `adapters/llamacpp_live_state_hook.py` |
 | Raw bridge | `adapters/llamacpp_raw_kv_bridge.cpp` |
 | Runtime tooling | `llama-cli`, `llama-server` |
-| Current evidence | state-file live binding proof plus raw internal same-runtime canonical KV write proof |
-| Missing for MLX/vLLM-to-llama.cpp decode claim | cross-runtime canonical KV tensor feed into the raw writer with tokenizer/span alignment and continuation validation |
+| Current evidence | state-file live binding proof, raw internal same-runtime canonical KV write proof, and MLX-to-llama.cpp cross-runtime canonical KV feed proof |
+| Missing for broader llama.cpp decode claim | vLLM-to-llama.cpp canonical KV feed and longer-horizon/non-Qwen llama.cpp validation |

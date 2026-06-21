@@ -116,7 +116,9 @@ This is a raw internal llama.cpp KV tensor write proof on the same model and
 runtime family. It uses private llama.cpp headers and is therefore a binding
 hook/patch strategy, not a stable public llama.cpp API.
 
-It does not yet prove MLX-to-llama.cpp or vLLM-to-llama.cpp cross-runtime
-semantic parity. The next step is to feed canonical KV tensors from a different
-runtime into this internal writer and validate tokenizer/span alignment,
-position metadata, and continuation behavior.
+It does not by itself prove MLX-to-llama.cpp or vLLM-to-llama.cpp cross-runtime
+semantic parity. The follow-up MLX-to-llama.cpp canonical KV feed proof now
+validates the first cross-runtime feed through this internal writer with
+tokenizer/span alignment, position metadata, and exact continuation at the
+aligned decode boundary:
+`docs/llama-cpp-cross-runtime-canonical-kv-proof-2026-06-21.md`.

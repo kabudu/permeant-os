@@ -154,6 +154,15 @@ continuation by writing canonical f32 K/V directly into `cache_k_l*` and
 `cache_v_l*` backend tensors. Its proof report is
 `docs/llama-cpp-raw-kv-internal-write-proof-2026-06-21.md`.
 
+The cross-runtime canonical KV proof uses MLX-LM as the source and llama.cpp as
+the target for the same Qwen2.5 0.5B model family. MLX exports canonical f32
+K/V tensors and prompt-span metadata; llama.cpp verifies that its tokenizer
+produces the same prompt token span, writes the external tensors directly into
+`llama_kv_cache`, observes changed decode under deliberate corruption, and
+restores an eight-token greedy continuation that matches the MLX source exactly
+at the aligned 17-token decode boundary. Its proof report is
+`docs/llama-cpp-cross-runtime-canonical-kv-proof-2026-06-21.md`.
+
 ## Evidence Criteria
 
 Call a llama.cpp run an accepted-state proof when:
@@ -166,6 +175,8 @@ Call a llama.cpp run an accepted-state proof when:
 
 Call a llama.cpp run a decode-continuation proof only when a live hook binds the
 migrated state into llama.cpp and returns generated token evidence from that
-bound context. The state-file hook now satisfies this for llama.cpp-originated
-runtime state. Raw canonical tensor import into llama.cpp internals remains a
-private-header binding path until llama.cpp exposes a stable public import API.
+bound context. The state-file hook satisfies this for llama.cpp-originated
+runtime state. The raw private-header bridge now also satisfies this for
+MLX-originated canonical KV at the validated Qwen2.5 decode boundary. Raw
+canonical tensor import into llama.cpp internals remains a private-header
+binding path until llama.cpp exposes a stable public import API.

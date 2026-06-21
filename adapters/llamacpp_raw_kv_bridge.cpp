@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -33,6 +34,7 @@ namespace {
 struct Args {
     std::string model;
     std::string prompt;
+    std::string external_manifest;
     int n_predict = 8;
     int n_ctx = 256;
     int threads = 4;
@@ -45,6 +47,16 @@ struct CanonicalLayer {
     int64_t v_width = 0;
     std::vector<float> key;
     std::vector<float> value;
+};
+
+struct ExternalManifest {
+    std::string schema_version;
+    std::string source_runtime;
+    std::string source_model;
+    std::string prompt_path;
+    std::vector<llama_token> prompt_tokens;
+    std::vector<llama_token> source_continuation;
+    std::vector<CanonicalLayer> layers;
 };
 
 struct Runtime {
@@ -156,6 +168,8 @@ Args parse_args(int argc, char ** argv) {
             args.model = next();
         } else if (key == "--prompt") {
             args.prompt = next();
+        } else if (key == "--external-kv-manifest") {
+            args.external_manifest = next();
         } else if (key == "--n-predict") {
             args.n_predict = std::stoi(next());
         } else if (key == "--ctx-size") {
@@ -166,13 +180,119 @@ Args parse_args(int argc, char ** argv) {
             throw std::runtime_error("unknown argument: " + key);
         }
     }
-    if (args.model.empty() || args.prompt.empty()) {
-        throw std::runtime_error("--model and --prompt are required");
+    if (args.model.empty()) {
+        throw std::runtime_error("--model is required");
+    }
+    if (args.prompt.empty() && args.external_manifest.empty()) {
+        throw std::runtime_error("either --prompt or --external-kv-manifest is required");
     }
     if (args.n_predict <= 0 || args.n_ctx <= 0 || args.threads <= 0) {
         throw std::runtime_error("invalid numeric argument");
     }
     return args;
+}
+
+std::vector<std::string> split_tabs(const std::string & line) {
+    std::vector<std::string> fields;
+    std::string current;
+    std::istringstream in(line);
+    while (std::getline(in, current, '\t')) {
+        fields.push_back(current);
+    }
+    return fields;
+}
+
+std::vector<llama_token> parse_token_csv(const std::string & value) {
+    std::vector<llama_token> tokens;
+    std::istringstream in(value);
+    std::string item;
+    while (std::getline(in, item, ',')) {
+        if (item.empty()) {
+            continue;
+        }
+        tokens.push_back(static_cast<llama_token>(std::stoi(item)));
+    }
+    return tokens;
+}
+
+std::string read_text_file(const std::string & path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        throw std::runtime_error("failed to open text file: " + path);
+    }
+    std::ostringstream buffer;
+    buffer << in.rdbuf();
+    return buffer.str();
+}
+
+std::vector<float> read_f32le_file(const std::string & path, size_t expected_values) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        throw std::runtime_error("failed to open f32le tensor: " + path);
+    }
+    in.seekg(0, std::ios::end);
+    const std::streamoff byte_count = in.tellg();
+    in.seekg(0, std::ios::beg);
+    if (byte_count < 0 || static_cast<size_t>(byte_count) != expected_values * sizeof(float)) {
+        throw std::runtime_error("f32le tensor size mismatch: " + path);
+    }
+    std::vector<float> values(expected_values);
+    in.read(reinterpret_cast<char *>(values.data()), byte_count);
+    if (!in) {
+        throw std::runtime_error("failed to read complete f32le tensor: " + path);
+    }
+    return values;
+}
+
+ExternalManifest load_external_manifest(const std::string & path) {
+    std::ifstream in(path);
+    if (!in) {
+        throw std::runtime_error("failed to open external KV manifest: " + path);
+    }
+    ExternalManifest manifest;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.empty() || line[0] == '#') {
+            continue;
+        }
+        const std::vector<std::string> fields = split_tabs(line);
+        if (fields.empty()) {
+            continue;
+        }
+        if (fields[0] == "schema_version" && fields.size() == 2) {
+            manifest.schema_version = fields[1];
+        } else if (fields[0] == "source_runtime" && fields.size() == 2) {
+            manifest.source_runtime = fields[1];
+        } else if (fields[0] == "source_model" && fields.size() == 2) {
+            manifest.source_model = fields[1];
+        } else if (fields[0] == "prompt_path" && fields.size() == 2) {
+            manifest.prompt_path = fields[1];
+        } else if (fields[0] == "prompt_tokens" && fields.size() == 2) {
+            manifest.prompt_tokens = parse_token_csv(fields[1]);
+        } else if (fields[0] == "source_token_ids" && fields.size() == 2) {
+            manifest.source_continuation = parse_token_csv(fields[1]);
+        } else if (fields[0] == "layer" && fields.size() == 8) {
+            CanonicalLayer layer;
+            layer.il = static_cast<uint32_t>(std::stoul(fields[1]));
+            layer.seq_len = std::stoll(fields[2]);
+            layer.k_width = std::stoll(fields[3]);
+            layer.v_width = std::stoll(fields[4]);
+            const size_t key_values = static_cast<size_t>(layer.seq_len * layer.k_width);
+            const size_t value_values = static_cast<size_t>(layer.seq_len * layer.v_width);
+            layer.key = read_f32le_file(fields[5], key_values);
+            layer.value = read_f32le_file(fields[6], value_values);
+            manifest.layers.push_back(std::move(layer));
+        } else {
+            throw std::runtime_error("invalid external KV manifest line: " + line);
+        }
+    }
+    if (manifest.schema_version != "permeantos-cross-runtime-canonical-kv-v0") {
+        throw std::runtime_error("unsupported external KV manifest schema");
+    }
+    if (manifest.prompt_path.empty() || manifest.prompt_tokens.empty() || manifest.layers.empty()) {
+        throw std::runtime_error("external KV manifest is missing prompt/tokens/layers");
+    }
+    return manifest;
 }
 
 std::vector<llama_token> tokenize(const Runtime & runtime, const std::string & text) {
@@ -355,6 +475,31 @@ uint64_t canonical_hash(const std::vector<CanonicalLayer> & layers) {
     return hash;
 }
 
+float max_abs_delta(const std::vector<CanonicalLayer> & lhs, const std::vector<CanonicalLayer> & rhs) {
+    if (lhs.size() != rhs.size()) {
+        return INFINITY;
+    }
+    float max_delta = 0.0f;
+    for (size_t i = 0; i < lhs.size(); ++i) {
+        if (
+            lhs[i].il != rhs[i].il
+            || lhs[i].seq_len != rhs[i].seq_len
+            || lhs[i].k_width != rhs[i].k_width
+            || lhs[i].v_width != rhs[i].v_width
+            || lhs[i].key.size() != rhs[i].key.size()
+            || lhs[i].value.size() != rhs[i].value.size()) {
+            return INFINITY;
+        }
+        for (size_t j = 0; j < lhs[i].key.size(); ++j) {
+            max_delta = std::max(max_delta, std::fabs(lhs[i].key[j] - rhs[i].key[j]));
+        }
+        for (size_t j = 0; j < lhs[i].value.size(); ++j) {
+            max_delta = std::max(max_delta, std::fabs(lhs[i].value[j] - rhs[i].value[j]));
+        }
+    }
+    return max_delta;
+}
+
 void write_layer_rows(ggml_tensor * tensor, int64_t width, int64_t row_count, const std::vector<float> & values) {
     const size_t el_size = ggml_type_size(tensor->type);
     const size_t row_bytes = static_cast<size_t>(width) * el_size;
@@ -514,6 +659,101 @@ void emit_proof(const Args & args) {
     }
 }
 
+void emit_external_proof(const Args & args) {
+    ExternalManifest manifest = load_external_manifest(args.external_manifest);
+    const std::string prompt = args.prompt.empty() ? read_text_file(manifest.prompt_path) : args.prompt;
+
+    Runtime target_corrupt(args.model, args.n_ctx, args.threads);
+    std::vector<llama_token> target_prompt_tokens = tokenize(target_corrupt, prompt);
+    const bool tokenizer_aligned = target_prompt_tokens == manifest.prompt_tokens;
+    if (!tokenizer_aligned) {
+        std::cout
+            << "{"
+            << "\"success\":false,"
+            << "\"mode\":\"cross-runtime-canonical-kv-feed\","
+            << "\"runtime\":\"llama.cpp\","
+            << "\"source_runtime\":\"" << json_escape(manifest.source_runtime) << "\","
+            << "\"source_model\":\"" << json_escape(manifest.source_model) << "\","
+            << "\"error\":\"tokenizer/span alignment failed\","
+            << "\"target_prompt_tokens\":" << json_tokens(target_prompt_tokens) << ","
+            << "\"source_prompt_tokens\":" << json_tokens(manifest.prompt_tokens)
+            << "}\n";
+        std::exit(2);
+    }
+
+    decode_tokens(target_corrupt, target_prompt_tokens, 0);
+    fill_kv(target_corrupt, static_cast<int64_t>(target_prompt_tokens.size()), 7.0f);
+    rehydrate_logits(target_corrupt, target_prompt_tokens);
+    std::vector<llama_token> corrupt_continuation =
+        generate_greedy(target_corrupt, static_cast<int32_t>(target_prompt_tokens.size()), args.n_predict);
+
+    Runtime target_restore(args.model, args.n_ctx, args.threads);
+    decode_tokens(target_restore, target_prompt_tokens, 0);
+    fill_kv(target_restore, static_cast<int64_t>(target_prompt_tokens.size()), 7.0f);
+    import_canonical(target_restore, manifest.layers);
+    std::vector<CanonicalLayer> restored = export_canonical(target_restore, target_prompt_tokens.size());
+    const uint64_t external_hash = canonical_hash(manifest.layers);
+    const uint64_t restored_hash = canonical_hash(restored);
+    const float roundtrip_max_abs_delta = max_abs_delta(manifest.layers, restored);
+    rehydrate_logits(target_restore, target_prompt_tokens);
+    std::vector<llama_token> restored_continuation =
+        generate_greedy(target_restore, static_cast<int32_t>(target_prompt_tokens.size()), args.n_predict);
+
+    const bool has_source_continuation = !manifest.source_continuation.empty();
+    const bool corrupt_changed = corrupt_continuation != restored_continuation;
+    const bool continuation_exact = has_source_continuation && restored_continuation == manifest.source_continuation;
+    const bool continuation_validated = !has_source_continuation || continuation_exact;
+    const bool geometry_compatible = !restored.empty() && restored.size() == manifest.layers.size();
+    const bool hash_exact = external_hash == restored_hash;
+    const bool tensor_roundtrip_lossless_or_f16_equivalent = roundtrip_max_abs_delta <= 0.000977f;
+    const bool success = tokenizer_aligned
+        && geometry_compatible
+        && corrupt_changed
+        && continuation_validated
+        && tensor_roundtrip_lossless_or_f16_equivalent;
+
+    std::cout
+        << "{"
+        << "\"success\":" << (success ? "true" : "false") << ","
+        << "\"mode\":\"cross-runtime-canonical-kv-feed\","
+        << "\"runtime\":\"llama.cpp\","
+        << "\"source_runtime\":\"" << json_escape(manifest.source_runtime) << "\","
+        << "\"source_model\":\"" << json_escape(manifest.source_model) << "\","
+        << "\"used_state_file\":false,"
+        << "\"used_internal_kv_tensor_write\":true,"
+        << "\"cross_runtime_canonical_kv_feed\":true,"
+        << "\"tokenizer_span_aligned\":" << (tokenizer_aligned ? "true" : "false") << ","
+        << "\"position_start\":0,"
+        << "\"position_count\":" << target_prompt_tokens.size() << ","
+        << "\"prompt_tokens\":" << json_tokens(target_prompt_tokens) << ","
+        << "\"source_token_ids\":" << json_tokens(manifest.source_continuation) << ","
+        << "\"corrupt_token_ids\":" << json_tokens(corrupt_continuation) << ","
+        << "\"restored_token_ids\":" << json_tokens(restored_continuation) << ","
+        << "\"corrupt_changed_continuation\":" << (corrupt_changed ? "true" : "false") << ","
+        << "\"source_continuation_available\":" << (has_source_continuation ? "true" : "false") << ","
+        << "\"restored_matches_source_continuation\":" << (continuation_exact ? "true" : "false") << ","
+        << "\"continuation_validated\":" << (continuation_validated ? "true" : "false") << ","
+        << "\"canonical_hash_exact\":" << (hash_exact ? "true" : "false") << ","
+        << "\"external_hash\":\"" << hex64(external_hash) << "\","
+        << "\"restored_hash\":\"" << hex64(restored_hash) << "\","
+        << "\"roundtrip_max_abs_delta\":" << roundtrip_max_abs_delta << ","
+        << "\"tensor_roundtrip_lossless_or_f16_equivalent\":" << (tensor_roundtrip_lossless_or_f16_equivalent ? "true" : "false") << ","
+        << "\"layer_count\":" << manifest.layers.size() << ","
+        << "\"kv_token_count\":" << target_prompt_tokens.size();
+    if (!manifest.layers.empty()) {
+        std::cout
+            << ",\"first_layer\":{\"il\":" << manifest.layers.front().il
+            << ",\"seq_len\":" << manifest.layers.front().seq_len
+            << ",\"k_width\":" << manifest.layers.front().k_width
+            << ",\"v_width\":" << manifest.layers.front().v_width
+            << "}";
+    }
+    std::cout << "}\n";
+    if (!success) {
+        std::exit(2);
+    }
+}
+
 } // namespace
 
 int main(int argc, char ** argv) {
@@ -521,7 +761,11 @@ int main(int argc, char ** argv) {
         Args args = parse_args(argc, argv);
         ggml_backend_load_all();
         llama_backend_init();
-        emit_proof(args);
+        if (!args.external_manifest.empty()) {
+            emit_external_proof(args);
+        } else {
+            emit_proof(args);
+        }
         llama_backend_free();
     } catch (const std::exception & exc) {
         fail(exc.what());

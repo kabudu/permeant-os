@@ -30,6 +30,11 @@ What works today:
 - llama.cpp raw internal KV write proof showing canonical f32 K/V tensors can
   be written directly into `llama_kv_cache` backend tensors, with corruption
   changing decode and canonical restore returning exact continuation.
+- Cross-runtime MLX-to-llama.cpp canonical KV feed proof: live MLX exports
+  canonical f32 K/V tensors and prompt-span metadata, llama.cpp verifies
+  tokenization alignment, writes the external tensors directly into
+  `llama_kv_cache`, and matches the MLX source continuation at the aligned
+  decode boundary.
 - Repeatable AWS real-runtime E2E runner with cleanup verification.
 - Conservative AWS prewarm image/container recipe for faster E2E bootstrap without always-on infrastructure.
 - Structured benchmark manifest summaries for paper/update tables and failure records.
@@ -81,9 +86,10 @@ What is still experimental:
   contract because their physical KV layouts differ.
 - Cloud validation is expensive and slow on cold hosts unless a prewarmed image is used.
 - Longer-horizon Qwen2.5 MLX-to-vLLM validation is exact through 128 tokens;
-  TinyLlama structural validation broadens the model-family evidence, but new
-  cloud batches are still needed for broader runtime-pair claims and
-  source-exact cross-runtime parity.
+  TinyLlama structural validation broadens the model-family evidence, and
+  Qwen2.5 now has a local MLX-to-llama.cpp canonical KV feed proof through the
+  private-header raw writer. New cloud batches are still needed for broader
+  runtime-pair claims and source-exact cross-runtime parity.
 - Adaptive transfer codec planning exists for raw, FP8, TurboQuant-style, and
   Quaternion-Augmented TurboQuant candidate modes; raw, FP8, and experimental
   QATQ are executable in the current AWS runner.
@@ -118,6 +124,8 @@ What is still experimental:
 - `docs/benchmark-summary-tooling.md`: structured manifest summary and paper-table tooling.
 - `docs/fidelity-horizon-suite.md`: multi-horizon decode-fidelity comparison tooling.
 - `docs/context-benchmark-matrix.md`: larger-than-2k context benchmark planning.
+- `docs/llama-cpp-cross-runtime-canonical-kv-proof-2026-06-21.md`: local
+  MLX-to-llama.cpp raw canonical KV feed proof.
 - `docs/model-runtime-validation-matrix.md`: planned and validated
   model-family/runtime profiles and evidence rules for broadening real-runtime
   claims.
