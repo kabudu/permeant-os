@@ -24,6 +24,9 @@ What works today:
 - Reference PyTorch target adapter for independent migrated-state acceptance
   proofs, with optional torch-backed tensors and dependency-light list-backed
   CI mode.
+- llama.cpp target adapter scaffolding for accepted-state proofs, installed
+  tool capability probes, and an explicit live-hook boundary for future decode
+  continuation evidence.
 - Repeatable AWS real-runtime E2E runner with cleanup verification.
 - Conservative AWS prewarm image/container recipe for faster E2E bootstrap without always-on infrastructure.
 - Structured benchmark manifest summaries for paper/update tables and failure records.
@@ -152,6 +155,10 @@ What is still experimental:
 - `docs/runtime-adapter-protocol.md`: command-backed extractor/injector contract.
 - `docs/pytorch-target-runtime-adapter.md`: reference PyTorch target adapter
   runbook and evidence criteria.
+- `docs/llama-cpp-target-runtime-adapter.md`: llama.cpp target adapter runbook,
+  capability probe, and live KV-import hook boundary.
+- `docs/llama-cpp-target-runtime-local-proof-2026-06-21.md`: local llama.cpp
+  accepted-state proof and decode-continuation boundary.
 - `docs/real-runtime-bringup.md`: live runtime bring-up notes.
 - `docs/aws-real-runtime-fidelity-followup-2026-06-16.md`: fidelity investigation history.
 

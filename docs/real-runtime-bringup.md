@@ -28,6 +28,10 @@ Target-side:
   for PyTorch-backed or list-backed acceptance proofs.
 - `adapters/pytorch_hook_template.py`: hook entry point for the reference
   PyTorch target adapter.
+- `adapters/llamacpp_injector.py`: llama.cpp target adapter for accepted-state
+  proofs and installed-tool capability probes.
+- `adapters/llamacpp_hook_template.py`: hook entry point for the llama.cpp
+  target adapter.
 
 ## Source host: MLX laptop wiring
 
@@ -121,6 +125,30 @@ After this proof, the next practical open-source runtime target is `llama.cpp`.
 The llama.cpp adapter should preserve the same acceptance evidence and then add
 decoder-specific continuation evidence once migrated state can be bound into a
 real decode path.
+
+## Practical target: llama.cpp accepted-state proof
+
+Use the llama.cpp adapter to prove the next open-source runtime boundary:
+
+```bash
+export PERMEANT_INJECTOR_MODE=json_command
+export PERMEANT_INJECTOR_CMD="python /ABS/PATH/TO/adapters/llamacpp_injector.py"
+export PERMEANT_LLAMA_CPP_RUNTIME_STATE_FILE="/tmp/permeant-llamacpp-state.json"
+export PERMEANT_LLAMA_CPP_RUNTIME_PROBE_FILE="/tmp/permeant-llamacpp-probe.json"
+```
+
+Optional live KV import hook:
+
+```bash
+export PERMEANT_LLAMA_CPP_RUNTIME_HOOK="/ABS/PATH/TO/my_llamacpp_runtime.py:hook"
+```
+
+The in-tree adapter probes `llama-cli` and `llama-server`, accepts migrated
+canonical KV tensors, records f32 fingerprints, verifies migrated hashes, and
+exports reverse target state. By default it records
+`decode_claim=none-without-live-kv-import-hook`. Generated-token continuation
+can only be claimed when the live hook binds the migrated KV into a llama.cpp
+context and returns continuation evidence from that bound context.
 
 ## Runtime hook contract for the vLLM side
 

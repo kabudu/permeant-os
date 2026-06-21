@@ -245,7 +245,8 @@ without changing the CLI transport or the migration envelope again.
 2. `adapters/vllm_injector.py`
 3. `adapters/pytorch_injector.py` as a reference independent target-runtime
    acceptance proof
-4. A llama.cpp target adapter after PyTorch proves the runtime-breadth boundary
+4. `adapters/llamacpp_injector.py` as the practical open-source target runtime
+   acceptance proof and live-hook boundary
 5. A small fixture runner that can feed saved tensors into commands for repeatable offline debugging
 
 ## Included starter scripts
@@ -255,6 +256,7 @@ This repo now includes starter adapter entry points:
 - `adapters/mlx_extractor.py`
 - `adapters/vllm_injector.py`
 - `adapters/pytorch_injector.py`
+- `adapters/llamacpp_injector.py`
 
 Both scripts already speak the documented stdin/stdout JSON contract.
 
@@ -263,6 +265,7 @@ They support fixture-backed bring-up immediately:
 - `PERMEANT_EXTRACTOR_FIXTURE=/path/to/extractor-response.json`
 - `PERMEANT_INJECTOR_FIXTURE_STATE=/path/to/injector-state.json`
 - `PERMEANT_PYTORCH_RUNTIME_STATE_FILE=/path/to/pytorch-state.json`
+- `PERMEANT_LLAMA_CPP_RUNTIME_STATE_FILE=/path/to/llamacpp-state.json`
 
 That lets us debug the adapter boundary before wiring in live MLX or live target-runtime calls.
 
@@ -289,6 +292,12 @@ tensors, stores them as PyTorch tensors when `torch` is installed, falls back to
 list-backed storage in dependency-light environments, verifies migrated hashes,
 and exports reverse target state. It proves target-state acceptance, not
 language decode fidelity.
+
+The llama.cpp target adapter is documented in
+`docs/llama-cpp-target-runtime-adapter.md`. It records accepted migrated state
+and probes `llama-cli`/`llama-server`. It does not claim decode fidelity unless
+`PERMEANT_LLAMA_CPP_RUNTIME_HOOK` binds migrated KV into a live llama.cpp
+context and returns generated token evidence.
 
 
 ## Included harness and templates
