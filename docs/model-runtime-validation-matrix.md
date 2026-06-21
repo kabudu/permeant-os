@@ -7,9 +7,16 @@ return-home continuation. The current long-horizon AWS evidence for that path
 is exact through 128 generated tokens. PermeantOS also has a raw-transfer
 non-Qwen structural proof for TinyLlama on the same MLX-to-vLLM runtime path.
 
-The next evidence step is to vary the model family and, later, the runtime pair.
-This document defines how those runs are planned so claims are not accidentally
+The next evidence step is to vary the model family and the runtime pair. This
+document defines how those runs are planned so claims are not accidentally
 broadened beyond the evidence.
+
+Runtime-pair breadth should proceed in two layers. First, use the reference
+PyTorch target adapter to prove that an independent target runtime accepts the
+migrated state and emits auditable hash/reverse-export evidence. That path is
+allowed to be slower and does not claim language decode fidelity. Then follow
+with `llama.cpp` for a more practical open-source runtime story where generated
+token continuation can be investigated against a real decoder.
 
 Future model-family and runtime-breadth proofs should use raw transfer
 (`PERMEANT_TRANSFER_QUANTIZATION=none`) until QATQ is perfected as a separate
@@ -57,6 +64,8 @@ scripts/plan-model-runtime-validations.py \
 | `qwen2.5-1.5b-mlx-vllm` | Qwen2.5 | `Qwen/Qwen2.5-1.5B-Instruct` | MLX to vLLM | `none` | next same-family |
 | `qwen2.5-0.5b-long-horizon-aws` | Qwen2.5 | `Qwen/Qwen2.5-0.5B-Instruct` | MLX to vLLM | `qatq` | validated long-horizon AWS |
 | `tinyllama-1.1b-chat-mlx-vllm` | Llama | `TinyLlama/TinyLlama-1.1B-Chat-v1.0` | MLX to vLLM | `none` | validated structural E2E |
+| `qwen2.5-0.5b-mlx-pytorch-reference` | Qwen2.5 | `Qwen/Qwen2.5-0.5B-Instruct` | MLX to PyTorch reference | `none` | next runtime-breadth acceptance proof |
+| `tinyllama-1.1b-chat-mlx-llamacpp` | Llama | `TinyLlama/TinyLlama-1.1B-Chat-v1.0` | MLX to llama.cpp | `none` | planned practical OSS runtime |
 | `gemma-2-2b-it-mlx-vllm` | Gemma 2 | `google/gemma-2-2b-it` | MLX to vLLM | `none` | candidate new-family |
 | `phi-3.5-mini-mlx-vllm` | Phi 3.5 | `microsoft/Phi-3.5-mini-instruct` | MLX to vLLM | `none` | candidate new-family |
 
@@ -100,6 +109,14 @@ A profile should not be marked validated until a real run proves:
 - Agent Memory Graph activity resumed and returned-home evidence verified when
   enabled;
 - cleanup verification showed no AWS resources left running.
+
+Reference-runtime acceptance profiles, such as the PyTorch adapter, use a
+different maturity label until they include a real decoder. They may be marked
+`validated acceptance proof` only when migrated tensors are materialized in the
+target runtime, key/value shape and f32 fingerprints are recorded, expected
+hashes verify, and reverse target state exports a proof hash. They must not be
+described as decode-fidelity profiles until the target runtime generates and
+compares continuation tokens.
 
 For long-horizon claims, the run must additionally record:
 
@@ -149,3 +166,27 @@ the profile now carries explicit model cache metadata.
 | Reverse import | vLLM target boundary imported into origin MLX |
 | Agent activity | target-side work plus origin return-home continuation |
 | Cleanup | verified: instance terminated; temporary security group/key deleted |
+
+## Runtime-Breadth Queue
+
+### `qwen2.5-0.5b-mlx-pytorch-reference`
+
+This is the next runtime-pair proof. It should use raw transfer and the
+reference PyTorch target adapter documented in
+`docs/pytorch-target-runtime-adapter.md`.
+
+| Field | Value |
+| --- | --- |
+| Goal | independent target runtime accepts migrated state |
+| Source | MLX |
+| Target | PyTorch reference adapter |
+| Transfer quantization | `none` |
+| Required evidence | accepted layer key/value tensors, f32 fingerprints, verified migrated hash, reverse export proof hash |
+| Explicit non-claim | generated-token decode fidelity |
+
+### `tinyllama-1.1b-chat-mlx-llamacpp`
+
+After the PyTorch reference acceptance proof, `llama.cpp` is the next practical
+open-source target runtime. It should reuse the PyTorch evidence boundaries but
+add generated-token continuation evidence when the adapter can bind migrated
+state into a real llama.cpp decode path.

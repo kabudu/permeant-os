@@ -24,6 +24,10 @@ Target-side:
 - `adapters/vllm_injector.py`: command entry point used by the Rust injector crate.
 - `adapters/vllm_hook_template.py`: usable live hook for injection requests.
 - `adapters/vllm_runtime_bridge.py`: converts canonical `[seq, kv_heads, head_dim]` tensors into vLLM block layout.
+- `adapters/pytorch_injector.py`: reference independent target-runtime adapter
+  for PyTorch-backed or list-backed acceptance proofs.
+- `adapters/pytorch_hook_template.py`: hook entry point for the reference
+  PyTorch target adapter.
 
 ## Source host: MLX laptop wiring
 
@@ -93,6 +97,30 @@ That means the next experiment can already prove:
 - correct target-side vLLM block shaping
 
 The remaining gap for full continuation is the final runtime-specific memory registration step.
+
+## Reference target: PyTorch acceptance proof
+
+Before adding another decoder-specific runtime, use the PyTorch reference target
+adapter to prove runtime-pair breadth with a clean acceptance boundary:
+
+```bash
+export PERMEANT_INJECTOR_MODE=json_command
+export PERMEANT_INJECTOR_CMD="python /ABS/PATH/TO/adapters/pytorch_injector.py"
+export PERMEANT_PYTORCH_RUNTIME_STATE_FILE="/tmp/permeant-pytorch-state.json"
+export PERMEANT_PYTORCH_RUNTIME_PROBE_FILE="/tmp/permeant-pytorch-probe.json"
+```
+
+The adapter accepts canonical `layer.<n>.key` and `layer.<n>.value` tensors,
+materializes them as PyTorch tensors when `torch` is installed, and otherwise
+uses list-backed storage with the same validation rules. It records per-layer
+f32 fingerprints, verifies migrated block hashes, and exposes reverse target
+state. This is an independent target-runtime acceptance proof; it does not
+claim generated-token decode fidelity.
+
+After this proof, the next practical open-source runtime target is `llama.cpp`.
+The llama.cpp adapter should preserve the same acceptance evidence and then add
+decoder-specific continuation evidence once migrated state can be bound into a
+real decode path.
 
 ## Runtime hook contract for the vLLM side
 

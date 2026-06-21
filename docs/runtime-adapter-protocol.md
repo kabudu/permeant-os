@@ -234,7 +234,8 @@ If continuation verification fails because blocks are missing, it may return:
 This is the first runtime-facing contract that lets us swap in real adapters for:
 
 - `MLX` or another source runtime on the laptop side
-- `vLLM`, `SGLang`, or another target runtime on the Linux GPU side
+- `vLLM`, reference `PyTorch`, `llama.cpp`, `SGLang`, or another target runtime
+  on the target side
 
 without changing the CLI transport or the migration envelope again.
 
@@ -242,7 +243,10 @@ without changing the CLI transport or the migration envelope again.
 
 1. `adapters/mlx_extractor.py`
 2. `adapters/vllm_injector.py`
-3. A small fixture runner that can feed saved tensors into both commands for repeatable offline debugging
+3. `adapters/pytorch_injector.py` as a reference independent target-runtime
+   acceptance proof
+4. A llama.cpp target adapter after PyTorch proves the runtime-breadth boundary
+5. A small fixture runner that can feed saved tensors into commands for repeatable offline debugging
 
 ## Included starter scripts
 
@@ -250,6 +254,7 @@ This repo now includes starter adapter entry points:
 
 - `adapters/mlx_extractor.py`
 - `adapters/vllm_injector.py`
+- `adapters/pytorch_injector.py`
 
 Both scripts already speak the documented stdin/stdout JSON contract.
 
@@ -257,6 +262,7 @@ They support fixture-backed bring-up immediately:
 
 - `PERMEANT_EXTRACTOR_FIXTURE=/path/to/extractor-response.json`
 - `PERMEANT_INJECTOR_FIXTURE_STATE=/path/to/injector-state.json`
+- `PERMEANT_PYTORCH_RUNTIME_STATE_FILE=/path/to/pytorch-state.json`
 
 That lets us debug the adapter boundary before wiring in live MLX or live target-runtime calls.
 
@@ -276,6 +282,13 @@ Two bring-up paths are supported immediately:
 - Hook-based live integration for MLX or target-runtime specific code living outside the repo
 
 Included offline test coverage lives in `tests/test_runtime_adapters.py`.
+
+The reference PyTorch target adapter is documented in
+`docs/pytorch-target-runtime-adapter.md`. It accepts migrated canonical KV
+tensors, stores them as PyTorch tensors when `torch` is installed, falls back to
+list-backed storage in dependency-light environments, verifies migrated hashes,
+and exports reverse target state. It proves target-state acceptance, not
+language decode fidelity.
 
 
 ## Included harness and templates

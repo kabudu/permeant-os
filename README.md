@@ -21,6 +21,9 @@ What works today:
 - Manifest generation and benchmark capture.
 - MLX live source adapter.
 - vLLM live target adapter with target block allocation, KV writes, prefix-cache seeding, and fidelity probes.
+- Reference PyTorch target adapter for independent migrated-state acceptance
+  proofs, with optional torch-backed tensors and dependency-light list-backed
+  CI mode.
 - Repeatable AWS real-runtime E2E runner with cleanup verification.
 - Conservative AWS prewarm image/container recipe for faster E2E bootstrap without always-on infrastructure.
 - Structured benchmark manifest summaries for paper/update tables and failure records.
@@ -147,6 +150,8 @@ What is still experimental:
 - `docs/aws-prewarm-image.md`: conservative AWS image/container prewarm recipe and cost guardrails.
 - `docs/graph-attached-kv-migration-plan.md`: Phase 3 graph-attached live KV migration plan and acceptance criteria.
 - `docs/runtime-adapter-protocol.md`: command-backed extractor/injector contract.
+- `docs/pytorch-target-runtime-adapter.md`: reference PyTorch target adapter
+  runbook and evidence criteria.
 - `docs/real-runtime-bringup.md`: live runtime bring-up notes.
 - `docs/aws-real-runtime-fidelity-followup-2026-06-16.md`: fidelity investigation history.
 
