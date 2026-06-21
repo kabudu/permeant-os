@@ -7,6 +7,8 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.29-production-transport] - 2026-06-21
+
 ### Added
 
 - Production transport foundation in `permeant-transport`, including signed
@@ -465,7 +467,8 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.28-qatq-reverse-runtime-e2e...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.29-production-transport...HEAD
+[0.1.29-production-transport]: https://github.com/kabudu/permeant-os/compare/v0.1.28-qatq-reverse-runtime-e2e...v0.1.29-production-transport
 [0.1.28-qatq-reverse-runtime-e2e]: https://github.com/kabudu/permeant-os/compare/v0.1.27-complex-agent-e2e...v0.1.28-qatq-reverse-runtime-e2e
 [0.1.27-complex-agent-e2e]: https://github.com/kabudu/permeant-os/compare/v0.1.26-graph-attached-fp8-e2e...v0.1.27-complex-agent-e2e
 [0.1.26-graph-attached-fp8-e2e]: https://github.com/kabudu/permeant-os/compare/v0.1.25-aws-source-exact-e2e...v0.1.26-graph-attached-fp8-e2e
