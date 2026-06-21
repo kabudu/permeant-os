@@ -27,6 +27,9 @@ What works today:
 - llama.cpp target adapter scaffolding for accepted-state proofs, installed
   tool capability probes, and a live state-file binding hook that proves exact
   continuation after importing llama.cpp runtime state into a fresh context.
+- llama.cpp raw internal KV write proof showing canonical f32 K/V tensors can
+  be written directly into `llama_kv_cache` backend tensors, with corruption
+  changing decode and canonical restore returning exact continuation.
 - Repeatable AWS real-runtime E2E runner with cleanup verification.
 - Conservative AWS prewarm image/container recipe for faster E2E bootstrap without always-on infrastructure.
 - Structured benchmark manifest summaries for paper/update tables and failure records.
@@ -161,6 +164,8 @@ What is still experimental:
   accepted-state proof and decode-continuation boundary.
 - `docs/llama-cpp-live-state-binding-proof-2026-06-21.md`: live libllama
   state-file binding proof with exact continuation and reverse export hashes.
+- `docs/llama-cpp-raw-kv-internal-write-proof-2026-06-21.md`: raw internal
+  llama.cpp KV tensor write proof using matching private headers.
 - `docs/real-runtime-bringup.md`: live runtime bring-up notes.
 - `docs/aws-real-runtime-fidelity-followup-2026-06-16.md`: fidelity investigation history.
 

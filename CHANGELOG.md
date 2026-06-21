@@ -33,6 +33,10 @@ and this project uses release tags compatible with semantic versioning.
   proving exact continuation after importing a saved llama.cpp runtime state
   into a fresh target context with auditable binding, continuation, and reverse
   export hashes.
+- Added a llama.cpp raw internal KV write proof bridge, proving canonical f32
+  K/V tensors can be written directly into `llama_kv_cache` backend tensors:
+  deliberate KV corruption changes decode, and direct canonical KV restore
+  returns exact source continuation without using llama.cpp state files.
 
 ### Changed
 

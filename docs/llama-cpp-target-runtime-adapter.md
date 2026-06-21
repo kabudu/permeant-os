@@ -9,7 +9,10 @@ reference PyTorch target adapter. It keeps the same evidence boundaries:
 - export auditable reverse target state;
 - probe installed `llama-cli` and `llama-server` tooling;
 - optionally bind a llama.cpp runtime state file into a fresh libllama context
-  and verify generated-token continuation through a live hook.
+  and verify generated-token continuation through a live hook;
+- prove raw canonical f32 K/V writes directly into llama.cpp internal
+  `llama_kv_cache` backend tensors when compiled against matching private
+  llama.cpp headers.
 
 The default tensor-acceptance path does not claim generated-token continuation
 from canonical migrated KV tensors. The installed llama.cpp CLI/server expose
@@ -17,7 +20,9 @@ useful runtime controls, including KV cache type options, but they do not expose
 a command-line KV import API. For decode evidence, the adapter must be connected
 to a live hook that can bind migrated state into a llama.cpp context before
 decode. The first in-tree hook uses llama.cpp's public state-file API and is
-documented in `docs/llama-cpp-live-state-binding-proof-2026-06-21.md`.
+documented in `docs/llama-cpp-live-state-binding-proof-2026-06-21.md`. The raw
+internal KV proof uses private headers from the matching llama.cpp source tree
+and is documented in `docs/llama-cpp-raw-kv-internal-write-proof-2026-06-21.md`.
 
 ## Command-Backed Use
 
@@ -116,6 +121,10 @@ remains the out-of-tree template for lower-level canonical KV tensor binding
 against a private wrapper, shared library, sidecar process, or future upstream
 llama.cpp API.
 
+`adapters/llamacpp_raw_kv_bridge.cpp` is the current raw internal KV proof
+helper. It must be compiled with `-I` paths for a matching llama.cpp source
+checkout because stock installed headers keep `llama_kv_cache` opaque.
+
 ## Current Local Probe
 
 On the development host used for this adapter, `llama-cli` and `llama-server`
@@ -138,6 +147,13 @@ continuation tokens:
 The proof report is
 `docs/llama-cpp-live-state-binding-proof-2026-06-21.md`.
 
+The raw internal KV proof then compiled against llama.cpp tag `b8640`, exported
+canonical f32 K/V tensors from a live source context, deliberately corrupted a
+fresh target context's internal K/V tensors, and restored the exact source
+continuation by writing canonical f32 K/V directly into `cache_k_l*` and
+`cache_v_l*` backend tensors. Its proof report is
+`docs/llama-cpp-raw-kv-internal-write-proof-2026-06-21.md`.
+
 ## Evidence Criteria
 
 Call a llama.cpp run an accepted-state proof when:
@@ -152,4 +168,4 @@ Call a llama.cpp run a decode-continuation proof only when a live hook binds the
 migrated state into llama.cpp and returns generated token evidence from that
 bound context. The state-file hook now satisfies this for llama.cpp-originated
 runtime state. Raw canonical tensor import into llama.cpp internals remains a
-separate future binding/patch target.
+private-header binding path until llama.cpp exposes a stable public import API.
