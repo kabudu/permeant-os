@@ -10,11 +10,12 @@ use permeant_injector::KVConnectorBase_V1;
 use permeant_orchestrator::{MigrationOrchestrator, ResourcePolicy};
 use permeant_transpiler::{
     canonical_to_vllm_block_key, canonical_to_vllm_block_value, compute_optimal_scale,
-    dequantize_e4m3_scaled, dequantize_qatq_i4, quantize_e4m3_scaled, quantize_qatq_i4, Tensor,
+    decode_qatq_phase2_transfer, dequantize_e4m3_scaled, encode_qatq_phase2_transfer,
+    quantize_e4m3_scaled, Tensor, QATQ_PHASE2_STORAGE, RAW_F32LE_PASS_THROUGH_STORAGE,
 };
 use permeant_transport::{
     compute_crc32, recv_message, send_message, verify_chunk_crc32, AgentGraphBinding,
-    AgentGraphBindingArtifact, AgentGraphBindingKvSpan, MigrationMessage,
+    AgentGraphBindingArtifact, AgentGraphBindingKvSpan, MigrationMessage, PayloadCodecMetadata,
 };
 use usxf_core::{
     compute_sha256, compute_token_block_hashes, open_packet, seal_packet, validate_header,
@@ -237,6 +238,7 @@ async fn handle_migration_connection(
             chunk_index,
             layer_index,
             tensor_name,
+            codec,
             data,
             ..
         } = chunk_msg
@@ -255,7 +257,27 @@ async fn handle_migration_connection(
                 .map(|quant| quant.scheme.as_str())
             {
                 Some("fp8") => dequantize_e4m3_scaled(&data, 0.1),
-                Some("qatq") => dequantize_qatq_i4(&data, expected_float_count)?,
+                Some("qatq") => {
+                    let codec = codec
+                        .as_ref()
+                        .context("QATQ payload chunk is missing codec metadata")?;
+                    if codec.transfer_codec != "qatq" {
+                        bail!(
+                            "QATQ header received payload codec metadata for {}",
+                            codec.transfer_codec
+                        );
+                    }
+                    match codec.storage.as_str() {
+                        QATQ_PHASE2_STORAGE | RAW_F32LE_PASS_THROUGH_STORAGE => {
+                            decode_qatq_phase2_transfer(
+                                &codec.storage,
+                                &data,
+                                expected_float_count,
+                            )?
+                        }
+                        other => bail!("Unsupported QATQ payload storage: {other}"),
+                    }
+                }
                 Some(other) => bail!("Unsupported transfer quantization scheme: {other}"),
                 None => {
                     let mut floats = vec![0.0f32; data.len() / 4];
@@ -453,6 +475,11 @@ struct MigrationManifest {
     uncompressed_bytes: u64,
     transferred_bytes: u64,
     compression_ratio: f64,
+    qatq_compressed_chunks: u64,
+    qatq_pass_through_chunks: u64,
+    qatq_compressed_bytes: u64,
+    qatq_pass_through_bytes: u64,
+    qatq_strategies: HashMap<String, u64>,
     chunks_sent: u64,
     average_chunk_bytes: f64,
     handshake_time_ms: f64,
@@ -992,20 +1019,75 @@ fn block_float_count(header: &UsxfHeader, tensor_name: &str) -> usize {
     }
 }
 
-fn encode_payload(data: &[f32], transfer_codec: TransferCodec) -> Vec<u8> {
+#[derive(Debug)]
+struct EncodedPayload {
+    data: Vec<u8>,
+    codec: Option<PayloadCodecMetadata>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct QatqDecisionStats {
+    compressed_chunks: u64,
+    pass_through_chunks: u64,
+    compressed_bytes: u64,
+    pass_through_bytes: u64,
+    strategies: HashMap<String, u64>,
+}
+
+impl QatqDecisionStats {
+    fn record(&mut self, payload: &EncodedPayload) {
+        let Some(codec) = &payload.codec else {
+            return;
+        };
+        match codec.storage.as_str() {
+            QATQ_PHASE2_STORAGE => {
+                self.compressed_chunks += 1;
+                self.compressed_bytes += payload.data.len() as u64;
+                if let Some(strategy) = &codec.strategy {
+                    *self.strategies.entry(strategy.clone()).or_default() += 1;
+                }
+            }
+            RAW_F32LE_PASS_THROUGH_STORAGE => {
+                self.pass_through_chunks += 1;
+                self.pass_through_bytes += payload.data.len() as u64;
+            }
+            _ => {}
+        }
+    }
+}
+
+fn encode_payload(data: &[f32], transfer_codec: TransferCodec) -> Result<EncodedPayload> {
     match transfer_codec {
         TransferCodec::None => {
             let mut bytes = Vec::with_capacity(data.len() * 4);
             for &f in data {
                 bytes.extend_from_slice(&f.to_be_bytes());
             }
-            bytes
+            Ok(EncodedPayload {
+                data: bytes,
+                codec: None,
+            })
         }
         TransferCodec::Fp8 => {
             let scale = compute_optimal_scale(data, 448.0);
-            quantize_e4m3_scaled(data, scale)
+            Ok(EncodedPayload {
+                data: quantize_e4m3_scaled(data, scale),
+                codec: None,
+            })
         }
-        TransferCodec::Qatq => quantize_qatq_i4(data),
+        TransferCodec::Qatq => {
+            let transfer = encode_qatq_phase2_transfer(data)?;
+            let codec = PayloadCodecMetadata {
+                transfer_codec: "qatq".to_string(),
+                storage: transfer.storage_name().to_string(),
+                strategy: transfer.strategy_name().map(ToString::to_string),
+                raw_f32le_len: transfer.raw_f32le_len,
+            };
+            Ok(EncodedPayload {
+                data: transfer.payload,
+                codec: Some(codec),
+            })
+        }
     }
 }
 
@@ -1174,6 +1256,7 @@ async fn run_sim_migrate(
     let expected_blocks = seq_len.div_ceil(block_size);
     let mut total_transferred_bytes = 0u64;
     let mut chunks_sent = 0u64;
+    let mut qatq_decision_stats = QatqDecisionStats::default();
     let transfer_start = std::time::Instant::now();
 
     for layer_idx in 0..n_layers {
@@ -1203,20 +1286,24 @@ async fn run_sim_migrate(
             let v_data = &vllm_value.data[v_start..(v_start + v_block_size)];
 
             // Format data payload (with optional quantization)
-            let k_payload = encode_payload(k_data, transfer_codec);
-            let v_payload = encode_payload(v_data, transfer_codec);
+            let k_payload = encode_payload(k_data, transfer_codec)?;
+            let v_payload = encode_payload(v_data, transfer_codec)?;
 
-            total_transferred_bytes += (k_payload.len() + v_payload.len()) as u64;
+            qatq_decision_stats.record(&k_payload);
+            qatq_decision_stats.record(&v_payload);
+
+            total_transferred_bytes += (k_payload.data.len() + v_payload.data.len()) as u64;
 
             // Send Key chunk
-            let crc32_k = compute_crc32(&k_payload);
+            let crc32_k = compute_crc32(&k_payload.data);
             send_message(
                 &mut socket,
                 &MigrationMessage::PayloadChunk {
                     chunk_index: block_idx as u32,
                     layer_index: layer_idx as u32,
                     tensor_name: format!("layer.{}.key", layer_idx),
-                    data: k_payload,
+                    codec: k_payload.codec,
+                    data: k_payload.data,
                     crc32: crc32_k,
                 },
             )
@@ -1225,14 +1312,15 @@ async fn run_sim_migrate(
             let _ack_k = recv_message(&mut socket).await?;
 
             // Send Value chunk
-            let crc32_v = compute_crc32(&v_payload);
+            let crc32_v = compute_crc32(&v_payload.data);
             send_message(
                 &mut socket,
                 &MigrationMessage::PayloadChunk {
                     chunk_index: block_idx as u32,
                     layer_index: layer_idx as u32,
                     tensor_name: format!("layer.{}.value", layer_idx),
-                    data: v_payload,
+                    codec: v_payload.codec,
+                    data: v_payload.data,
                     crc32: crc32_v,
                 },
             )
@@ -1306,6 +1394,11 @@ async fn run_sim_migrate(
                     uncompressed_bytes,
                     transferred_bytes: total_transferred_bytes,
                     compression_ratio,
+                    qatq_compressed_chunks: qatq_decision_stats.compressed_chunks,
+                    qatq_pass_through_chunks: qatq_decision_stats.pass_through_chunks,
+                    qatq_compressed_bytes: qatq_decision_stats.compressed_bytes,
+                    qatq_pass_through_bytes: qatq_decision_stats.pass_through_bytes,
+                    qatq_strategies: qatq_decision_stats.strategies.clone(),
                     chunks_sent,
                     average_chunk_bytes,
                     handshake_time_ms: handshake_time,
@@ -1375,6 +1468,11 @@ async fn run_sim_migrate(
                 uncompressed_bytes,
                 transferred_bytes: total_transferred_bytes,
                 compression_ratio,
+                qatq_compressed_chunks: qatq_decision_stats.compressed_chunks,
+                qatq_pass_through_chunks: qatq_decision_stats.pass_through_chunks,
+                qatq_compressed_bytes: qatq_decision_stats.compressed_bytes,
+                qatq_pass_through_bytes: qatq_decision_stats.pass_through_bytes,
+                qatq_strategies: qatq_decision_stats.strategies.clone(),
                 chunks_sent,
                 average_chunk_bytes,
                 handshake_time_ms: handshake_time,
@@ -1419,6 +1517,11 @@ async fn run_sim_migrate(
                 uncompressed_bytes,
                 transferred_bytes: total_transferred_bytes,
                 compression_ratio,
+                qatq_compressed_chunks: qatq_decision_stats.compressed_chunks,
+                qatq_pass_through_chunks: qatq_decision_stats.pass_through_chunks,
+                qatq_compressed_bytes: qatq_decision_stats.compressed_bytes,
+                qatq_pass_through_bytes: qatq_decision_stats.pass_through_bytes,
+                qatq_strategies: qatq_decision_stats.strategies,
                 chunks_sent,
                 average_chunk_bytes,
                 handshake_time_ms: handshake_time,

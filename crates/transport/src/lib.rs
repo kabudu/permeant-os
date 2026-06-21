@@ -37,6 +37,15 @@ pub struct AgentGraphBindingArtifact {
     pub size_bytes: Option<u64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PayloadCodecMetadata {
+    pub transfer_codec: String,
+    pub storage: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<String>,
+    pub raw_f32le_len: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MigrationMessage {
     CapabilityRequest {
@@ -57,6 +66,7 @@ pub enum MigrationMessage {
         chunk_index: u32,
         layer_index: u32,
         tensor_name: String,
+        codec: Option<PayloadCodecMetadata>,
         data: Vec<u8>,
         crc32: u32,
     },
@@ -618,11 +628,16 @@ fn encode_message(msg: &MigrationMessage) -> Result<Vec<u8>> {
             chunk_index,
             layer_index,
             tensor_name,
+            codec,
             data,
             crc32,
         } => {
             let name_bytes = tensor_name.as_bytes();
-            let mut out = Vec::with_capacity(1 + 4 + 4 + 4 + name_bytes.len() + 4 + 4 + data.len());
+            let codec_json = codec.as_ref().map(serde_json::to_vec).transpose()?;
+            let codec_len = codec_json.as_ref().map_or(0, Vec::len);
+            let mut out = Vec::with_capacity(
+                1 + 4 + 4 + 4 + name_bytes.len() + 4 + 4 + data.len() + 4 + codec_len,
+            );
             out.push(FRAME_KIND_PAYLOAD_CHUNK);
             out.extend_from_slice(&chunk_index.to_be_bytes());
             out.extend_from_slice(&layer_index.to_be_bytes());
@@ -631,6 +646,10 @@ fn encode_message(msg: &MigrationMessage) -> Result<Vec<u8>> {
             out.extend_from_slice(&crc32.to_be_bytes());
             out.extend_from_slice(&(data.len() as u32).to_be_bytes());
             out.extend_from_slice(data);
+            if let Some(codec_json) = codec_json {
+                out.extend_from_slice(&(codec_json.len() as u32).to_be_bytes());
+                out.extend_from_slice(&codec_json);
+            }
             Ok(out)
         }
         _ => {
@@ -674,18 +693,37 @@ fn decode_payload_chunk(buffer: &[u8]) -> Result<MigrationMessage> {
 
     let crc32 = read_u32(buffer, &mut cursor)?;
     let data_len = read_u32(buffer, &mut cursor)? as usize;
+    let data_start = cursor;
     let data_end = cursor
         .checked_add(data_len)
         .context("Payload chunk data length overflow")?;
-    if data_end != buffer.len() {
+    if data_end > buffer.len() {
         bail!("Payload chunk data length does not match frame size");
     }
+    cursor = data_end;
+
+    let codec = if cursor == buffer.len() {
+        None
+    } else {
+        let codec_len = read_u32(buffer, &mut cursor)? as usize;
+        let codec_end = cursor
+            .checked_add(codec_len)
+            .context("Payload chunk codec metadata length overflow")?;
+        if codec_end != buffer.len() {
+            bail!("Payload chunk codec metadata length does not match frame size");
+        }
+        Some(
+            serde_json::from_slice(&buffer[cursor..codec_end])
+                .context("Payload chunk codec metadata is invalid")?,
+        )
+    };
 
     Ok(MigrationMessage::PayloadChunk {
         chunk_index,
         layer_index,
         tensor_name,
-        data: buffer[cursor..data_end].to_vec(),
+        codec,
+        data: buffer[data_start..data_end].to_vec(),
         crc32,
     })
 }

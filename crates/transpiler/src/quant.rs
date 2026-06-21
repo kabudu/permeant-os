@@ -1,6 +1,48 @@
 //! FP8 (E4M3 and E5M2) quantization & dequantization utilities.
 use anyhow::{bail, Result};
 
+pub const QATQ_PHASE2_STORAGE: &str = "qatq-phase2";
+pub const RAW_F32LE_PASS_THROUGH_STORAGE: &str = "raw-f32le-pass-through";
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QatqPhase2Transfer {
+    pub storage: QatqTransferStorage,
+    pub payload: Vec<u8>,
+    pub raw_f32le_len: usize,
+}
+
+impl QatqPhase2Transfer {
+    pub fn storage_name(&self) -> &'static str {
+        self.storage.name()
+    }
+
+    pub fn strategy_name(&self) -> Option<&'static str> {
+        self.storage.strategy_name()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum QatqTransferStorage {
+    QatqPhase2 { strategy: &'static str },
+    RawF32LePassThrough,
+}
+
+impl QatqTransferStorage {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::QatqPhase2 { .. } => QATQ_PHASE2_STORAGE,
+            Self::RawF32LePassThrough => RAW_F32LE_PASS_THROUGH_STORAGE,
+        }
+    }
+
+    pub fn strategy_name(&self) -> Option<&'static str> {
+        match self {
+            Self::QatqPhase2 { strategy } => Some(strategy),
+            Self::RawF32LePassThrough => None,
+        }
+    }
+}
+
 /// Convert f32 to FP8 E4M3 (1 sign, 4 exponent, 3 mantissa, bias = 7)
 pub fn f32_to_e4m3(val: f32) -> u8 {
     if val == 0.0 {
@@ -173,6 +215,77 @@ pub fn quantize_e5m2_scaled(data: &[f32], scale: f32) -> Vec<u8> {
 /// Dequantizes E5M2 bytes back to float using scaling factor.
 pub fn dequantize_e5m2_scaled(data: &[u8], scale: f32) -> Vec<f32> {
     data.iter().map(|&x| e5m2_to_f32(x) * scale).collect()
+}
+
+pub fn encode_qatq_phase2_transfer(data: &[f32]) -> Result<QatqPhase2Transfer> {
+    let decision =
+        qatq::try_encode_phase2_lossless_decision_with_config(data, qatq::Phase1Config::default())
+            .map_err(|err| anyhow::anyhow!("QATQ phase2 decision failed: {err}"))?;
+
+    match decision {
+        qatq::Phase2EncodeDecision::Compressed {
+            payload,
+            strategy,
+            raw_f32le_len,
+        } => Ok(QatqPhase2Transfer {
+            storage: QatqTransferStorage::QatqPhase2 {
+                strategy: strategy.as_str(),
+            },
+            payload,
+            raw_f32le_len,
+        }),
+        qatq::Phase2EncodeDecision::PassThroughRaw { bytes } => Ok(QatqPhase2Transfer {
+            raw_f32le_len: bytes.len(),
+            storage: QatqTransferStorage::RawF32LePassThrough,
+            payload: bytes,
+        }),
+    }
+}
+
+pub fn decode_qatq_phase2_transfer(
+    storage: &str,
+    payload: &[u8],
+    expected_len: usize,
+) -> Result<Vec<f32>> {
+    match storage {
+        QATQ_PHASE2_STORAGE => {
+            let values = qatq::decode(payload)
+                .map_err(|err| anyhow::anyhow!("QATQ phase2 decode failed: {err}"))?;
+            ensure_qatq_decoded_len(storage, values, expected_len)
+        }
+        RAW_F32LE_PASS_THROUGH_STORAGE => {
+            if payload.len() != expected_len * 4 {
+                bail!(
+                    "raw f32le pass-through payload length mismatch: expected {} bytes, got {}",
+                    expected_len * 4,
+                    payload.len()
+                );
+            }
+            let mut values = Vec::with_capacity(expected_len);
+            for chunk in payload.chunks_exact(4) {
+                let bytes: [u8; 4] = chunk.try_into()?;
+                values.push(f32::from_le_bytes(bytes));
+            }
+            Ok(values)
+        }
+        other => bail!("Unsupported QATQ transfer storage: {other}"),
+    }
+}
+
+fn ensure_qatq_decoded_len(
+    storage: &str,
+    values: Vec<f32>,
+    expected_len: usize,
+) -> Result<Vec<f32>> {
+    if values.len() != expected_len {
+        bail!(
+            "{} decoded payload length mismatch: expected {}, got {}",
+            storage,
+            expected_len,
+            values.len()
+        );
+    }
+    Ok(values)
 }
 
 /// Experimental Quaternion-Augmented TurboQuant transfer codec.

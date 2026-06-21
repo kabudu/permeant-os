@@ -25,8 +25,8 @@ What works today:
   proofs, with optional torch-backed tensors and dependency-light list-backed
   CI mode.
 - llama.cpp target adapter scaffolding for accepted-state proofs, installed
-  tool capability probes, and an explicit live-hook boundary for future decode
-  continuation evidence.
+  tool capability probes, and a live state-file binding hook that proves exact
+  continuation after importing llama.cpp runtime state into a fresh context.
 - Repeatable AWS real-runtime E2E runner with cleanup verification.
 - Conservative AWS prewarm image/container recipe for faster E2E bootstrap without always-on infrastructure.
 - Structured benchmark manifest summaries for paper/update tables and failure records.
@@ -156,9 +156,11 @@ What is still experimental:
 - `docs/pytorch-target-runtime-adapter.md`: reference PyTorch target adapter
   runbook and evidence criteria.
 - `docs/llama-cpp-target-runtime-adapter.md`: llama.cpp target adapter runbook,
-  capability probe, and live KV-import hook boundary.
+  capability probe, and live state-binding hook boundary.
 - `docs/llama-cpp-target-runtime-local-proof-2026-06-21.md`: local llama.cpp
   accepted-state proof and decode-continuation boundary.
+- `docs/llama-cpp-live-state-binding-proof-2026-06-21.md`: live libllama
+  state-file binding proof with exact continuation and reverse export hashes.
 - `docs/real-runtime-bringup.md`: live runtime bring-up notes.
 - `docs/aws-real-runtime-fidelity-followup-2026-06-16.md`: fidelity investigation history.
 

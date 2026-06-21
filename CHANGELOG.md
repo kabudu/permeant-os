@@ -29,6 +29,10 @@ and this project uses release tags compatible with semantic versioning.
   extraction, production transport streaming, and graph binding up to target
   commit, plus the current vLLM/T4 FlashInfer backend blocker and cleanup
   verification.
+- Added a llama.cpp live state-file binding hook and libllama proof harness,
+  proving exact continuation after importing a saved llama.cpp runtime state
+  into a fresh target context with auditable binding, continuation, and reverse
+  export hashes.
 
 ### Changed
 

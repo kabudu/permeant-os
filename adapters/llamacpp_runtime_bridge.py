@@ -363,28 +363,32 @@ class LlamaCppReferenceRuntime:
         if not isinstance(block_hash, str) or not block_hash:
             raise AdapterError("inject_block request must include a non-empty hash")
         tensors = payload.get("tensors")
-        if not isinstance(tensors, list) or not tensors:
-            raise AdapterError("inject_block request must include a non-empty tensors list")
+        runtime_state = payload.get("runtime_state")
+        if not isinstance(tensors, list):
+            tensors = []
+        if not tensors and not isinstance(runtime_state, dict):
+            raise AdapterError("inject_block request must include tensors or runtime_state")
 
-        grouped = _group_layer_tensors(tensors)
         layer_summaries: list[dict[str, Any]] = []
-        for layer_index in sorted(grouped):
-            layer = grouped[layer_index]
-            if "key" not in layer or "value" not in layer:
-                raise AdapterError(f"layer {layer_index} is missing key/value tensors")
-            key_shape, key_values = _canonical_tensor(layer["key"])
-            value_shape, value_values = _canonical_tensor(layer["value"])
-            if key_shape != value_shape:
-                raise AdapterError(f"layer {layer_index} key/value shapes differ: {key_shape} != {value_shape}")
-            layer_summaries.append(
-                {
-                    "layer_index": layer_index,
-                    "shape": key_shape,
-                    "key_sha256": _f32_sha256(key_values),
-                    "value_sha256": _f32_sha256(value_values),
-                    "value_count": len(key_values),
-                }
-            )
+        if tensors:
+            grouped = _group_layer_tensors(tensors)
+            for layer_index in sorted(grouped):
+                layer = grouped[layer_index]
+                if "key" not in layer or "value" not in layer:
+                    raise AdapterError(f"layer {layer_index} is missing key/value tensors")
+                key_shape, key_values = _canonical_tensor(layer["key"])
+                value_shape, value_values = _canonical_tensor(layer["value"])
+                if key_shape != value_shape:
+                    raise AdapterError(f"layer {layer_index} key/value shapes differ: {key_shape} != {value_shape}")
+                layer_summaries.append(
+                    {
+                        "layer_index": layer_index,
+                        "shape": key_shape,
+                        "key_sha256": _f32_sha256(key_values),
+                        "value_sha256": _f32_sha256(value_values),
+                        "value_count": len(key_values),
+                    }
+                )
 
         accepted = {
             "hash": block_hash,
@@ -397,6 +401,8 @@ class LlamaCppReferenceRuntime:
             "binding_requirements": _binding_requirements(block_hash, layer_summaries),
             "decode_claim": "none-without-live-kv-import-hook",
         }
+        if isinstance(runtime_state, dict):
+            accepted["runtime_state"] = runtime_state
         live_hook = _live_hook()
         if live_hook is not None:
             hook_payload = {
@@ -418,6 +424,7 @@ class LlamaCppReferenceRuntime:
         self.registered_hashes.add(block_hash)
         self.block_summaries[block_hash] = accepted
         self._persist()
+        self._persist_runtime_result(last_live_result=self.last_live_result)
         _append_probe_event({"event": "register_permeant_block", **accepted})
         return {"success": True, "accepted_state": accepted}
 
@@ -453,6 +460,7 @@ class LlamaCppReferenceRuntime:
                 result["decode_status"] = "live_kv_binding_continuation_proven"
                 result["continuation_proof_hash"] = live_result["continuation_proof_hash"]
         self.last_verify_result = result
+        self._persist_runtime_result(last_verify_result=result)
         _append_probe_event({"event": "verify_permeant_hashes", **result})
         return result
 
@@ -462,16 +470,20 @@ class LlamaCppReferenceRuntime:
         request: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         del payload, request
+        existing = _read_json(_state_file()) if _state_file() is not None else {}
+        blocks = _load_persisted_blocks() or self.block_summaries
+        last_verify_result = self.last_verify_result or existing.get("last_verify_result")
+        last_live_result = self.last_live_result or existing.get("last_live_result")
         state = {
             "schema_version": "permeantos-llamacpp-reference-reverse-runtime-state-v0",
             "status": "target_runtime_state_exported",
             "target_runtime": "llama.cpp",
             "registered_hashes": sorted(set(self.registered_hashes) | _load_persisted_hashes()),
-            "blocks": _load_persisted_blocks() or self.block_summaries,
+            "blocks": blocks,
             "capabilities": self.capabilities,
-            "last_verify_result": self.last_verify_result,
-            "last_live_result": self.last_live_result,
-            "decode_claim": self._decode_claim(),
+            "last_verify_result": last_verify_result,
+            "last_live_result": last_live_result,
+            "decode_claim": self._decode_claim(blocks, last_verify_result),
         }
         state["proof_hash"] = _proof_hash(state)
         _append_probe_event(
@@ -483,18 +495,38 @@ class LlamaCppReferenceRuntime:
         )
         return {"success": True, "reverse_runtime_state": state, **state}
 
-    def _decode_claim(self) -> str:
-        if isinstance(self.last_verify_result, dict) and self.last_verify_result.get(
-            "decode_status"
-        ) == "live_kv_binding_continuation_proven":
+    def _decode_claim(
+        self,
+        blocks: dict[str, dict[str, Any]] | None = None,
+        last_verify_result: dict[str, Any] | None = None,
+    ) -> str:
+        verify_result = last_verify_result or self.last_verify_result
+        if isinstance(verify_result, dict) and verify_result.get("decode_status") == "live_kv_binding_continuation_proven":
             return "live-kv-binding-continuation-proven"
+        candidate_blocks = blocks if blocks is not None else self.block_summaries
         if any(
             block.get("adapter_mode") == "live-kv-binding-hook"
-            for block in self.block_summaries.values()
+            for block in candidate_blocks.values()
             if isinstance(block, dict)
         ):
             return "live-kv-bound-continuation-not-yet-verified"
         return "none-without-live-kv-import-hook"
+
+    def _persist_runtime_result(
+        self,
+        *,
+        last_live_result: dict[str, Any] | None = None,
+        last_verify_result: dict[str, Any] | None = None,
+    ) -> None:
+        path = _state_file()
+        if path is None:
+            return
+        existing = _read_json(path)
+        if last_live_result is not None:
+            existing["last_live_result"] = last_live_result
+        if last_verify_result is not None:
+            existing["last_verify_result"] = last_verify_result
+        _write_json(path, existing)
 
     def _persist(self) -> None:
         path = _state_file()

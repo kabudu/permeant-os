@@ -3,8 +3,9 @@ use permeant_transport::{
     compute_crc32, decode_binary_frame, default_transport_candidates, encode_binary_frame,
     negotiate_transport, recv_binary_frame, recv_message, send_binary_frame, send_message,
     verify_chunk_crc32, AgentGraphBinding, AgentGraphBindingKvSpan, BinaryFrame,
-    BinaryFrameValidator, EndpointRole, MigrationMessage, ProductionTransportMode,
-    ProductionTransportProfile, SecureSessionHello, SecureSessionHelloRequest, TransportCandidate,
+    BinaryFrameValidator, EndpointRole, MigrationMessage, PayloadCodecMetadata,
+    ProductionTransportMode, ProductionTransportProfile, SecureSessionHello,
+    SecureSessionHelloRequest, TransportCandidate,
 };
 use std::collections::HashMap;
 use tokio::io::AsyncWriteExt;
@@ -319,6 +320,7 @@ async fn test_crc32_corruption_handling() {
         chunk_index: 0,
         layer_index: 0,
         tensor_name: "layer.0.key".to_string(),
+        codec: None,
         data: raw_payload.clone(),
         crc32: correct_crc,
     };
@@ -330,12 +332,60 @@ async fn test_crc32_corruption_handling() {
         chunk_index: 0,
         layer_index: 0,
         tensor_name: "layer.0.key".to_string(),
+        codec: None,
         data: raw_payload.clone(),
         crc32: correct_crc ^ 1234, // modify CRC32
     };
 
     // Verify corrupted chunk fails
     assert!(!verify_chunk_crc32(&corrupted_chunk).unwrap());
+}
+
+#[tokio::test]
+async fn test_payload_chunk_preserves_codec_metadata() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let local_addr = listener.local_addr().unwrap();
+
+    let server_handle = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let chunk = recv_message(&mut socket).await.unwrap();
+        let MigrationMessage::PayloadChunk {
+            codec, data, crc32, ..
+        } = chunk
+        else {
+            panic!("Expected PayloadChunk");
+        };
+        assert_eq!(data, vec![9, 8, 7, 6]);
+        assert_eq!(crc32, compute_crc32(&data));
+        let codec = codec.expect("codec metadata");
+        assert_eq!(codec.transfer_codec, "qatq");
+        assert_eq!(codec.storage, "qatq-phase2");
+        assert_eq!(codec.strategy.as_deref(), Some("byte-plane-blocks"));
+        assert_eq!(codec.raw_f32le_len, 16);
+    });
+
+    let mut client_socket = TcpStream::connect(local_addr).await.unwrap();
+    let data = vec![9, 8, 7, 6];
+    send_message(
+        &mut client_socket,
+        &MigrationMessage::PayloadChunk {
+            chunk_index: 0,
+            layer_index: 0,
+            tensor_name: "layer.0.key".to_string(),
+            codec: Some(PayloadCodecMetadata {
+                transfer_codec: "qatq".to_string(),
+                storage: "qatq-phase2".to_string(),
+                strategy: Some("byte-plane-blocks".to_string()),
+                raw_f32le_len: 16,
+            }),
+            crc32: compute_crc32(&data),
+            data,
+        },
+    )
+    .await
+    .unwrap();
+
+    server_handle.await.unwrap();
 }
 
 #[tokio::test]

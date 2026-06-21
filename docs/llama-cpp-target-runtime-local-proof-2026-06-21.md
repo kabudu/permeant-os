@@ -4,6 +4,10 @@ This checkpoint records the first local llama.cpp adapter proof. It validates
 the practical open-source runtime boundary at the accepted-state level, not at
 the generated-token decode-fidelity level.
 
+Update: `docs/llama-cpp-live-state-binding-proof-2026-06-21.md` now records the
+first live llama.cpp state-file binding proof with exact continuation evidence.
+This document remains the accepted-state baseline.
+
 ## Summary
 
 | Field | Value |

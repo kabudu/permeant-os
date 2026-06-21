@@ -7,14 +7,17 @@ reference PyTorch target adapter. It keeps the same evidence boundaries:
 - record little-endian f32 fingerprints for every accepted key/value tensor;
 - verify that expected migrated block hashes were accepted;
 - export auditable reverse target state;
-- probe installed `llama-cli` and `llama-server` tooling.
+- probe installed `llama-cli` and `llama-server` tooling;
+- optionally bind a llama.cpp runtime state file into a fresh libllama context
+  and verify generated-token continuation through a live hook.
 
-The current in-tree adapter does not claim generated-token continuation from
-migrated KV state by default. The installed llama.cpp CLI/server expose useful
-runtime controls, including KV cache type options, but they do not expose a
-command-line KV import API. For a real decode-fidelity claim, the adapter must
-be connected to a live hook that can bind migrated KV state into a llama.cpp
-context before decode.
+The default tensor-acceptance path does not claim generated-token continuation
+from canonical migrated KV tensors. The installed llama.cpp CLI/server expose
+useful runtime controls, including KV cache type options, but they do not expose
+a command-line KV import API. For decode evidence, the adapter must be connected
+to a live hook that can bind migrated state into a llama.cpp context before
+decode. The first in-tree hook uses llama.cpp's public state-file API and is
+documented in `docs/llama-cpp-live-state-binding-proof-2026-06-21.md`.
 
 ## Command-Backed Use
 
@@ -38,6 +41,15 @@ Optional live KV binding hook:
 export PERMEANT_LLAMA_CPP_RUNTIME_HOOK="/ABS/PATH/my_llamacpp_runtime.py:hook"
 ```
 
+The included live state-file hook can be used with:
+
+```bash
+export PERMEANT_LLAMA_CPP_RUNTIME_HOOK="$PWD/adapters/llamacpp_live_state_hook.py:hook"
+export PERMEANT_LLAMA_CPP_STATE_BRIDGE="$PWD/target/llamacpp_live_state_bridge"
+export PERMEANT_LLAMA_CPP_MODEL="/ABS/PATH/model.gguf"
+export PERMEANT_LLAMA_CPP_STATE_FILE="/ABS/PATH/llama-state.bin"
+```
+
 The hook receives an explicit binding request:
 
 ```json
@@ -47,7 +59,11 @@ The hook receives an explicit binding request:
   "accepted_state": {},
   "block": {
     "block_hash": "sha256:...",
-    "tensors": []
+    "tensors": [],
+    "runtime_state": {
+      "format": "llama.cpp-state-file",
+      "state_file": "/ABS/PATH/llama-state.bin"
+    }
   },
   "binding_requirements": {
     "canonical_tensor_layout": "[seq, kv_heads, head_dim]"
@@ -94,9 +110,10 @@ The adapter rejects hooks that merely report `success=true` without a binding
 proof, and it rejects continuation evidence unless `used_migrated_kv=true` and
 the binding proof covers the expected migrated block hash.
 
-`adapters/llamacpp_live_binding_hook_template.py` is the out-of-tree hook
-template. A real hook can be implemented against a private llama.cpp wrapper,
-shared library, or sidecar process before PermeantOS proposes any upstream
+`adapters/llamacpp_live_state_hook.py` is the current concrete hook for
+llama.cpp state files. `adapters/llamacpp_live_binding_hook_template.py`
+remains the out-of-tree template for lower-level canonical KV tensor binding
+against a private wrapper, shared library, sidecar process, or future upstream
 llama.cpp API.
 
 ## Current Local Probe
@@ -109,8 +126,17 @@ version: 8640 (7992aa7c8)
 built with AppleClang 17.0.0.17000604 for Darwin arm64
 ```
 
-The adapter records this information in its capability probe. Because no live
-KV import hook was supplied, the local evidence status is accepted-state only.
+The adapter records this information in its capability probe. The first live
+state-file proof used `ggml-org/Qwen3-0.6B-GGUF:Q4_0`, imported a saved
+libllama state into a fresh target context, and produced exact matching greedy
+continuation tokens:
+
+```text
+[576, 1376, 374, 264, 6303, 1376, 11, 773]
+```
+
+The proof report is
+`docs/llama-cpp-live-state-binding-proof-2026-06-21.md`.
 
 ## Evidence Criteria
 
@@ -124,5 +150,6 @@ Call a llama.cpp run an accepted-state proof when:
 
 Call a llama.cpp run a decode-continuation proof only when a live hook binds the
 migrated state into llama.cpp and returns generated token evidence from that
-bound context. Upstream llama.cpp changes are intentionally deferred until this
-out-of-tree binding hook proves the API shape and value.
+bound context. The state-file hook now satisfies this for llama.cpp-originated
+runtime state. Raw canonical tensor import into llama.cpp internals remains a
+separate future binding/patch target.

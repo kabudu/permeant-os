@@ -56,6 +56,18 @@ def _inject_request(block_hash="sha256:llamacpp-reference"):
     }
 
 
+def _runtime_state_request(block_hash="sha256:llamacpp-runtime-state"):
+    return {
+        "action": "inject_block",
+        "block_hash": block_hash,
+        "runtime_state": {
+            "format": "llama.cpp-state-file",
+            "state_file": "/tmp/permeantos-test-state.bin",
+            "model": "test-model.gguf",
+        },
+    }
+
+
 class LlamaCppRuntimeAdapterTests(unittest.TestCase):
     def test_llamacpp_adapter_accepts_state_and_records_tool_capabilities(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -138,12 +150,16 @@ class LlamaCppRuntimeAdapterTests(unittest.TestCase):
     def test_llamacpp_live_hook_can_report_runtime_binding_and_continuation(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
+            state_file = tmp / "llamacpp-state.json"
+            probe_file = tmp / "llamacpp-probe.json"
             hook = tmp / "live_hook.py"
             hook.write_text(
                 "\n".join(
                     [
                         "def hook(payload, request=None, original=None):",
-                        "    proof = {'bound_hashes': ['sha256:llamacpp-live'], 'context_id': 'ctx:test', 'kv_token_count': 2, 'proof_hash': 'sha256:' + 'a' * 64}",
+                        "    block = payload.get('block') or {}",
+                        "    block_hash = block.get('block_hash') or block.get('hash') or payload.get('accepted_hashes', ['sha256:llamacpp-live'])[0]",
+                        "    proof = {'bound_hashes': [block_hash], 'context_id': 'ctx:test', 'kv_token_count': 2, 'proof_hash': 'sha256:' + 'a' * 64}",
                         "    if payload.get('action') == 'verify_bound_continuation':",
                         "        return {'success': True, 'binding_proof': proof, 'continuation': {'token_ids': [1, 2, 3], 'used_migrated_kv': True}}",
                         "    assert payload.get('action') == 'bind_kv_state'",
@@ -154,11 +170,13 @@ class LlamaCppRuntimeAdapterTests(unittest.TestCase):
             )
             env = {
                 "PERMEANT_LLAMA_CPP_RUNTIME_HOOK": f"{hook}:hook",
+                "PERMEANT_LLAMA_CPP_RUNTIME_STATE_FILE": str(state_file),
+                "PERMEANT_LLAMA_CPP_RUNTIME_PROBE_FILE": str(probe_file),
             }
             with mock.patch.dict(os.environ, env, clear=False):
                 module = _reload_module(
-                    tmp / "llamacpp-state.json",
-                    tmp / "llamacpp-probe.json",
+                    state_file,
+                    probe_file,
                     _fake_tool(tmp, "llama-cli"),
                     _fake_tool(tmp, "llama-server"),
                 )
@@ -177,6 +195,58 @@ class LlamaCppRuntimeAdapterTests(unittest.TestCase):
 
                 exported = module.runtime_hook({"action": "export_reverse_runtime_state"})
                 self.assertEqual(exported["decode_claim"], "live-kv-binding-continuation-proven")
+
+                reloaded = _reload_module(
+                    state_file,
+                    probe_file,
+                    _fake_tool(tmp, "llama-cli-reloaded"),
+                    _fake_tool(tmp, "llama-server-reloaded"),
+                )
+                with mock.patch.dict(
+                    os.environ,
+                    {
+                        "PERMEANT_LLAMA_CPP_RUNTIME_STATE_FILE": str(state_file),
+                        "PERMEANT_LLAMA_CPP_RUNTIME_PROBE_FILE": str(probe_file),
+                    },
+                    clear=False,
+                ):
+                    persisted_export = reloaded.runtime_hook({"action": "export_reverse_runtime_state"})
+                self.assertEqual(persisted_export["decode_claim"], "live-kv-binding-continuation-proven")
+
+    def test_llamacpp_live_hook_accepts_runtime_state_without_canonical_tensors(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            hook = tmp / "runtime_state_hook.py"
+            hook.write_text(
+                "\n".join(
+                    [
+                        "def hook(payload, *args):",
+                        "    block = payload.get('block') or {}",
+                        "    assert block['runtime_state']['state_file'] == '/tmp/permeantos-test-state.bin'",
+                        "    proof = {'bound_hashes': [block['block_hash']], 'context_id': 'ctx:runtime-state', 'kv_token_count': 4, 'proof_hash': 'sha256:' + 'c' * 64}",
+                        "    return {'success': True, 'runtime_state_bound': True, 'binding_proof': proof}",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            env = {
+                "PERMEANT_LLAMA_CPP_RUNTIME_HOOK": f"{hook}:hook",
+            }
+            with mock.patch.dict(os.environ, env, clear=False):
+                module = _reload_module(
+                    tmp / "llamacpp-state.json",
+                    tmp / "llamacpp-probe.json",
+                    _fake_tool(tmp, "llama-cli"),
+                    _fake_tool(tmp, "llama-server"),
+                )
+                result = module.runtime_hook(_runtime_state_request())
+
+                self.assertTrue(result["success"])
+                accepted = result["accepted_state"]
+                self.assertEqual(accepted["adapter_mode"], "live-kv-binding-hook")
+                self.assertEqual(accepted["layer_count"], 0)
+                self.assertEqual(accepted["runtime_state"]["format"], "llama.cpp-state-file")
+                self.assertTrue(accepted["live_hook_result"]["runtime_state_bound"])
 
     def test_llamacpp_live_hook_rejects_unproven_binding_claim(self):
         with tempfile.TemporaryDirectory() as tmpdir:

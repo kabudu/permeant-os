@@ -26,3 +26,4 @@ thiserror = "1.0"
 tonic = "0.10"
 prost = "0.12"
 prost-build = "0.12"
+qatq = { path = "/Users/kabudu/projex/qatq" }

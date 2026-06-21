@@ -65,7 +65,7 @@ scripts/plan-model-runtime-validations.py \
 | `qwen2.5-0.5b-long-horizon-aws` | Qwen2.5 | `Qwen/Qwen2.5-0.5B-Instruct` | MLX to vLLM | `qatq` | validated long-horizon AWS |
 | `tinyllama-1.1b-chat-mlx-vllm` | Llama | `TinyLlama/TinyLlama-1.1B-Chat-v1.0` | MLX to vLLM | `none` | validated structural E2E |
 | `qwen2.5-0.5b-mlx-pytorch-reference` | Qwen2.5 | `Qwen/Qwen2.5-0.5B-Instruct` | MLX to PyTorch reference | `none` | next runtime-breadth acceptance proof |
-| `tinyllama-1.1b-chat-mlx-llamacpp` | Llama | `TinyLlama/TinyLlama-1.1B-Chat-v1.0` | MLX to llama.cpp | `none` | adapter implemented; live KV binding pending |
+| `tinyllama-1.1b-chat-mlx-llamacpp` | Llama | `TinyLlama/TinyLlama-1.1B-Chat-v1.0` | MLX to llama.cpp | `none` | adapter implemented; state-file live binding proven |
 | `gemma-2-2b-it-mlx-vllm` | Gemma 2 | `google/gemma-2-2b-it` | MLX to vLLM | `none` | candidate new-family |
 | `phi-3.5-mini-mlx-vllm` | Phi 3.5 | `microsoft/Phi-3.5-mini-instruct` | MLX to vLLM | `none` | candidate new-family |
 
@@ -186,17 +186,20 @@ reference PyTorch target adapter documented in
 
 ### `tinyllama-1.1b-chat-mlx-llamacpp`
 
-The llama.cpp adapter is now implemented for accepted-state proofs and tool
-capability probes. It should reuse the PyTorch evidence boundaries, and it can
-call an optional live hook when a patched/binding-backed llama.cpp runtime can
-bind migrated KV into a real context. Until such a hook is supplied and returns
-generated token evidence from that bound context, this profile remains an
-accepted-state proof rather than a decode-fidelity proof.
+The llama.cpp adapter is now implemented for accepted-state proofs, tool
+capability probes, reverse export, and live state-file binding. The live proof
+uses llama.cpp's public state-file API to load migrated libllama state into a
+fresh context and decode exact matching greedy continuation tokens. This proves
+llama.cpp-originated runtime-state continuation. Raw canonical MLX/vLLM tensor
+import directly into llama.cpp KV internals remains a separate binding/patch
+target.
 
 | Field | Value |
 | --- | --- |
 | Local proof | `docs/llama-cpp-target-runtime-local-proof-2026-06-21.md` |
+| Live binding proof | `docs/llama-cpp-live-state-binding-proof-2026-06-21.md` |
 | Adapter | `adapters/llamacpp_injector.py` |
+| Live hook | `adapters/llamacpp_live_state_hook.py` |
 | Runtime tooling | `llama-cli`, `llama-server` |
-| Current evidence | accepted-state proof with verified hash and reverse export proof hash |
-| Missing for decode claim | live llama.cpp KV import hook |
+| Current evidence | state-file live binding proof with verified hash, exact continuation tokens, and reverse export proof hash |
+| Missing for MLX/vLLM-to-llama.cpp decode claim | raw canonical tensor import into llama.cpp internal KV memory |
