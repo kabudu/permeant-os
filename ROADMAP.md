@@ -377,6 +377,8 @@ Deliverables:
   for semantic versioning.
 - Python adapter SDK packaging once the command/hook surfaces settle.
 - Documentation hub on `www.permeantos.org` or a future docs subdomain.
+  - [x] Repository documentation hub plus public website docs pages for getting
+    started, evidence, adapter authoring, release artifacts, and roadmap status.
 - Runtime adapter authoring guide with conformance fixtures and evidence
   requirements.
 - Public evidence dashboard or generated evidence index linking each validated
