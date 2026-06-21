@@ -143,9 +143,11 @@ class LlamaCppRuntimeAdapterTests(unittest.TestCase):
                 "\n".join(
                     [
                         "def hook(payload, request=None, original=None):",
-                        "    if 'verify' in payload:",
-                        "        return {'success': True, 'continuation': {'token_ids': [1, 2, 3]}}",
-                        "    return {'success': True, 'runtime_state_bound': True}",
+                        "    proof = {'bound_hashes': ['sha256:llamacpp-live'], 'context_id': 'ctx:test', 'kv_token_count': 2, 'proof_hash': 'sha256:' + 'a' * 64}",
+                        "    if payload.get('action') == 'verify_bound_continuation':",
+                        "        return {'success': True, 'binding_proof': proof, 'continuation': {'token_ids': [1, 2, 3], 'used_migrated_kv': True}}",
+                        "    assert payload.get('action') == 'bind_kv_state'",
+                        "    return {'success': True, 'runtime_state_bound': True, 'binding_proof': proof}",
                     ]
                 ),
                 encoding="utf-8",
@@ -161,12 +163,78 @@ class LlamaCppRuntimeAdapterTests(unittest.TestCase):
                     _fake_tool(tmp, "llama-server"),
                 )
                 inject = module.runtime_hook(_inject_request("sha256:llamacpp-live"))
-                self.assertEqual(inject["accepted_state"]["adapter_mode"], "live-hook")
+                self.assertEqual(inject["accepted_state"]["adapter_mode"], "live-kv-binding-hook")
                 self.assertTrue(inject["accepted_state"]["live_hook_result"]["runtime_state_bound"])
+                self.assertEqual(
+                    inject["accepted_state"]["live_hook_result"]["binding_contract_version"],
+                    module.LLAMA_CPP_BINDING_CONTRACT_VERSION,
+                )
 
                 verify = module.runtime_hook({"action": "verify_continuation", "block_hashes": ["sha256:llamacpp-live"]})
-                self.assertEqual(verify["decode_status"], "live_hook_continuation_reported")
+                self.assertEqual(verify["decode_status"], "live_kv_binding_continuation_proven")
                 self.assertEqual(verify["live_hook_result"]["continuation"]["token_ids"], [1, 2, 3])
+                self.assertTrue(verify["live_hook_result"]["continuation"]["used_migrated_kv"])
+
+                exported = module.runtime_hook({"action": "export_reverse_runtime_state"})
+                self.assertEqual(exported["decode_claim"], "live-kv-binding-continuation-proven")
+
+    def test_llamacpp_live_hook_rejects_unproven_binding_claim(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            hook = tmp / "loose_hook.py"
+            hook.write_text(
+                "\n".join(
+                    [
+                        "def hook(payload, *args):",
+                        "    return {'success': True, 'runtime_state_bound': True}",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            env = {
+                "PERMEANT_LLAMA_CPP_RUNTIME_HOOK": f"{hook}:hook",
+            }
+            with mock.patch.dict(os.environ, env, clear=False):
+                module = _reload_module(
+                    tmp / "llamacpp-state.json",
+                    tmp / "llamacpp-probe.json",
+                    _fake_tool(tmp, "llama-cli"),
+                    _fake_tool(tmp, "llama-server"),
+                )
+                with self.assertRaisesRegex(module.AdapterError, "binding_proof"):
+                    module.runtime_hook(_inject_request("sha256:llamacpp-loose"))
+
+    def test_llamacpp_live_hook_rejects_continuation_without_migrated_kv_evidence(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            hook = tmp / "bad_verify_hook.py"
+            hook.write_text(
+                "\n".join(
+                    [
+                        "def hook(payload, *args):",
+                        "    proof = {'bound_hashes': ['sha256:llamacpp-bad-verify'], 'context_id': 'ctx:test', 'kv_token_count': 2, 'proof_hash': 'sha256:' + 'b' * 64}",
+                        "    if payload.get('action') == 'verify_bound_continuation':",
+                        "        return {'success': True, 'binding_proof': proof, 'continuation': {'token_ids': [1, 2, 3]}}",
+                        "    return {'success': True, 'runtime_state_bound': True, 'binding_proof': proof}",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            env = {
+                "PERMEANT_LLAMA_CPP_RUNTIME_HOOK": f"{hook}:hook",
+            }
+            with mock.patch.dict(os.environ, env, clear=False):
+                module = _reload_module(
+                    tmp / "llamacpp-state.json",
+                    tmp / "llamacpp-probe.json",
+                    _fake_tool(tmp, "llama-cli"),
+                    _fake_tool(tmp, "llama-server"),
+                )
+                module.runtime_hook(_inject_request("sha256:llamacpp-bad-verify"))
+                with self.assertRaisesRegex(module.AdapterError, "used_migrated_kv"):
+                    module.runtime_hook(
+                        {"action": "verify_continuation", "block_hashes": ["sha256:llamacpp-bad-verify"]}
+                    )
 
 
 if __name__ == "__main__":

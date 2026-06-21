@@ -43,10 +43,21 @@ The adapter therefore reports:
 decode_claim=none-without-live-kv-import-hook
 ```
 
-To turn this into decode-continuation evidence, PermeantOS needs a
+To turn this into decode-continuation evidence, PermeantOS needs an out-of-tree
 `PERMEANT_LLAMA_CPP_RUNTIME_HOOK` implementation that binds migrated KV state
 into a live llama.cpp context and returns generated token evidence from that
-bound context.
+bound context. The hook contract is now explicit:
+
+- `bind_kv_state` must return `runtime_state_bound=true` plus a
+  `binding_proof` containing `bound_hashes`, `context_id`, `kv_token_count`,
+  and `proof_hash`;
+- `verify_bound_continuation` must return generated `token_ids`,
+  `used_migrated_kv=true`, and a binding proof that covers the expected block
+  hash.
+
+This should be built as a binding hook first, not an upstream patch. Upstreaming
+can wait until the out-of-tree hook proves the API shape and PermeantOS has a
+stronger public adoption case.
 
 ## Commands
 

@@ -317,7 +317,12 @@ Deliverables:
   backend rejects the head-dim-128 shape during `BatchPrefillWithPagedKVCache`;
   keep this profile unvalidated until a supported target backend/runtime path
   is implemented.
-- [ ] Add at least one independent target runtime path beyond vLLM.
+- [ ] Add at least one independent target runtime path beyond vLLM. The next
+  hard step is an out-of-tree llama.cpp live KV binding hook, not an upstream
+  llama.cpp patch: bind PermeantOS canonical KV tensors into a live
+  `llama_context`, prove the following decode used the imported KV state, and
+  only consider upstreaming once the hook proves the API shape and PermeantOS
+  has a stronger adoption case.
 
 Exit criteria:
 

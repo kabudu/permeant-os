@@ -32,27 +32,72 @@ export PERMEANT_LLAMA_CPP_CLI="/opt/homebrew/bin/llama-cli"
 export PERMEANT_LLAMA_CPP_SERVER="/opt/homebrew/bin/llama-server"
 ```
 
-Optional live KV import hook:
+Optional live KV binding hook:
 
 ```bash
 export PERMEANT_LLAMA_CPP_RUNTIME_HOOK="/ABS/PATH/my_llamacpp_runtime.py:hook"
 ```
 
-The hook receives the accepted state summary and original injector request. It
-should return:
+The hook receives an explicit binding request:
 
 ```json
-{"success": true, "runtime_state_bound": true}
+{
+  "schema_version": "permeantos-llamacpp-live-kv-binding-v0",
+  "action": "bind_kv_state",
+  "accepted_state": {},
+  "block": {
+    "block_hash": "sha256:...",
+    "tensors": []
+  },
+  "binding_requirements": {
+    "canonical_tensor_layout": "[seq, kv_heads, head_dim]"
+  }
+}
 ```
 
-For verification, the same hook may return generated continuation evidence:
+It must return proof that the migrated KV block was actually bound into a live
+llama.cpp context:
 
 ```json
-{"success": true, "continuation": {"token_ids": [1, 2, 3]}}
+{
+  "success": true,
+  "runtime_state_bound": true,
+  "binding_proof": {
+    "bound_hashes": ["sha256:..."],
+    "context_id": "llama-context:...",
+    "kv_token_count": 2016,
+    "proof_hash": "sha256:..."
+  }
+}
 ```
 
-Only hook-backed runs that actually bind migrated KV into a live llama.cpp
-context may be described as decode-continuation evidence.
+For verification, the same hook receives `action=verify_bound_continuation` and
+must return generated-token evidence from that bound context:
+
+```json
+{
+  "success": true,
+  "binding_proof": {
+    "bound_hashes": ["sha256:..."],
+    "context_id": "llama-context:...",
+    "kv_token_count": 2016,
+    "proof_hash": "sha256:..."
+  },
+  "continuation": {
+    "token_ids": [1, 2, 3],
+    "used_migrated_kv": true
+  }
+}
+```
+
+The adapter rejects hooks that merely report `success=true` without a binding
+proof, and it rejects continuation evidence unless `used_migrated_kv=true` and
+the binding proof covers the expected migrated block hash.
+
+`adapters/llamacpp_live_binding_hook_template.py` is the out-of-tree hook
+template. A real hook can be implemented against a private llama.cpp wrapper,
+shared library, or sidecar process before PermeantOS proposes any upstream
+llama.cpp API.
 
 ## Current Local Probe
 
@@ -79,4 +124,5 @@ Call a llama.cpp run an accepted-state proof when:
 
 Call a llama.cpp run a decode-continuation proof only when a live hook binds the
 migrated state into llama.cpp and returns generated token evidence from that
-bound context.
+bound context. Upstream llama.cpp changes are intentionally deferred until this
+out-of-tree binding hook proves the API shape and value.

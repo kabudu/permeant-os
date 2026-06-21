@@ -28,6 +28,7 @@ if str(SCRIPT_DIR) not in sys.path:
 from runtime_adapter_utils import AdapterError, load_hook
 
 _RUNTIME_SINGLETON: "LlamaCppReferenceRuntime | None" = None
+LLAMA_CPP_BINDING_CONTRACT_VERSION = "permeantos-llamacpp-live-kv-binding-v0"
 
 
 def _request_kind(request: dict[str, Any]) -> str:
@@ -85,6 +86,96 @@ def _normalize_response(payload: Any) -> dict[str, Any]:
         raise AdapterError("llama.cpp runtime response field 'success' must be a boolean")
     response["success"] = success
     return response
+
+
+def _string_list(value: Any, field_name: str) -> list[str]:
+    if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
+        raise AdapterError(f"llama.cpp live binding field '{field_name}' must be a non-empty string list")
+    return list(value)
+
+
+def _binding_proof_hash(proof: dict[str, Any]) -> str:
+    proof_hash = proof.get("proof_hash")
+    if isinstance(proof_hash, str) and proof_hash.startswith("sha256:"):
+        return proof_hash
+    return _proof_hash(proof)
+
+
+def _normalize_bound_hashes(proof: dict[str, Any]) -> list[str]:
+    bound_hashes = proof.get("bound_hashes")
+    if bound_hashes is None:
+        bound_hash = proof.get("bound_hash")
+        if isinstance(bound_hash, str) and bound_hash:
+            bound_hashes = [bound_hash]
+    return _string_list(bound_hashes, "binding_proof.bound_hashes")
+
+
+def _validate_binding_result(result: dict[str, Any], block_hash: str) -> dict[str, Any]:
+    if not result.get("success"):
+        raise AdapterError("llama.cpp live binding hook reported failure")
+    if result.get("runtime_state_bound") is not True:
+        raise AdapterError("llama.cpp live binding hook must set runtime_state_bound=true")
+    proof = result.get("binding_proof")
+    if not isinstance(proof, dict):
+        raise AdapterError("llama.cpp live binding hook must return a binding_proof object")
+    bound_hashes = _normalize_bound_hashes(proof)
+    if block_hash not in bound_hashes:
+        raise AdapterError(f"llama.cpp binding proof does not include migrated block hash {block_hash}")
+    context_id = proof.get("context_id")
+    if not isinstance(context_id, str) or not context_id:
+        raise AdapterError("llama.cpp binding proof must include a non-empty context_id")
+    kv_token_count = proof.get("kv_token_count")
+    if not isinstance(kv_token_count, int) or kv_token_count < 0:
+        raise AdapterError("llama.cpp binding proof must include non-negative integer kv_token_count")
+    normalized = dict(result)
+    normalized["binding_contract_version"] = LLAMA_CPP_BINDING_CONTRACT_VERSION
+    normalized["binding_proof"] = {
+        **proof,
+        "bound_hashes": bound_hashes,
+        "proof_hash": _binding_proof_hash(proof),
+    }
+    normalized["runtime_state_bound"] = True
+    return normalized
+
+
+def _validate_continuation_result(result: dict[str, Any], expected_hashes: list[str]) -> dict[str, Any]:
+    if not result.get("success"):
+        raise AdapterError("llama.cpp live binding hook reported continuation failure")
+    continuation = result.get("continuation")
+    if not isinstance(continuation, dict):
+        raise AdapterError("llama.cpp live binding hook must return continuation evidence")
+    token_ids = continuation.get("token_ids")
+    if not isinstance(token_ids, list) or not all(isinstance(item, int) for item in token_ids):
+        raise AdapterError("llama.cpp continuation evidence must include integer token_ids")
+    if continuation.get("used_migrated_kv") is not True:
+        raise AdapterError("llama.cpp continuation evidence must set used_migrated_kv=true")
+    proof = result.get("binding_proof") or continuation.get("binding_proof")
+    if not isinstance(proof, dict):
+        raise AdapterError("llama.cpp continuation evidence must include binding_proof")
+    bound_hashes = _normalize_bound_hashes(proof)
+    missing = [hash_value for hash_value in expected_hashes if hash_value not in bound_hashes]
+    if missing:
+        raise AdapterError(f"llama.cpp continuation binding proof is missing expected hashes: {missing}")
+    normalized = dict(result)
+    normalized["binding_contract_version"] = LLAMA_CPP_BINDING_CONTRACT_VERSION
+    normalized["binding_proof"] = {
+        **proof,
+        "bound_hashes": bound_hashes,
+        "proof_hash": _binding_proof_hash(proof),
+    }
+    normalized["continuation"] = {
+        **continuation,
+        "used_migrated_kv": True,
+    }
+    normalized["continuation_proof_hash"] = _proof_hash(
+        {
+            "contract": LLAMA_CPP_BINDING_CONTRACT_VERSION,
+            "expected_hashes": expected_hashes,
+            "binding_proof_hash": normalized["binding_proof"]["proof_hash"],
+            "token_ids": token_ids,
+        }
+    )
+    return normalized
 
 
 def _flatten_numeric(value: Any) -> list[float]:
@@ -241,6 +332,24 @@ def _live_hook() -> Callable[..., Any] | None:
     return load_hook(spec)
 
 
+def _binding_requirements(block_hash: str, layer_summaries: list[dict[str, Any]]) -> dict[str, Any]:
+    seq_lens = sorted({layer["shape"][0] for layer in layer_summaries})
+    kv_heads = sorted({layer["shape"][1] for layer in layer_summaries})
+    head_dims = sorted({layer["shape"][2] for layer in layer_summaries})
+    return {
+        "contract_version": LLAMA_CPP_BINDING_CONTRACT_VERSION,
+        "required_action": "bind_kv_state",
+        "block_hash": block_hash,
+        "required_binding_proof_fields": ["bound_hashes", "context_id", "kv_token_count", "proof_hash"],
+        "required_continuation_fields": ["token_ids", "used_migrated_kv", "binding_proof"],
+        "layer_count": len(layer_summaries),
+        "seq_lens": seq_lens,
+        "kv_heads": kv_heads,
+        "head_dims": head_dims,
+        "canonical_tensor_layout": "[seq, kv_heads, head_dim]",
+    }
+
+
 class LlamaCppReferenceRuntime:
     def __init__(self) -> None:
         self.capabilities = probe_llama_cpp_tools()
@@ -281,17 +390,31 @@ class LlamaCppReferenceRuntime:
             "hash": block_hash,
             "target_runtime": "llama.cpp",
             "adapter_mode": "accepted-state",
+            "binding_contract_version": LLAMA_CPP_BINDING_CONTRACT_VERSION,
             "layer_count": len(layer_summaries),
             "layers": layer_summaries,
             "capabilities": self.capabilities,
+            "binding_requirements": _binding_requirements(block_hash, layer_summaries),
             "decode_claim": "none-without-live-kv-import-hook",
         }
         live_hook = _live_hook()
         if live_hook is not None:
-            live_result = _normalize_response(_invoke(live_hook, accepted, payload, request))
+            hook_payload = {
+                "schema_version": LLAMA_CPP_BINDING_CONTRACT_VERSION,
+                "action": "bind_kv_state",
+                "accepted_state": accepted,
+                "block": payload,
+                "request": request,
+                "binding_requirements": accepted["binding_requirements"],
+            }
+            live_result = _validate_binding_result(
+                _normalize_response(_invoke(live_hook, hook_payload, accepted, payload, request)),
+                block_hash,
+            )
             self.last_live_result = live_result
             accepted["live_hook_result"] = live_result
-            accepted["adapter_mode"] = "live-hook"
+            accepted["adapter_mode"] = "live-kv-binding-hook"
+            accepted["decode_claim"] = "live-kv-bound-continuation-not-yet-verified"
         self.registered_hashes.add(block_hash)
         self.block_summaries[block_hash] = accepted
         self._persist()
@@ -315,10 +438,20 @@ class LlamaCppReferenceRuntime:
             }
             live_hook = _live_hook()
             if live_hook is not None:
-                live_result = _normalize_response(_invoke(live_hook, {"verify": payload, "accepted_hashes": hashes}))
+                hook_payload = {
+                    "schema_version": LLAMA_CPP_BINDING_CONTRACT_VERSION,
+                    "action": "verify_bound_continuation",
+                    "verify": payload,
+                    "accepted_hashes": hashes,
+                    "blocks": {hash_value: self.block_summaries.get(hash_value) for hash_value in hashes},
+                }
+                live_result = _validate_continuation_result(
+                    _normalize_response(_invoke(live_hook, hook_payload, {"verify": payload, "accepted_hashes": hashes})),
+                    hashes,
+                )
                 result["live_hook_result"] = live_result
-                if live_result.get("continuation") is not None:
-                    result["decode_status"] = "live_hook_continuation_reported"
+                result["decode_status"] = "live_kv_binding_continuation_proven"
+                result["continuation_proof_hash"] = live_result["continuation_proof_hash"]
         self.last_verify_result = result
         _append_probe_event({"event": "verify_permeant_hashes", **result})
         return result
@@ -338,7 +471,7 @@ class LlamaCppReferenceRuntime:
             "capabilities": self.capabilities,
             "last_verify_result": self.last_verify_result,
             "last_live_result": self.last_live_result,
-            "decode_claim": "none-without-live-kv-import-hook",
+            "decode_claim": self._decode_claim(),
         }
         state["proof_hash"] = _proof_hash(state)
         _append_probe_event(
@@ -349,6 +482,19 @@ class LlamaCppReferenceRuntime:
             }
         )
         return {"success": True, "reverse_runtime_state": state, **state}
+
+    def _decode_claim(self) -> str:
+        if isinstance(self.last_verify_result, dict) and self.last_verify_result.get(
+            "decode_status"
+        ) == "live_kv_binding_continuation_proven":
+            return "live-kv-binding-continuation-proven"
+        if any(
+            block.get("adapter_mode") == "live-kv-binding-hook"
+            for block in self.block_summaries.values()
+            if isinstance(block, dict)
+        ):
+            return "live-kv-bound-continuation-not-yet-verified"
+        return "none-without-live-kv-import-hook"
 
     def _persist(self) -> None:
         path = _state_file()
