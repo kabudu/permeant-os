@@ -29,6 +29,8 @@ from runtime_adapter_utils import AdapterError, load_hook
 
 _RUNTIME_SINGLETON: "LlamaCppReferenceRuntime | None" = None
 LLAMA_CPP_BINDING_CONTRACT_VERSION = "permeantos-llamacpp-live-kv-binding-v0"
+_IMPORT_LLAMA_CPP_CLI = os.getenv("PERMEANT_LLAMA_CPP_CLI")
+_IMPORT_LLAMA_CPP_SERVER = os.getenv("PERMEANT_LLAMA_CPP_SERVER")
 
 
 def _request_kind(request: dict[str, Any]) -> str:
@@ -279,7 +281,11 @@ def _proof_hash(payload: dict[str, Any]) -> str:
 
 
 def _tool_path(env_name: str, default_name: str) -> tuple[str | None, bool]:
-    configured = os.getenv(env_name)
+    import_configured = {
+        "PERMEANT_LLAMA_CPP_CLI": _IMPORT_LLAMA_CPP_CLI,
+        "PERMEANT_LLAMA_CPP_SERVER": _IMPORT_LLAMA_CPP_SERVER,
+    }.get(env_name)
+    configured = os.getenv(env_name) or import_configured
     if configured:
         return configured, True
     return shutil.which(default_name), False
