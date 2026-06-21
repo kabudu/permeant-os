@@ -5,7 +5,7 @@ generated reports, SDKs, crates, and lightweight roadmap releases.
 
 ## Release Tags
 
-Current releases are lightweight roadmap releases. A release consists of:
+Current releases are lightweight platform milestone releases. A release consists of:
 
 - a Keep a Changelog section promoted out of `Unreleased`
 - an annotated git tag
@@ -20,6 +20,8 @@ v<major>.<minor>.<patch>-<roadmap-slug>
 These tags are project milestones, not package publication events. Crates,
 Python packages, binaries, GitHub Releases, and signed artifacts are not
 published until the repository has explicit release infrastructure for them.
+The roadmap now treats that release infrastructure as productization work rather
+than research-only housekeeping.
 
 ## USXF
 
@@ -91,13 +93,13 @@ Compatibility rules:
 
 ## Compatibility Guarantees
 
-PermeantOS is still a research preview. The compatibility guarantee is therefore
-limited but explicit:
+PermeantOS is a validated early platform. The compatibility guarantee is still
+limited because the project is pre-1.0, but it is explicit:
 
 - Published schema identifiers and report schema strings are stable within a
   release tag.
 - Breaking format changes require a new version string or schema path.
 - Existing tests pin current public version strings so accidental changes are
   caught in CI.
-- Prototype runtime internals, cloud scripts, and experimental adapter hooks may
+- Runtime internals, cloud scripts, and experimental adapter hooks may
   evolve, but their generated public artifacts must follow this policy.

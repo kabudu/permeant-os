@@ -355,9 +355,45 @@ Exit criteria:
 - Users can run a minimal local demo in minutes.
 - Cloud E2E validation has a repeatable recipe and known cost envelope.
 
+## Productization Track: Open-Source Platform Maturity
+
+PermeantOS has crossed the threshold from speculative prototype to a validated
+early platform. The productization track turns the proof trail into a repeatable
+open-source project with stable releases, docs, adapter contracts, and public
+evidence jobs.
+
+Deliverables:
+
+- Automated CI evidence jobs for local E2E, adapter conformance, schema
+  validation, and non-provisioning cloud preflight.
+- Scheduled or manually approved real-runtime evidence jobs for AWS validation
+  with strict cost controls and cleanup verification.
+- Stable release artifacts: GitHub Releases, signed binaries, checksums, and
+  installation instructions.
+- Rust crate publication plan for PermeantOS crates once APIs are stable enough
+  for semantic versioning.
+- Python adapter SDK packaging once the command/hook surfaces settle.
+- Documentation hub on `www.permeantos.org` or a future docs subdomain.
+- Runtime adapter authoring guide with conformance fixtures and evidence
+  requirements.
+- Public evidence dashboard or generated evidence index linking each validated
+  runtime/model path to proof reports, commands, and known limitations.
+- QATQ reintegration plan: keep PermeantOS using raw/FP8/in-tree compatibility
+  paths until the sibling QATQ project matures into a tested crate and optional
+  standalone service.
+
+Exit criteria:
+
+- A new contributor can install PermeantOS, run a local demo, run conformance
+  tests, and understand validated claims within one hour.
+- Every public claim maps to a versioned proof report or CI evidence job.
+- Releases include reproducible binaries or package artifacts, not just tags.
+- The docs site explains current support without relying on chat history or
+  repository archaeology.
+
 ## Release milestones
 
-### v0.1 Research Preview
+### v0.1 Validated Platform Baseline
 
 Scope:
 
@@ -366,6 +402,7 @@ Scope:
 - Paper draft.
 - Open-source project hygiene.
 - Clear limitations and roadmap.
+- Local MLX-to-llama.cpp canonical KV feed evidence.
 
 Quality bar:
 
@@ -374,7 +411,24 @@ Quality bar:
 - Documented AWS real-runtime validation path.
 - License, contributing, security, and code of conduct present.
 
-### v0.2 Agent Graph Prototype
+### v0.2 Repeatable Open-Source Platform
+
+Scope:
+
+- Release artifacts, checksums, and GitHub Releases.
+- Crate and SDK publishing readiness.
+- Documentation hub.
+- Automated evidence matrix for supported adapters.
+- Broader runtime/model validation beyond the first MLX-to-vLLM and
+  MLX-to-llama.cpp paths.
+
+Quality bar:
+
+- CI verifies unit, integration, schema, adapter, and local E2E paths.
+- Real-runtime evidence jobs are repeatable, cost-bounded, and cleanup-verified.
+- Users can install a binary or package and run the starter migration demo.
+
+### v0.3 Agent Graph Prototype
 
 Scope:
 
@@ -383,7 +437,7 @@ Scope:
 - Artifact migration.
 - Graph manifest hashing.
 
-### v0.3 KV-Attached Graph Migration
+### v0.4 KV-Attached Graph Migration
 
 Scope:
 
@@ -391,7 +445,7 @@ Scope:
 - Token-span alignment verification.
 - Real MLX-to-vLLM graph-attached E2E run.
 
-### v0.4 Framework Adapters
+### v0.5 Framework Adapters
 
 Scope:
 

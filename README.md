@@ -4,13 +4,13 @@
 
 # PermeantOS
 
-PermeantOS is an experimental state-fluid hypervisor for live AI agent migration. It currently focuses on cross-host KV-cache migration between heterogeneous runtimes, with a longer-term roadmap toward full Agent Memory Graph migration. The first graph milestone, the v0 schema and specification, is now defined.
+PermeantOS is an early open-source platform for live AI agent migration. It provides a state-fluid hypervisor, USXF exchange format, runtime adapters, validation harnesses, and evidence tooling for moving active agent state across heterogeneous inference runtimes.
 
-The current prototype has demonstrated that agents can move for the validated real-runtime path. In the latest long-horizon run, PermeantOS migrated a `Qwen/Qwen2.5-0.5B-Instruct` KV cache from local Apple Silicon MLX to an AWS NVIDIA vLLM target, bound a 27-node Agent Memory Graph package into the same transaction, wrote matching KV blocks into vLLM, seeded vLLM prefix-cache metadata, preserved four content-addressed artifacts, matched source and target-baseline continuations exactly through a 128-token validation horizon, resumed work on AWS, exported the vLLM decode boundary through a reverse runtime API, imported that target-advanced runtime state back into MLX, continued at the origin, then returned the AWS-updated graph/artifact evidence to the origin and continued from that proof as well. A follow-up raw-transfer TinyLlama run proved the first non-Qwen model-family path structurally: all 22 layers wrote into AWS vLLM, slot probes matched, target baseline/post-migration continuation matched exactly at 16 tokens, reverse import completed, and graph activity returned home.
+PermeantOS has demonstrated that agents can move for validated real-runtime paths. In the latest long-horizon run, PermeantOS migrated a `Qwen/Qwen2.5-0.5B-Instruct` KV cache from local Apple Silicon MLX to an AWS NVIDIA vLLM target, bound a 27-node Agent Memory Graph package into the same transaction, wrote matching KV blocks into vLLM, seeded vLLM prefix-cache metadata, preserved four content-addressed artifacts, matched source and target-baseline continuations exactly through a 128-token validation horizon, resumed work on AWS, exported the vLLM decode boundary through a reverse runtime API, imported that target-advanced runtime state back into MLX, continued at the origin, then returned the AWS-updated graph/artifact evidence to the origin and continued from that proof as well. Follow-up validation added raw-transfer TinyLlama MLX-to-vLLM evidence and a local MLX-to-llama.cpp canonical KV feed proof.
 
 ## Status
 
-Research preview. The system is significant enough to study, reproduce, and contribute to, but it is not yet production software.
+Validated early platform. PermeantOS has moved beyond the initial validation threshold: it has repeatable real-runtime evidence, public schemas, CI, transport foundations, adapter scaffolding, and documented proof reports. It is still pre-1.0 infrastructure, so compatibility guarantees are scoped and runtime support is limited to validated paths.
 
 What works today:
 
@@ -91,8 +91,9 @@ What is still experimental:
   private-header raw writer. New cloud batches are still needed for broader
   runtime-pair claims and source-exact cross-runtime parity.
 - Adaptive transfer codec planning exists for raw, FP8, TurboQuant-style, and
-  Quaternion-Augmented TurboQuant candidate modes; raw, FP8, and experimental
-  QATQ are executable in the current AWS runner.
+  Quaternion-Augmented TurboQuant candidate modes. Raw and FP8 remain in-tree
+  PermeantOS paths; QATQ is represented by a minimal compatibility crate until
+  the sibling QATQ project is mature enough to fold back in as a real crate.
 
 ## Repository layout
 
@@ -205,9 +206,12 @@ Latest successful fidelity run:
 | Cleanup | instance, security group, and key pair deleted; cleanup verified at `2026-06-21T05:48:33Z` |
 
 The earlier apparent fidelity gap at a longer prefix was traced to target context-window exhaustion, not a KV migration defect.
-This latest validation uses experimental QATQ transfer compression. QATQ is lossy
-at the tensor-slot level, so fidelity claims are based on graph/KV/prompt
-alignment, bounded sampled deltas, and exact observed continuation.
+Historical long-prefix compression runs used experimental QATQ transfer
+compression. QATQ remains a promising codec path, but it is being matured as a
+separate project before it is folded back into PermeantOS as production
+compression. Current core fidelity claims are therefore based on raw/FP8
+runtime-state paths, graph/KV/prompt alignment, bounded sampled deltas, and
+exact observed continuation.
 
 ## Quick start
 
