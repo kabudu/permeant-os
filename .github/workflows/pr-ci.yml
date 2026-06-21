@@ -80,3 +80,6 @@ jobs:
           PERMEANT_PREFLIGHT_SKIP_BUILD: "1"
           PERMEANT_PREFLIGHT_SKIP_SOURCE: "1"
         run: scripts/aws-real-runtime-e2e.sh preflight
+
+      - name: Verify public evidence index
+        run: scripts/generate-evidence-index.py --json-out /tmp/permeantos-evidence-index.json --markdown-out /tmp/permeantos-evidence-index.md

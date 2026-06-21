@@ -130,6 +130,9 @@ What is still experimental:
 - `docs/model-runtime-validation-matrix.md`: planned and validated
   model-family/runtime profiles and evidence rules for broadening real-runtime
   claims.
+- `docs/evidence-index.md`: public claim-to-evidence index linking validated
+  runtime/model paths to proof reports, commands, CI jobs, and known
+  limitations.
 - `docs/aws-real-runtime-long-horizon-2026-06-21.md`: AWS long-horizon
   Qwen2.5 MLX-to-vLLM proof with exact 128-token fidelity, QATQ metrics,
   reverse import, target activity, return-home continuation, and cleanup

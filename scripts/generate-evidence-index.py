@@ -1,0 +1,259 @@
+#!/usr/bin/env python3
+"""Generate PermeantOS public evidence index records.
+
+The evidence index is a curated, machine-readable map from public claims to
+versioned proof reports, validation commands, and claim boundaries. It is
+intentionally explicit rather than inferred from Markdown headings: broadening a
+public claim should be a reviewed source change.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
+
+
+SCHEMA_VERSION = "permeantos-evidence-index-v0"
+ROOT = Path(__file__).resolve().parents[1]
+
+
+@dataclass(frozen=True)
+class EvidenceRecord:
+    id: str
+    title: str
+    claim: str
+    status: str
+    model: str
+    model_family: str
+    source_runtime: str
+    target_runtime: str
+    transport: str
+    transfer_mode: str
+    horizon_tokens: int | None
+    proof_reports: tuple[str, ...]
+    commands: tuple[str, ...]
+    ci_jobs: tuple[str, ...]
+    limitations: tuple[str, ...]
+
+    def to_json(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+EVIDENCE: tuple[EvidenceRecord, ...] = (
+    EvidenceRecord(
+        id="qwen25-mlx-vllm-aws-long-horizon-roundtrip",
+        title="Qwen2.5 MLX to AWS vLLM long-horizon round trip",
+        claim=(
+            "Live Qwen2.5 KV state and a 27-node Agent Memory Graph migrated "
+            "from local MLX to AWS vLLM, continued on the target, exported a "
+            "target-advanced runtime boundary, returned graph/artifact evidence "
+            "to the origin, and continued from that returned proof."
+        ),
+        status="validated-real-runtime",
+        model="Qwen/Qwen2.5-0.5B-Instruct",
+        model_family="qwen2.5",
+        source_runtime="mlx",
+        target_runtime="vllm",
+        transport="production-wss-mtls",
+        transfer_mode="qatq-historical-experimental",
+        horizon_tokens=128,
+        proof_reports=(
+            "docs/aws-real-runtime-long-horizon-2026-06-21.md",
+            "docs/aws-real-runtime-roundtrip-continuation-2026-06-20.md",
+            "docs/aws-real-runtime-production-transport-2026-06-20.md",
+        ),
+        commands=(
+            "scripts/plan-model-runtime-validations.py --profile qwen2.5-0.5b-long-horizon-aws --format shell --action preflight",
+            "scripts/plan-model-runtime-validations.py --profile qwen2.5-0.5b-long-horizon-aws --format shell --action run",
+        ),
+        ci_jobs=(
+            "PR CI / Python tests / Run AWS E2E preflight smoke test",
+            "PR CI / Python tests / Run Python tests",
+        ),
+        limitations=(
+            "QATQ was lossy at sampled tensor slots; the validated claim is behavioral/decode fidelity, not numerical losslessness.",
+            "The vLLM adapter relies on runtime internals that may change between vLLM versions.",
+            "The 128-token horizon applies to the recorded model, runtime, transport, and hardware profile.",
+        ),
+    ),
+    EvidenceRecord(
+        id="tinyllama-mlx-vllm-aws-raw-structural",
+        title="TinyLlama MLX to AWS vLLM raw-transfer structural E2E",
+        claim=(
+            "A non-Qwen Llama-family model completed raw-transfer MLX-to-vLLM "
+            "structural migration with exact target-baseline/post-migration "
+            "continuation, reverse import, target graph activity, origin "
+            "return-home continuation, and cleanup evidence."
+        ),
+        status="validated-structural-e2e",
+        model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+        model_family="llama",
+        source_runtime="mlx",
+        target_runtime="vllm",
+        transport="production-wss-mtls",
+        transfer_mode="raw-f32",
+        horizon_tokens=16,
+        proof_reports=("docs/aws-real-runtime-tinyllama-2026-06-21.md",),
+        commands=(
+            "scripts/plan-model-runtime-validations.py --profile tinyllama-1.1b-chat-mlx-vllm --format shell --action preflight",
+            "scripts/plan-model-runtime-validations.py --profile tinyllama-1.1b-chat-mlx-vllm --format shell --action run",
+        ),
+        ci_jobs=("PR CI / Python tests / Run AWS E2E preflight smoke test",),
+        limitations=(
+            "Source-exact MLX/vLLM parity is not claimed for this profile because the recorded run diverged at a leading-space token boundary.",
+            "The validated decode claim is target-baseline/post-migration exactness at 16 tokens.",
+        ),
+    ),
+    EvidenceRecord(
+        id="qwen25-mlx-llamacpp-canonical-kv-feed",
+        title="Qwen2.5 MLX to llama.cpp canonical KV feed",
+        claim=(
+            "Canonical f32 K/V tensors exported from live MLX were written "
+            "directly into llama.cpp internal KV memory with tokenizer/span "
+            "alignment, and llama.cpp matched the MLX source continuation at "
+            "the aligned decode boundary."
+        ),
+        status="validated-local-runtime",
+        model="Qwen/Qwen2.5-0.5B-Instruct",
+        model_family="qwen2.5",
+        source_runtime="mlx",
+        target_runtime="llama.cpp",
+        transport="local-files",
+        transfer_mode="raw-f32",
+        horizon_tokens=8,
+        proof_reports=(
+            "docs/llama-cpp-cross-runtime-canonical-kv-proof-2026-06-21.md",
+            "docs/llama-cpp-raw-kv-internal-write-proof-2026-06-21.md",
+            "docs/llama-cpp-live-state-binding-proof-2026-06-21.md",
+        ),
+        commands=(
+            "scripts/export-mlx-canonical-kv-for-llamacpp.py --model Qwen/Qwen2.5-0.5B-Instruct --seq-len 17 --continuation-tokens 8 --output-dir /private/tmp/permeant-cross-runtime-llamacpp/qwen25-mlx-seq17",
+            "target/llamacpp_raw_kv_bridge --external-kv-manifest /private/tmp/permeant-cross-runtime-llamacpp/qwen25-mlx-seq17/mlx-to-llamacpp-canonical-kv.tsv --n-predict 8",
+        ),
+        ci_jobs=("PR CI / Python tests / Run Python tests",),
+        limitations=(
+            "This is a local proof, not an AWS cloud migration proof.",
+            "The raw writer uses llama.cpp private headers matched to the recorded llama.cpp revision.",
+            "Broader llama.cpp claims still need longer-horizon and additional model-family validation.",
+        ),
+    ),
+    EvidenceRecord(
+        id="agent-memory-graph-v0-schema",
+        title="Agent Memory Graph v0 schema and conformance",
+        claim=(
+            "The Agent Memory Graph v0 schema represents conversation, tools, "
+            "artifacts, retrieval memory, pending actions, provenance, and KV "
+            "token-span bindings with deterministic local validation."
+        ),
+        status="validated-ci",
+        model="runtime-neutral",
+        model_family="runtime-neutral",
+        source_runtime="agent-memory-graph",
+        target_runtime="agent-memory-graph",
+        transport="schema",
+        transfer_mode="not-applicable",
+        horizon_tokens=None,
+        proof_reports=(
+            "docs/agent-memory-graph.md",
+            "docs/agent-framework-adapters.md",
+            "docs/agent-memory-graph-threat-model.md",
+        ),
+        commands=("python -m pytest tests/test_agent_memory_graph_schema.py tests/test_agent_memory_graph_harness.py tests/test_agent_framework_adapters.py",),
+        ci_jobs=("PR CI / Python tests / Run Python tests",),
+        limitations=(
+            "The graph schema is versioned as v0 and remains pre-1.0.",
+            "Runtime-specific adapters must still prove their own export/import and side-effect policies.",
+        ),
+    ),
+)
+
+
+def validate_records(records: tuple[EvidenceRecord, ...]) -> None:
+    ids = [record.id for record in records]
+    duplicates = sorted({item for item in ids if ids.count(item) > 1})
+    if duplicates:
+        raise SystemExit(f"duplicate evidence id(s): {', '.join(duplicates)}")
+
+    for record in records:
+        if not record.proof_reports:
+            raise SystemExit(f"{record.id}: at least one proof report is required")
+        for relative in record.proof_reports:
+            path = ROOT / relative
+            if not path.is_file():
+                raise SystemExit(f"{record.id}: missing proof report {relative}")
+        if record.horizon_tokens is not None and record.horizon_tokens <= 0:
+            raise SystemExit(f"{record.id}: horizon_tokens must be positive when set")
+        if not record.limitations:
+            raise SystemExit(f"{record.id}: limitations are required for bounded public claims")
+
+
+def build_index(records: tuple[EvidenceRecord, ...]) -> dict[str, Any]:
+    validate_records(records)
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "record_count": len(records),
+        "records": [record.to_json() for record in records],
+    }
+
+
+def markdown(index: dict[str, Any]) -> str:
+    lines = [
+        "# PermeantOS Evidence Index",
+        "",
+        "This index maps public PermeantOS claims to proof reports, repeatable commands, CI jobs, and known limitations.",
+        "",
+        f"Schema version: `{index['schema_version']}`",
+        "",
+        "| Claim | Status | Runtime path | Evidence | Limitations |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for record in index["records"]:
+        reports = "<br>".join(f"`{path}`" for path in record["proof_reports"])
+        limitations = "<br>".join(record["limitations"])
+        runtime_path = f"{record['source_runtime']} -> {record['target_runtime']}"
+        lines.append(
+            "| {title} | `{status}` | {runtime_path} | {reports} | {limitations} |".format(
+                title=record["title"],
+                status=record["status"],
+                runtime_path=runtime_path,
+                reports=reports,
+                limitations=limitations,
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Regenerate",
+            "",
+            "```bash",
+            "scripts/generate-evidence-index.py --json-out docs/evidence-index.json --markdown-out docs/evidence-index.md",
+            "```",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--json-out", type=Path, help="Write the evidence index JSON to this path.")
+    parser.add_argument("--markdown-out", type=Path, help="Write the evidence index Markdown table to this path.")
+    args = parser.parse_args()
+
+    index = build_index(EVIDENCE)
+    if args.json_out:
+        args.json_out.parent.mkdir(parents=True, exist_ok=True)
+        args.json_out.write_text(json.dumps(index, indent=2, sort_keys=True) + "\n")
+    if args.markdown_out:
+        args.markdown_out.parent.mkdir(parents=True, exist_ok=True)
+        args.markdown_out.write_text(markdown(index))
+    if not args.json_out and not args.markdown_out:
+        print(json.dumps(index, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

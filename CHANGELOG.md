@@ -9,6 +9,9 @@ and this project uses release tags compatible with semantic versioning.
 
 ### Added
 
+- Added a schema-versioned public evidence index with JSON and Markdown outputs,
+  linking validated runtime/model claims to proof reports, repeatable commands,
+  CI jobs, and explicit limitations.
 - Added model-family/runtime validation profiles and a matrix planner for
   broadening AWS real-runtime E2E evidence beyond the first Qwen MLX-to-vLLM
   path.

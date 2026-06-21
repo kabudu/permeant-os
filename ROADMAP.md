@@ -378,6 +378,8 @@ Deliverables:
   requirements.
 - Public evidence dashboard or generated evidence index linking each validated
   runtime/model path to proof reports, commands, and known limitations.
+  - [x] Generated evidence index with schema-versioned JSON, Markdown summary,
+    proof-report validation, CI drift tests, and CI generator smoke check.
 - QATQ reintegration plan: keep PermeantOS using raw/FP8/in-tree compatibility
   paths until the sibling QATQ project matures into a tested crate and optional
   standalone service.
