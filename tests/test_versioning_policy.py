@@ -20,6 +20,7 @@ EXPECTED_TOOL_SCHEMAS = {
     "scripts/compare-transfer-quantization.py": "permeantos-transfer-quantization-comparison-v0",
     "scripts/plan-transfer-codecs.py": "permeantos-transfer-codec-plan-v0",
     "scripts/aws-real-runtime-e2e.sh": "permeantos-aws-e2e-preflight-v0",
+    "scripts/generate-evidence-index.py": "permeantos-evidence-index-v0",
 }
 
 
