@@ -1,0 +1,62 @@
+name: Release Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version/tag to embed in artifact names, for example v0.1.30-platform
+        required: true
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-linux-artifacts:
+    name: Build Linux release artifacts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.3
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-release-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-release-cargo-
+
+      - name: Build release artifact bundle
+        env:
+          RELEASE_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+        run: |
+          scripts/build-release-artifacts.py \
+            --version "$RELEASE_VERSION" \
+            --target x86_64-unknown-linux-gnu \
+            --out-dir dist/release
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: permeantos-release-artifacts-${{ github.event.inputs.version || github.ref_name }}-linux
+          path: |
+            dist/release/*.tar.gz
+            dist/release/checksums.txt
+            dist/release/release-manifest.json
+          if-no-files-found: error
