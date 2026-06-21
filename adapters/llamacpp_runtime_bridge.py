@@ -278,36 +278,44 @@ def _proof_hash(payload: dict[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
-def _tool_path(env_name: str, default_name: str) -> str | None:
+def _tool_path(env_name: str, default_name: str) -> tuple[str | None, bool]:
     configured = os.getenv(env_name)
     if configured:
-        return configured
-    return shutil.which(default_name)
+        return configured, True
+    return shutil.which(default_name), False
 
 
-def _tool_version(path: str | None) -> dict[str, Any]:
+def _tool_version(path: str | None, configured: bool = False) -> dict[str, Any]:
     if not path:
         return {"available": False}
+    path_obj = Path(path)
+    path_is_executable = path_obj.exists() and os.access(path_obj, os.X_OK)
     try:
         run = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=10, check=False)
     except Exception as exc:
-        return {"available": False, "path": path, "error": str(exc)}
+        return {
+            "available": configured and path_is_executable,
+            "path": path,
+            "configured": configured,
+            "error": str(exc),
+        }
     output = (run.stdout + run.stderr).strip()
     return {
-        "available": run.returncode == 0,
+        "available": run.returncode == 0 or (configured and path_is_executable),
         "path": path,
+        "configured": configured,
         "returncode": run.returncode,
         "version_output": output,
     }
 
 
 def probe_llama_cpp_tools() -> dict[str, Any]:
-    cli = _tool_path("PERMEANT_LLAMA_CPP_CLI", "llama-cli")
-    server = _tool_path("PERMEANT_LLAMA_CPP_SERVER", "llama-server")
+    cli, cli_configured = _tool_path("PERMEANT_LLAMA_CPP_CLI", "llama-cli")
+    server, server_configured = _tool_path("PERMEANT_LLAMA_CPP_SERVER", "llama-server")
     return {
         "runtime": "llama.cpp",
-        "cli": _tool_version(cli),
-        "server": _tool_version(server),
+        "cli": _tool_version(cli, cli_configured),
+        "server": _tool_version(server, server_configured),
         "kv_import_supported_by_default_adapter": False,
         "kv_import_requirement": "Set PERMEANT_LLAMA_CPP_RUNTIME_HOOK to a hook that can bind migrated KV state into a live llama.cpp context.",
     }
