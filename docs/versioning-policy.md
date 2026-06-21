@@ -5,7 +5,8 @@ generated reports, SDKs, crates, and lightweight roadmap releases.
 
 ## Release Tags
 
-Current releases are lightweight platform milestone releases. A release consists of:
+Current default releases are lightweight platform milestone releases. A
+lightweight release consists of:
 
 - a Keep a Changelog section promoted out of `Unreleased`
 - an annotated git tag
@@ -22,6 +23,15 @@ Python packages, binaries, GitHub Releases, and signed artifacts are not
 published until the repository has explicit release infrastructure for them.
 The roadmap now treats that release infrastructure as productization work rather
 than research-only housekeeping.
+
+The repository now has a release-artifact build path for pre-publication
+validation. `scripts/build-release-artifacts.py` creates checksummed binary
+archives and a manifest, and the `Release Artifacts` workflow uploads those as
+GitHub Actions artifacts for tags or manual dispatch. This is packaging
+readiness, not GitHub Release publishing. Creating GitHub Releases, signing
+assets, publishing crates, or publishing Python packages still requires the
+real-release gate described in Lazarus mode and a future documented publishing
+policy.
 
 ## USXF
 
@@ -83,6 +93,7 @@ report schemas are:
 | `scripts/plan-transfer-codecs.py` | `permeantos-transfer-codec-plan-v0` |
 | `scripts/aws-real-runtime-e2e.sh preflight` | `permeantos-aws-e2e-preflight-v0` |
 | `scripts/generate-evidence-index.py` | `permeantos-evidence-index-v0` |
+| `scripts/build-release-artifacts.py` | `permeantos-release-artifacts-v0` |
 
 Compatibility rules:
 

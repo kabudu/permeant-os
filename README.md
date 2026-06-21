@@ -111,6 +111,8 @@ What is still experimental:
 - `docs/agent-memory-graph.md`: Agent Memory Graph v0 schema specification.
 - `docs/versioning-policy.md`: USXF, Agent Memory Graph, report schema, and
   lightweight release versioning policy.
+- `docs/release-artifacts.md`: checksummed binary bundle, release manifest, and
+  GitHub Actions artifact workflow for pre-publication release packaging.
 - `docs/agent-memory-graph-threat-model.md`: local graph import threat model and Phase 8 security controls.
 - `docs/production-transport.md`: production transport foundation, security
   invariants, binary framing, and deployment cutover plan.

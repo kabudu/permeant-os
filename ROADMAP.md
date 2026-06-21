@@ -370,6 +370,9 @@ Deliverables:
   with strict cost controls and cleanup verification.
 - Stable release artifacts: GitHub Releases, signed binaries, checksums, and
   installation instructions.
+  - [x] Checksummed binary bundle builder, release manifest schema, install
+    instructions, and GitHub Actions artifact upload workflow for tags/manual
+    dispatch.
 - Rust crate publication plan for PermeantOS crates once APIs are stable enough
   for semantic versioning.
 - Python adapter SDK packaging once the command/hook surfaces settle.
