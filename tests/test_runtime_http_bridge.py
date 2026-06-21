@@ -116,6 +116,13 @@ class RuntimeHttpBridgeTests(unittest.TestCase):
 
 
 class MlxRuntimeHttpBridgeTests(unittest.TestCase):
+    def test_mlx_exporter_uses_single_threaded_http_server(self):
+        source = (ADAPTERS / "mlx_runtime_exporter.py").read_text()
+
+        self.assertIn("from http.server import BaseHTTPRequestHandler, HTTPServer", source)
+        self.assertIn("server = HTTPServer((args.host, args.port), Exporter)", source)
+        self.assertNotIn("ThreadingHTTPServer", source)
+
     def test_exporter_and_provider_roundtrip(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             hook_path = Path(tmpdir) / "provider_hook.py"

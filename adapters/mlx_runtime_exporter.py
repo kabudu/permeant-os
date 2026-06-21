@@ -7,7 +7,7 @@ import argparse
 import json
 import os
 import sys
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -110,7 +110,7 @@ def main() -> int:
     parser.add_argument("--token", default=os.getenv("PERMEANT_MLX_RUNTIME_TOKEN"))
     args = parser.parse_args()
 
-    server = ThreadingHTTPServer((args.host, args.port), Exporter)
+    server = HTTPServer((args.host, args.port), Exporter)
     server.token = args.token  # type: ignore[attr-defined]
     server.provider_hook = _provider_hook()  # type: ignore[attr-defined]
     print(f"PermeantOS MLX runtime exporter listening on http://{args.host}:{args.port}", flush=True)

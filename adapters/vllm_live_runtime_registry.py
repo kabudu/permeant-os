@@ -277,6 +277,8 @@ def _prepared_layer_summary(layer: dict[str, Any]) -> dict[str, Any]:
         "block_size": block_size,
         "kv_heads": kv_heads,
         "head_dim": head_dim,
+        "key_shape": key_source.get("shape") if is_flat else _shape_of_storage(key_source),
+        "value_shape": value_source.get("shape") if is_flat else _shape_of_storage(value_source),
         "key_preview": key_preview,
         "value_preview": value_preview,
     }
@@ -668,7 +670,10 @@ def _write_combined_cache(cache: Any, layer: dict[str, Any], target_block_ids: l
                         cache[target_block_index][1][head_index][target_token_index][dim_index] = value_value
         return
 
-    raise RuntimeError(f"unsupported combined kv_cache layout {shape}")
+    raise RuntimeError(
+        "unsupported combined kv_cache layout "
+        f"{shape} for source block_size={block_size}, kv_heads={kv_heads}, head_dim={head_dim}"
+    )
 
 
 def _write_separate_cache(cache_pair: Any, layer: dict[str, Any]) -> None:

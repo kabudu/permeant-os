@@ -7,6 +7,48 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Added model-family/runtime validation profiles and a matrix planner for
+  broadening AWS real-runtime E2E evidence beyond the first Qwen MLX-to-vLLM
+  path.
+- Added a dedicated single-run AWS long-horizon profile for 128-token
+  continuation validation with production transport and QATQ.
+- Added AWS long-horizon validation report for run `20260621-052744`, proving
+  exact 128-token source/post-migration and baseline/post-migration fidelity
+  for the Qwen2.5 MLX-to-vLLM production WSS/QATQ path, including reverse
+  runtime import, target graph activity, origin return-home continuation, QATQ
+  metrics, and direct cleanup verification.
+- Added AWS TinyLlama validation report for run `20260621-085222`, proving the
+  first raw-transfer non-Qwen MLX-to-vLLM structural E2E path with 22 target
+  layers written, exact target baseline/post-migration 16-token continuation,
+  vLLM reverse export, MLX reverse import, target graph activity, origin
+  return-home continuation, and direct cleanup verification.
+- Added AWS Qwen2.5 1.5B raw-transfer attempt report for runs
+  `20260621-093155` and `20260621-095626`, documenting successful source
+  extraction, production transport streaming, and graph binding up to target
+  commit, plus the current vLLM/T4 FlashInfer backend blocker and cleanup
+  verification.
+
+### Changed
+
+- Hardened AWS real-runtime preflight checks so validation profiles, runtime
+  pairs, and continuation context-window headroom are checked before cloud
+  provisioning.
+- Validation profiles now carry explicit model cache geometry so non-Qwen
+  model-family runs use the correct layer/head/head-dimension contract instead
+  of Qwen-oriented defaults.
+- AWS target setup now waits on actual apt/dpkg lock files during cold-host
+  bootstrap, avoiding false failures from Ubuntu's
+  `unattended-upgrade-shutdown` helper.
+- Updated README, roadmap, and validation matrix language to mark the
+  Qwen2.5 long-horizon AWS profile and TinyLlama structural AWS profile as
+  validated while keeping source-exact TinyLlama parity and non-vLLM coverage
+  explicitly pending.
+- Adjusted the Qwen2.5 1.5B validation profile to use a 1984-token migrated
+  prefix after local probing showed the 2016-token prefix left no source
+  continuation headroom.
+
 ## [0.1.29-production-transport] - 2026-06-21
 
 ### Added

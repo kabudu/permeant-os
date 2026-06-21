@@ -1,6 +1,6 @@
 # PermeantOS Roadmap
 
-PermeantOS currently proves live KV-cache migration across real heterogeneous runtimes: a local Apple Silicon MLX source can migrate a Qwen2.5 KV cache to an AWS NVIDIA vLLM target, seed the target prefix cache, and produce exact 16-token continuation fidelity for the validated run.
+PermeantOS currently proves live KV-cache migration across real heterogeneous runtimes: a local Apple Silicon MLX source can migrate a Qwen2.5 KV cache to an AWS NVIDIA vLLM target, seed the target prefix cache, and produce exact 128-token continuation fidelity for the validated long-horizon run. A raw-transfer TinyLlama run also proves the first non-Qwen structural MLX-to-vLLM migration path, including exact target baseline/post-migration continuation, reverse import, target graph activity, and origin return-home continuation.
 
 This roadmap describes the next major expansion: full agent memory graph migration. The goal is to migrate not only KV cache tensors, but the structured continuity state of an agent: conversation state, tool calls, artifacts, retrieval memory, pending work, provenance, and the KV spans that make resumed decoding fast.
 
@@ -17,11 +17,20 @@ Implemented and validated:
 - vLLM target adapter for live KV allocation, direct slot writes, prefix-cache seeding, and continuation validation.
 - Repeatable AWS real-runtime E2E runner with cleanup verification.
 - Manifest and fidelity analysis tooling.
-- Exact MLX-to-vLLM 16-token decode fidelity for `Qwen/Qwen2.5-0.5B-Instruct` at a 2016-token prefix.
+- Exact MLX-to-vLLM 128-token decode fidelity for
+  `Qwen/Qwen2.5-0.5B-Instruct` at a 1920-token prefix.
 
 Known limitations:
 
-- Fidelity has been validated for one model family and a short continuation horizon.
+- Long-horizon fidelity has been validated for Qwen2.5 at a 128-token
+  continuation horizon.
+- TinyLlama has completed raw-transfer structural E2E validation on the
+  MLX-to-vLLM path; source-exact cross-runtime decode parity remains explicitly
+  unclaimed for that profile because MLX and vLLM differed at a leading-space
+  token boundary.
+- Broader model-family and runtime coverage now has a machine-checkable
+  validation matrix, but additional profiles still need real cloud runs before
+  they become evidence.
 - Fresh cloud hosts are slow because vLLM, Torch, CUDA packages, model weights, and kernels are cold-installed or warmed during each run.
 - Python adapters are still required for Python-native runtimes such as MLX and vLLM.
 - KV cache migration is not yet packaged as a stable public runtime API.
@@ -289,6 +298,26 @@ Deliverables:
 - [x] Cut the AWS real-runtime runner over from SSH tunnel transport to the
   production `wss://`/mTLS transport with ephemeral mTLS bootstrap, explicit
   SSH fallback, cleanup verification, and a full real-runtime AWS proof.
+- [x] Model-family/runtime validation profile preflight checks for Qwen, Gemma,
+  Phi, and explicit custom MLX-to-vLLM profiles.
+- [x] Repeatable validation matrix planner that emits preflight/run commands
+  for broader real-runtime evidence.
+- [x] Execute a cost-balanced AWS long-horizon confirmation for the current
+  Qwen2.5 MLX-to-vLLM path with exact 128-token continuation fidelity,
+  production `wss://`/mTLS, QATQ, reverse import, target activity, return-home
+  continuation, and direct cleanup verification.
+- [x] Execute the next non-Qwen model-family AWS real-runtime E2E proof:
+  TinyLlama raw transfer over production `wss://`/mTLS with 22 vLLM layers
+  written, exact target baseline/post-migration 16-token continuation,
+  reverse import, target graph activity, origin return-home continuation, and
+  cleanup verification.
+- [x] Investigate larger same-family Qwen2.5 1.5B raw-transfer AWS proof:
+  source extraction, production transport streaming, and Agent Memory Graph
+  binding reached target commit, but the current vLLM `0.23.0`/T4 FlashInfer
+  backend rejects the head-dim-128 shape during `BatchPrefillWithPagedKVCache`;
+  keep this profile unvalidated until a supported target backend/runtime path
+  is implemented.
+- [ ] Add at least one independent target runtime path beyond vLLM.
 
 Exit criteria:
 

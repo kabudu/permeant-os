@@ -6,7 +6,7 @@
 
 PermeantOS is an experimental state-fluid hypervisor for live AI agent migration. It currently focuses on cross-host KV-cache migration between heterogeneous runtimes, with a longer-term roadmap toward full Agent Memory Graph migration. The first graph milestone, the v0 schema and specification, is now defined.
 
-The current prototype has demonstrated that agents can move for the validated real-runtime path. In the latest complex-agent run, PermeantOS migrated a `Qwen/Qwen2.5-0.5B-Instruct` KV cache from local Apple Silicon MLX to an AWS NVIDIA vLLM target, bound a 27-node Agent Memory Graph package into the same transaction, wrote matching KV blocks into vLLM, seeded vLLM prefix-cache metadata, preserved four content-addressed artifacts, matched the source continuation exactly for a 16-token validation horizon, resumed work on AWS, exported the vLLM decode boundary through a reverse runtime API, imported that target-advanced runtime state back into MLX, continued at the origin, then returned the AWS-updated graph/artifact evidence to the origin and continued from that proof as well.
+The current prototype has demonstrated that agents can move for the validated real-runtime path. In the latest long-horizon run, PermeantOS migrated a `Qwen/Qwen2.5-0.5B-Instruct` KV cache from local Apple Silicon MLX to an AWS NVIDIA vLLM target, bound a 27-node Agent Memory Graph package into the same transaction, wrote matching KV blocks into vLLM, seeded vLLM prefix-cache metadata, preserved four content-addressed artifacts, matched source and target-baseline continuations exactly through a 128-token validation horizon, resumed work on AWS, exported the vLLM decode boundary through a reverse runtime API, imported that target-advanced runtime state back into MLX, continued at the origin, then returned the AWS-updated graph/artifact evidence to the origin and continued from that proof as well. A follow-up raw-transfer TinyLlama run proved the first non-Qwen model-family path structurally: all 22 layers wrote into AWS vLLM, slot probes matched, target baseline/post-migration continuation matched exactly at 16 tokens, reverse import completed, and graph activity returned home.
 
 ## Status
 
@@ -26,7 +26,12 @@ What works today:
 - Structured benchmark manifest summaries for paper/update tables and failure records.
 - Multi-horizon decode-fidelity analysis over captured source, baseline, and post-migration continuations.
 - Larger-context benchmark matrix planning with checked vLLM context-window requirements.
-- Exact short-horizon graph-attached MLX-to-vLLM continuation fidelity for one validated Qwen run.
+- Exact 128-token graph-attached MLX-to-vLLM continuation fidelity for the
+  validated Qwen long-horizon AWS run.
+- Raw-transfer TinyLlama MLX-to-vLLM structural E2E proof with exact
+  target-baseline/post-migration continuation at 16 tokens, all 22 layer slot
+  probes matching, reverse import, target graph activity, and origin
+  return-home continuation.
 - Round-trip Agent Memory Graph continuity proof: origin to AWS, target-side
   work, AWS-updated graph/artifact evidence returned to origin, and origin-side
   continuation from that returned state.
@@ -56,15 +61,20 @@ What is still experimental:
 
 - Runtime adapters rely on Python because MLX and vLLM expose the needed internals through Python APIs.
 - The vLLM attachment path uses implementation details that may change between vLLM versions.
-- Fidelity has been validated for one model family and a 16-token continuation horizon, including graph-attached AWS runs and one complex-agent graph package.
+- Long-horizon fidelity has been validated for Qwen2.5 at a 128-token
+  continuation horizon, including graph-attached AWS runs and one complex-agent
+  graph package. TinyLlama now has raw-transfer structural E2E evidence on the
+  same runtime pair, with a documented source/target decode-format mismatch at
+  token 0.
 - Reverse runtime-state import is validated for the current vLLM-to-MLX path by
   canonical decode-boundary export and MLX cache materialization. Byte-for-byte
   copying of vLLM GPU cache blocks into MLX is not a meaningful cross-runtime
   contract because their physical KV layouts differ.
 - Cloud validation is expensive and slow on cold hosts unless a prewarmed image is used.
-- Longer-horizon and larger-context benchmark tooling now exists, and
-  transfer-quantization comparison tooling can analyze paired benchmark
-  manifests; new cloud batches are still needed for broader real-runtime claims.
+- Longer-horizon Qwen2.5 MLX-to-vLLM validation is exact through 128 tokens;
+  TinyLlama structural validation broadens the model-family evidence, but new
+  cloud batches are still needed for broader runtime-pair claims and
+  source-exact cross-runtime parity.
 - Adaptive transfer codec planning exists for raw, FP8, TurboQuant-style, and
   Quaternion-Augmented TurboQuant candidate modes; raw, FP8, and experimental
   QATQ are executable in the current AWS runner.
@@ -99,6 +109,20 @@ What is still experimental:
 - `docs/benchmark-summary-tooling.md`: structured manifest summary and paper-table tooling.
 - `docs/fidelity-horizon-suite.md`: multi-horizon decode-fidelity comparison tooling.
 - `docs/context-benchmark-matrix.md`: larger-than-2k context benchmark planning.
+- `docs/model-runtime-validation-matrix.md`: planned and validated
+  model-family/runtime profiles and evidence rules for broadening real-runtime
+  claims.
+- `docs/aws-real-runtime-long-horizon-2026-06-21.md`: AWS long-horizon
+  Qwen2.5 MLX-to-vLLM proof with exact 128-token fidelity, QATQ metrics,
+  reverse import, target activity, return-home continuation, and cleanup
+  verification.
+- `docs/aws-real-runtime-tinyllama-2026-06-21.md`: AWS TinyLlama
+  MLX-to-vLLM raw-transfer proof with exact target baseline/post-migration
+  continuation, reverse import, Agent Memory Graph activity, origin
+  return-home, and cleanup evidence.
+- `docs/aws-real-runtime-qwen15-attempts-2026-06-21.md`: investigated
+  Qwen2.5 1.5B raw-transfer AWS attempts and the current vLLM/T4 backend
+  blocker.
 - `docs/transfer-quantization-comparison.md`: paired raw-vs-quantized manifest comparison tooling.
 - `docs/aws-real-runtime-transfer-quantization-2026-06-20.md`: raw-vs-FP8 AWS
   real-runtime comparison for the graph-attached MLX-to-vLLM validation path.
@@ -132,12 +156,12 @@ Latest successful fidelity run:
 
 | Field | Value |
 | --- | --- |
-| Run ID | `20260620-224819` |
-| Manifest | `migration-20260620-225636-64284-manifest.json` |
+| Run ID | `20260621-052744` |
+| Manifest | `migration-20260621-053602-9938-manifest.json` |
 | Source | local MLX on Apple Silicon |
 | Target | AWS `g4dn.xlarge`, vLLM `0.23.0` |
 | Model | `Qwen/Qwen2.5-0.5B-Instruct` |
-| Prefix length | 2016 tokens |
+| Prefix length | 1920 tokens |
 | Transport | production `wss://`/mTLS byte proxy on port `29443` |
 | Transfer quantization | `qatq` |
 | Agent Memory Graph | 27 nodes, 25 edges, 4 packaged artifacts, bound/aligned/resumed on target/returned to origin |
@@ -146,12 +170,12 @@ Latest successful fidelity run:
 | Slot probe max key diff | `0.006696999999999065` |
 | Slot probe max value diff | `0.000558149999999813` |
 | Prefix-cache seeded blocks | 16 |
-| Decode fidelity | exact source/post-migration match for 16 generated tokens |
-| Transfer bytes | `6,294,528` of `49,545,216` uncompressed bytes; compression ratio `0.12704613095238096` |
-| Reverse runtime import | vLLM exported target decode boundary with proof hash `sha256:cc27f81da25d629d36e5b680d8986acf385b867d334ce67515912f2fbc1cce2f`; MLX imported the 2032-token target-advanced boundary and emitted origin proof hash `sha256:a4f0c01e5d02c9a07d6ca34fb95ce2d60232ea0a5583f88f0c45e61ae6a638d7` |
+| Decode fidelity | exact source/post-migration and baseline/post-migration matches at 16, 32, 64, and 128 generated tokens |
+| Transfer bytes | `6,294,528` of `47,185,920` uncompressed bytes; compression ratio `0.1333984375` |
+| Reverse runtime import | vLLM exported target decode boundary with proof hash `sha256:5c189979b52e35b9d3c434b6dc9dec1a075972137242fd94f171b7a096cec302`; MLX imported the 2048-token target-advanced boundary and emitted origin proof hash `sha256:d26fa884e009131be2a0b0ba9e8d0a55ec4d48c2061a5e2579c62c3f7166ff44` |
 | Agent activity continuation | AWS target resumed pending work, wrote `reports/publish/announcement.md`, emitted proof hash `sha256:b066a1dba9ed250eb54e1344c8d0092d8ad2d90dfe68bbfc1a0c740d18b6969c` |
 | Return-home continuation | origin verified the AWS graph/report/artifact, wrote `reports/roundtrip/origin-continuation.md`, emitted proof hash `sha256:052add6058521a13902515f759499b1350d5be4055d070d4e5428a9df0adb36d` |
-| Cleanup | instance, security group, and key pair deleted; cleanup verified at `2026-06-20T23:08:47Z` |
+| Cleanup | instance, security group, and key pair deleted; cleanup verified at `2026-06-21T05:48:33Z` |
 
 The earlier apparent fidelity gap at a longer prefix was traced to target context-window exhaustion, not a KV migration defect.
 This latest validation uses experimental QATQ transfer compression. QATQ is lossy
@@ -192,6 +216,16 @@ scripts/aws-real-runtime-e2e.sh preflight
 scripts/aws-real-runtime-e2e.sh run
 ```
 
+Plan the next model-family/runtime proof commands:
+
+```bash
+scripts/plan-model-runtime-validations.py --format json
+scripts/plan-model-runtime-validations.py \
+  --profile gemma-2-2b-it-mlx-vllm \
+  --format shell \
+  --action preflight
+```
+
 Read `docs/aws-real-runtime-e2e-runner.md` first. The preflight command does
 not provision infrastructure. The `run` command provisions billable AWS GPU
 infrastructure and is designed to clean up after itself, but you should
@@ -224,6 +258,12 @@ scripts/plan-context-benchmarks.py \
   --env-out benchmark-manifests/context-matrix.env
 ```
 
+Plan model-family/runtime validation points:
+
+```bash
+scripts/plan-model-runtime-validations.py --format shell --action preflight
+```
+
 Compare paired raw and transfer-quantized benchmark manifests:
 
 ```bash
@@ -240,8 +280,15 @@ scripts/plan-transfer-codecs.py \
 
 ## Benchmark snapshot
 
+The current long-horizon proof is intentionally scoped to Qwen2.5 on
+MLX-to-vLLM. TinyLlama has now completed a raw-transfer structural E2E proof on
+the same runtime pair. Additional model-family profiles are planned in
+`docs/model-runtime-validation-matrix.md`; they should not be marked validated
+until their real-runtime runs complete with cleanup evidence.
+
 | Run | Target | Source mode | Transport | Seq len | Total time (ms) | Effective bandwidth (Gbps) | Manifest |
 | --- | --- | --- | --- | ---: | ---: | ---: | --- |
+| AWS long-horizon WSS QATQ round trip | `g4dn.xlarge` | live MLX | production `wss://`/mTLS + QATQ complex graph-bound vLLM prefix-cache attachment + 128-token fidelity + target graph resume + vLLM reverse export API + MLX reverse import + origin return-home proof | 1920 | 431701.159583 | 0.0004952710276217939 | `migration-20260621-053602-9938-manifest.json` |
 | AWS production WSS QATQ round trip | `g4dn.xlarge` | live MLX | production `wss://`/mTLS + QATQ complex graph-bound vLLM prefix-cache attachment + target graph resume + vLLM reverse export API + MLX reverse import + origin return-home proof | 2016 | 414148.584541 | 0.00048287964700385205 | `migration-20260620-225636-64284-manifest.json` |
 | AWS QATQ reverse runtime round trip | `g4dn.xlarge` | live MLX | SSH tunnel + QATQ complex graph-bound vLLM prefix-cache attachment + target graph resume + vLLM reverse export API + MLX reverse import + origin return-home proof | 2016 | 389327.437458 | 0.0007638025225847906 | `migration-20260620-211207-46427-manifest.json` |
 | AWS QATQ agent-activity continuation | `g4dn.xlarge` | live MLX | SSH tunnel + QATQ complex graph-bound vLLM prefix-cache attachment + target-side graph resume | 2016 | 389836.2535 | 0.0008036472740685385 | `migration-20260620-184608-67621-manifest.json` |

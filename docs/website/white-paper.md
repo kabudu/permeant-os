@@ -23,7 +23,7 @@ Latest validated run:
 | Source | MLX on Apple Silicon |
 | Target | AWS `g4dn.xlarge`, vLLM `0.23.0` |
 | Model | `Qwen/Qwen2.5-0.5B-Instruct` |
-| Prefix length | 2016 tokens |
+| Prefix length | 1920 tokens |
 | Transfer quantization | experimental `qatq` |
 | Agent Memory Graph | 27 nodes, 25 edges, 4 packaged artifacts, bound, aligned, and resumed on target |
 | Layers | 24 |
@@ -31,18 +31,18 @@ Latest validated run:
 | Slot-probe max key diff | `0.006696999999999065` |
 | Slot-probe max value diff | `0.000558149999999813` |
 | Prefix-cache seeded blocks | 16 |
-| Decode fidelity | exact source/post-migration match for 16 generated tokens |
-| Reverse runtime import | vLLM exported target decode boundary; MLX imported 2032-token target-advanced state and emitted proof hash `sha256:a4f0c01e5d02c9a07d6ca34fb95ce2d60232ea0a5583f88f0c45e61ae6a638d7` |
+| Decode fidelity | exact source/post-migration and baseline/post-migration matches at 16, 32, 64, and 128 generated tokens |
+| Reverse runtime import | vLLM exported target decode boundary; MLX imported 2048-token target-advanced state and emitted proof hash `sha256:d26fa884e009131be2a0b0ba9e8d0a55ec4d48c2061a5e2579c62c3f7166ff44` |
 | Agent activity | AWS target resumed pending graph work, executed approved tool activity, wrote a new artifact, and emitted a proof hash |
 | Return-home activity | origin verified the AWS graph/report/artifact and wrote a new continuation artifact from the returned state |
 
-The run proves the core path for the validated configuration: live MLX extraction, secure transport, graph/KV transaction binding, target-side vLLM KV allocation, direct KV write, prefix-cache attachment, artifact hash preservation, memory/retrieval evidence preservation, pending tool policy preservation, post-migration runtime continuation fidelity, reverse runtime export/import, and target-side graph activity resume. After migration, the AWS target exported its target-generated decode boundary through `/export_reverse_runtime_state` with proof hash `sha256:cc27f81da25d629d36e5b680d8986acf385b867d334ce67515912f2fbc1cce2f`. The origin MLX runtime imported that boundary, materialized MLX-native KV state for the 2032-token target-advanced prompt, and emitted proof hash `sha256:a4f0c01e5d02c9a07d6ca34fb95ce2d60232ea0a5583f88f0c45e61ae6a638d7`. The AWS target also imported the same complex Agent Memory Graph package, resumed retry-safe pending work, executed an explicitly approved publish write, wrote `reports/publish/announcement.md`, appended new graph evidence, and emitted proof hash `sha256:b066a1dba9ed250eb54e1344c8d0092d8ad2d90dfe68bbfc1a0c740d18b6969c`.
+The run proves the core path for the validated configuration: live MLX extraction, secure transport, graph/KV transaction binding, target-side vLLM KV allocation, direct KV write, prefix-cache attachment, artifact hash preservation, memory/retrieval evidence preservation, pending tool policy preservation, post-migration runtime continuation fidelity, reverse runtime export/import, and target-side graph activity resume. After migration, the AWS target exported its target-generated decode boundary through `/export_reverse_runtime_state` with proof hash `sha256:5c189979b52e35b9d3c434b6dc9dec1a075972137242fd94f171b7a096cec302`. The origin MLX runtime imported that boundary, materialized MLX-native KV state for the 2048-token target-advanced prompt, and emitted proof hash `sha256:d26fa884e009131be2a0b0ba9e8d0a55ec4d48c2061a5e2579c62c3f7166ff44`. The AWS target also imported the same complex Agent Memory Graph package, resumed retry-safe pending work, executed an explicitly approved publish write, wrote `reports/publish/announcement.md`, appended new graph evidence, and emitted proof hash `sha256:b066a1dba9ed250eb54e1344c8d0092d8ad2d90dfe68bbfc1a0c740d18b6969c`.
 
 The follow-up round-trip run returned the AWS-updated graph/report/artifact evidence to the origin. The origin verified the target proof hash, target graph hash, and target artifact bytes, then wrote `reports/roundtrip/origin-continuation.md` from the returned state. The origin-side round-trip proof hash is `sha256:052add6058521a13902515f759499b1350d5be4055d070d4e5428a9df0adb36d`, with final origin graph hash `sha256:35d2b4c784a1243604140b2d017343140fefb8ed3b2722952c8d05a99ba732f8`.
 
 This is a full validated round trip for the current runtime contract. The reverse path exports a canonical target decode boundary rather than copying vLLM GPU blocks byte-for-byte into MLX, because the runtimes use different physical KV layouts. MLX imports the target-generated boundary and materializes MLX-native KV state before continuing.
 
-The QATQ run transferred 6,294,528 bytes from a 49,545,216-byte uncompressed KV payload, a compression ratio of `0.12704613095238096`. QATQ is lossy at the tensor-slot level, so the claim is not numerical losslessness. The claim is bounded sampled numeric drift plus exact observed source/post-migration continuation for the configured 16-token horizon.
+The long-horizon QATQ run transferred 6,294,528 bytes from a 47,185,920-byte uncompressed KV payload, a compression ratio of `0.1333984375`. QATQ is lossy at the tensor-slot level, so the claim is not numerical losslessness. The claim is bounded sampled numeric drift plus exact observed source/post-migration and baseline/post-migration continuations for the configured 128-token horizon.
 
 A matched FP8 transfer-quantized run used the same source, target, model,
 prefix length, continuation horizon, and Agent Memory Graph manifest. It
@@ -69,7 +69,7 @@ USXF is the exchange layer. It records model identity, attention structure, sequ
 
 ## The key finding
 
-An earlier validation run appeared to show a source/target continuation mismatch. The root cause was not a KV migration defect. The target context window was exhausted before the full validation continuation could be generated. Reducing the migrated prefix to leave enough target context room produced exact 16-token source/post-migration fidelity.
+An earlier validation run appeared to show a source/target continuation mismatch. The root cause was not a KV migration defect. The target context window was exhausted before the full validation continuation could be generated. Reducing the migrated prefix to leave enough target context room first produced exact 16-token source/post-migration fidelity, and the follow-up long-horizon run used a 1920-token prefix to prove exact 128-token source/post-migration and baseline/post-migration fidelity.
 
 This matters because migration fidelity tests must account for tokenizer and runtime-specific context-window behavior. PermeantOS now records enough fidelity metadata to distinguish true migration defects from context exhaustion.
 
@@ -121,7 +121,8 @@ Current strengths:
   credential rebinding, pending tool policy, exact 16-token continuation
   fidelity, and verified cleanup.
 - Experimental QATQ AWS validation with about 8x smaller transferred payload
-  than raw f32 and target-side Agent Memory Graph resume evidence.
+  than raw f32, exact 128-token continuation fidelity on the validated
+  long-horizon path, and target-side Agent Memory Graph resume evidence.
 - Graph-attached live KV migration planning notes and acceptance criteria.
 - Repeatable AWS E2E runner with cleanup verification.
 - Conservative AWS prewarm recipe for reducing E2E bootstrap time without
@@ -130,7 +131,8 @@ Current strengths:
 
 Current limitations:
 
-- Fidelity has been validated for one model family and a short continuation horizon.
+- Fidelity has been validated for one model family and a 128-token continuation
+  horizon.
 - vLLM integration relies on internal runtime behavior that may change.
 - Python adapters are needed for Python-native ML runtimes.
 - Graph-attached KV migration has validated MLX-to-vLLM AWS proofs, including

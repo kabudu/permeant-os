@@ -4,6 +4,8 @@ When the extractor command runs in a separate process, importing a live MLX obje
 
 This bridge gives the source side a stable IPC path:
 - `adapters/mlx_runtime_exporter.py` exposes `/extract` on localhost
+- the exporter serves requests on a single HTTP thread because MLX GPU streams
+  can be thread-local in live runtimes
 - `adapters/mlx_http_cache_provider.py` fetches that payload
 - `adapters/mlx_hook_template.py` can use the HTTP provider as `PERMEANT_MLX_CACHE_PROVIDER`
 

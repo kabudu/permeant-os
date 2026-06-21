@@ -14,7 +14,11 @@ Environment overrides:
   AWS_AZ                             default: us-east-1d
   AWS_INSTANCE_TYPE                  default: g4dn.xlarge
   AWS_AMI_ID                         default: ami-01011b868ec560823
+  PERMEANT_VALIDATION_PROFILE        default: qwen2.5-0.5b-mlx-vllm
   PERMEANT_MODEL                     default: Qwen/Qwen2.5-0.5B-Instruct
+  PERMEANT_MODEL_FAMILY              optional; required for custom profile
+  PERMEANT_SOURCE_RUNTIME            default: mlx
+  PERMEANT_TARGET_RUNTIME            default: vllm
   PERMEANT_SEQ_LEN                   default: 2016
   PERMEANT_VLLM_MAX_MODEL_LEN        default: 2048
   PERMEANT_TRANSFER_QUANTIZATION     default: none (none, fp8, qatq)
@@ -47,7 +51,11 @@ AWS_REGION="${AWS_REGION:-us-east-1}"
 AWS_AZ="${AWS_AZ:-us-east-1d}"
 AWS_INSTANCE_TYPE="${AWS_INSTANCE_TYPE:-g4dn.xlarge}"
 AWS_AMI_ID="${AWS_AMI_ID:-ami-01011b868ec560823}"
+PERMEANT_VALIDATION_PROFILE="${PERMEANT_VALIDATION_PROFILE:-qwen2.5-0.5b-mlx-vllm}"
 PERMEANT_MODEL="${PERMEANT_MODEL:-Qwen/Qwen2.5-0.5B-Instruct}"
+PERMEANT_MODEL_FAMILY="${PERMEANT_MODEL_FAMILY:-}"
+PERMEANT_SOURCE_RUNTIME="${PERMEANT_SOURCE_RUNTIME:-mlx}"
+PERMEANT_TARGET_RUNTIME="${PERMEANT_TARGET_RUNTIME:-vllm}"
 PERMEANT_SEQ_LEN="${PERMEANT_SEQ_LEN:-2016}"
 PERMEANT_VLLM_MAX_MODEL_LEN="${PERMEANT_VLLM_MAX_MODEL_LEN:-2048}"
 PERMEANT_TRANSFER_QUANTIZATION="${PERMEANT_TRANSFER_QUANTIZATION:-none}"
@@ -329,10 +337,20 @@ data = {
   "az": "$AWS_AZ",
   "instance_type": "$AWS_INSTANCE_TYPE",
   "ami_id": "$AWS_AMI_ID",
+  "validation_profile": "$PERMEANT_VALIDATION_PROFILE",
   "model": "$PERMEANT_MODEL",
+  "model_family": "$PERMEANT_MODEL_FAMILY",
+  "source_runtime": "$PERMEANT_SOURCE_RUNTIME",
+  "target_runtime": "$PERMEANT_TARGET_RUNTIME",
   "seq_len": "$PERMEANT_SEQ_LEN",
   "vllm_max_model_len": "$PERMEANT_VLLM_MAX_MODEL_LEN",
   "transfer_quantization": "$PERMEANT_TRANSFER_QUANTIZATION",
+  "model_layer_count": "${PERMEANT_MODEL_LAYER_COUNT:-}",
+  "model_q_heads": "${PERMEANT_MODEL_Q_HEADS:-}",
+  "model_kv_heads": "${PERMEANT_MODEL_KV_HEADS:-}",
+  "model_head_dim": "${PERMEANT_MODEL_HEAD_DIM:-}",
+  "model_hidden_size": "${PERMEANT_MODEL_HIDDEN_SIZE:-}",
+  "model_block_size": "${PERMEANT_MODEL_BLOCK_SIZE:-}",
   "continuation_max_tokens": "$PERMEANT_CONTINUATION_MAX_TOKENS",
   "fidelity_horizons": "$PERMEANT_FIDELITY_HORIZONS",
   "source_url": "$PERMEANT_SOURCE_URL",
@@ -374,9 +392,84 @@ validate_numeric_config() {
   [[ "$PERMEANT_PRODUCTION_TRANSPORT_PORT" =~ ^[0-9]+$ ]] || return 1
   (( PERMEANT_SEQ_LEN > 0 )) || return 1
   (( PERMEANT_VLLM_MAX_MODEL_LEN > PERMEANT_SEQ_LEN )) || return 1
+  (( PERMEANT_SEQ_LEN + PERMEANT_CONTINUATION_MAX_TOKENS <= PERMEANT_VLLM_MAX_MODEL_LEN )) || return 1
   (( PERMEANT_CONTINUATION_MAX_TOKENS > 0 )) || return 1
   (( PERMEANT_LOCAL_TUNNEL_PORT > 0 && PERMEANT_LOCAL_TUNNEL_PORT <= 65535 )) || return 1
   (( PERMEANT_PRODUCTION_TRANSPORT_PORT > 0 && PERMEANT_PRODUCTION_TRANSPORT_PORT <= 65535 )) || return 1
+}
+
+validation_profile_expected() {
+  case "$PERMEANT_VALIDATION_PROFILE" in
+    qwen2.5-0.5b-mlx-vllm)
+      printf '%s\t%s\t%s\t%s\n' "Qwen/Qwen2.5-0.5B-Instruct" "qwen2.5" "mlx" "vllm"
+      ;;
+    qwen2.5-1.5b-mlx-vllm)
+      printf '%s\t%s\t%s\t%s\n' "Qwen/Qwen2.5-1.5B-Instruct" "qwen2.5" "mlx" "vllm"
+      ;;
+    qwen2.5-0.5b-long-horizon-aws)
+      printf '%s\t%s\t%s\t%s\n' "Qwen/Qwen2.5-0.5B-Instruct" "qwen2.5" "mlx" "vllm"
+      ;;
+    tinyllama-1.1b-chat-mlx-vllm)
+      printf '%s\t%s\t%s\t%s\n' "TinyLlama/TinyLlama-1.1B-Chat-v1.0" "llama" "mlx" "vllm"
+      ;;
+    gemma-2-2b-it-mlx-vllm)
+      printf '%s\t%s\t%s\t%s\n' "google/gemma-2-2b-it" "gemma2" "mlx" "vllm"
+      ;;
+    phi-3.5-mini-mlx-vllm)
+      printf '%s\t%s\t%s\t%s\n' "microsoft/Phi-3.5-mini-instruct" "phi3.5" "mlx" "vllm"
+      ;;
+    custom)
+      if [[ -n "$PERMEANT_MODEL" && -n "$PERMEANT_MODEL_FAMILY" && -n "$PERMEANT_SOURCE_RUNTIME" && -n "$PERMEANT_TARGET_RUNTIME" ]]; then
+        printf '%s\t%s\t%s\t%s\n' "$PERMEANT_MODEL" "$PERMEANT_MODEL_FAMILY" "$PERMEANT_SOURCE_RUNTIME" "$PERMEANT_TARGET_RUNTIME"
+      else
+        return 1
+      fi
+      ;;
+    *)
+      return 2
+      ;;
+  esac
+}
+
+validation_profile_cache_spec() {
+  case "$PERMEANT_VALIDATION_PROFILE" in
+    qwen2.5-0.5b-mlx-vllm|qwen2.5-0.5b-long-horizon-aws)
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "24" "14" "2" "64" "896" "256"
+      ;;
+    qwen2.5-1.5b-mlx-vllm)
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "28" "12" "2" "128" "1536" "256"
+      ;;
+    tinyllama-1.1b-chat-mlx-vllm)
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "22" "32" "4" "64" "2048" "256"
+      ;;
+    gemma-2-2b-it-mlx-vllm)
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "26" "8" "4" "256" "2304" "256"
+      ;;
+    phi-3.5-mini-mlx-vllm)
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "32" "32" "32" "96" "3072" "256"
+      ;;
+    custom)
+      return 1
+      ;;
+    *)
+      return 2
+      ;;
+  esac
+}
+
+apply_validation_profile_cache_spec() {
+  local profile_spec profile_status layer_count q_heads kv_heads head_dim hidden_size block_size
+  profile_spec="$(validation_profile_cache_spec 2>/dev/null)" && profile_status=0 || profile_status=$?
+  if [[ "$profile_status" != "0" ]]; then
+    return 0
+  fi
+  IFS=$'\t' read -r layer_count q_heads kv_heads head_dim hidden_size block_size <<< "$profile_spec"
+  export PERMEANT_MODEL_LAYER_COUNT="${PERMEANT_MODEL_LAYER_COUNT:-$layer_count}"
+  export PERMEANT_MODEL_Q_HEADS="${PERMEANT_MODEL_Q_HEADS:-$q_heads}"
+  export PERMEANT_MODEL_KV_HEADS="${PERMEANT_MODEL_KV_HEADS:-$kv_heads}"
+  export PERMEANT_MODEL_HEAD_DIM="${PERMEANT_MODEL_HEAD_DIM:-$head_dim}"
+  export PERMEANT_MODEL_HIDDEN_SIZE="${PERMEANT_MODEL_HIDDEN_SIZE:-$hidden_size}"
+  export PERMEANT_MODEL_BLOCK_SIZE="${PERMEANT_MODEL_BLOCK_SIZE:-$block_size}"
 }
 
 write_preflight_report() {
@@ -407,6 +500,11 @@ report = {
     "az": state.get("az"),
     "instance_type": state.get("instance_type"),
     "ami_id": state.get("ami_id"),
+    "validation_profile": state.get("validation_profile"),
+    "model": state.get("model"),
+    "model_family": state.get("model_family"),
+    "source_runtime": state.get("source_runtime"),
+    "target_runtime": state.get("target_runtime"),
     "seq_len": state.get("seq_len"),
     "vllm_max_model_len": state.get("vllm_max_model_len"),
     "transfer_quantization": state.get("transfer_quantization"),
@@ -438,9 +536,28 @@ preflight_cmd() {
   done
 
   if validate_numeric_config; then
-    check_status pass "configuration:numeric" "sequence length, context window, continuation tokens, and tunnel port are valid" >> "$checks_file"
+    check_status pass "configuration:numeric" "sequence length, context window, continuation tokens, and tunnel ports leave room for validation continuation" >> "$checks_file"
   else
-    check_status fail "configuration:numeric" "invalid numeric configuration or vLLM max model length does not exceed migrated sequence length" >> "$checks_file"
+    check_status fail "configuration:numeric" "invalid numeric configuration or vLLM max model length cannot fit migrated sequence plus continuation tokens" >> "$checks_file"
+  fi
+
+  local expected_profile expected_model expected_family expected_source expected_target profile_status
+  expected_profile="$(validation_profile_expected 2>/dev/null)" && profile_status=0 || profile_status=$?
+  if [[ "$profile_status" == "0" ]]; then
+    IFS=$'\t' read -r expected_model expected_family expected_source expected_target <<< "$expected_profile"
+    if [[ "$PERMEANT_MODEL" != "$expected_model" ]]; then
+      check_status fail "configuration:validation_profile" "$PERMEANT_VALIDATION_PROFILE expects PERMEANT_MODEL=$expected_model, got $PERMEANT_MODEL" >> "$checks_file"
+    elif [[ "$PERMEANT_SOURCE_RUNTIME" != "$expected_source" || "$PERMEANT_TARGET_RUNTIME" != "$expected_target" ]]; then
+      check_status fail "configuration:validation_profile" "$PERMEANT_VALIDATION_PROFILE expects $expected_source->$expected_target, got $PERMEANT_SOURCE_RUNTIME->$PERMEANT_TARGET_RUNTIME" >> "$checks_file"
+    elif [[ "$PERMEANT_VALIDATION_PROFILE" == "custom" && "$PERMEANT_MODEL_FAMILY" != "$expected_family" ]]; then
+      check_status fail "configuration:validation_profile" "custom profile requires explicit PERMEANT_MODEL_FAMILY" >> "$checks_file"
+    else
+      check_status pass "configuration:validation_profile" "$PERMEANT_VALIDATION_PROFILE covers $expected_family on $expected_source->$expected_target" >> "$checks_file"
+    fi
+  elif [[ "$profile_status" == "1" ]]; then
+    check_status fail "configuration:validation_profile" "custom profile requires PERMEANT_MODEL, PERMEANT_MODEL_FAMILY, PERMEANT_SOURCE_RUNTIME, and PERMEANT_TARGET_RUNTIME" >> "$checks_file"
+  else
+    check_status fail "configuration:validation_profile" "unknown PERMEANT_VALIDATION_PROFILE: $PERMEANT_VALIDATION_PROFILE" >> "$checks_file"
   fi
 
   if [[ "$PERMEANT_TRANSFER_QUANTIZATION" == "none" || "$PERMEANT_TRANSFER_QUANTIZATION" == "fp8" || "$PERMEANT_TRANSFER_QUANTIZATION" == "qatq" ]]; then
@@ -745,7 +862,28 @@ write_remote_scripts() {
 #!/usr/bin/env bash
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
+wait_for_apt_locks() {
+  local waited=0
+  local locks=(
+    /var/lib/dpkg/lock
+    /var/lib/dpkg/lock-frontend
+    /var/lib/apt/lists/lock
+    /var/cache/apt/archives/lock
+  )
+  while sudo fuser "${locks[@]}" >/dev/null 2>&1; do
+    if (( waited >= 600 )); then
+      echo "timed out waiting for apt/dpkg lock holders" >&2
+      sudo fuser -v "${locks[@]}" >&2 || true
+      return 1
+    fi
+    echo "waiting for apt/dpkg lock holders to finish (${waited}s)"
+    sleep 10
+    waited=$((waited + 10))
+  done
+}
+wait_for_apt_locks
 sudo apt-get update
+wait_for_apt_locks
 sudo apt-get install -y python3.10-venv
 if ! command -v cargo >/dev/null 2>&1; then
   curl https://sh.rustup.rs -sSf | sh -s -- -y
@@ -920,6 +1058,12 @@ run_migration() {
     export PERMEANT_MLX_RUNTIME_URL="$PERMEANT_SOURCE_URL"
     export PERMEANT_MODEL_ARCHITECTURE="$PERMEANT_MODEL"
     export PERMEANT_MODEL_IDENTITY="$PERMEANT_MODEL"
+    export PERMEANT_MODEL_LAYER_COUNT="${PERMEANT_MODEL_LAYER_COUNT:-}"
+    export PERMEANT_MODEL_Q_HEADS="${PERMEANT_MODEL_Q_HEADS:-}"
+    export PERMEANT_MODEL_KV_HEADS="${PERMEANT_MODEL_KV_HEADS:-}"
+    export PERMEANT_MODEL_HEAD_DIM="${PERMEANT_MODEL_HEAD_DIM:-}"
+    export PERMEANT_MODEL_HIDDEN_SIZE="${PERMEANT_MODEL_HIDDEN_SIZE:-}"
+    export PERMEANT_MODEL_BLOCK_SIZE="${PERMEANT_MODEL_BLOCK_SIZE:-}"
     local migrate_cmd=(
       ./target/debug/permeant-cli
       sim-migrate
@@ -1227,9 +1371,11 @@ run_cmd() {
 
 case "$COMMAND" in
   preflight)
+    apply_validation_profile_cache_spec
     preflight_cmd
     ;;
   run)
+    apply_validation_profile_cache_spec
     run_cmd
     ;;
   status)
