@@ -19,6 +19,24 @@ and this project uses release tags compatible with semantic versioning.
 - Production transport design documentation covering security invariants,
   fallback negotiation, binary frame shape, performance rationale, and AWS
   runner cutover plan.
+- AWS real-runtime runner production transport cutover: `production-wss` is now
+  the default migration transport, with one-day ephemeral mTLS certificates,
+  caller-IP-scoped WSS ingress, a local WSS/mTLS client proxy, target WSS/mTLS
+  server proxy, and explicit `ssh-tunnel` fallback.
+- AWS production WSS real-runtime E2E proof (`20260620-224819`) showing QATQ
+  MLX-to-AWS-vLLM migration over production `wss://`/mTLS, exact 16-token
+  continuation fidelity, Agent Memory Graph binding/resume, vLLM reverse
+  runtime export, MLX reverse import, origin return-home continuation, and
+  verified AWS cleanup.
+
+### Fixed
+
+- AWS target setup now disables Cargo HTTP multiplexing and retries `cargo
+  build` to tolerate transient crates.io HTTP/2 failures on fresh hosts.
+- Production WSS certificate bootstrap now emits a proper CA certificate with
+  critical CA/key-usage extensions accepted by strict Python TLS verification.
+- AWS runner cleanup trap now installs before provisioning so failures during
+  certificate generation still trigger artifact collection and cloud cleanup.
 
 ## [0.1.28-qatq-reverse-runtime-e2e] - 2026-06-20
 

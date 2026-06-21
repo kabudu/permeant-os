@@ -27,6 +27,8 @@ Environment overrides:
   PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH default: 0; approve gated local publish proof
   PERMEANT_AGENT_ACTIVITY_RETURN_HOME default: 0; verify AWS-updated graph and continue on origin
   PERMEANT_REVERSE_RUNTIME_IMPORT    default: 0; import vLLM target decode boundary back into MLX origin
+  PERMEANT_MIGRATION_TRANSPORT       default: production-wss (production-wss, ssh-tunnel)
+  PERMEANT_PRODUCTION_TRANSPORT_PORT default: 29443
   PERMEANT_LOCAL_TUNNEL_PORT         default: 39099
   PERMEANT_STATE_DIR                 default: .permeant-e2e/aws
   PERMEANT_PREFLIGHT_SKIP_AWS        default: 0
@@ -58,6 +60,8 @@ PERMEANT_AGENT_ACTIVITY_RESUME="${PERMEANT_AGENT_ACTIVITY_RESUME:-0}"
 PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH="${PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH:-0}"
 PERMEANT_AGENT_ACTIVITY_RETURN_HOME="${PERMEANT_AGENT_ACTIVITY_RETURN_HOME:-0}"
 PERMEANT_REVERSE_RUNTIME_IMPORT="${PERMEANT_REVERSE_RUNTIME_IMPORT:-0}"
+PERMEANT_MIGRATION_TRANSPORT="${PERMEANT_MIGRATION_TRANSPORT:-production-wss}"
+PERMEANT_PRODUCTION_TRANSPORT_PORT="${PERMEANT_PRODUCTION_TRANSPORT_PORT:-29443}"
 PERMEANT_LOCAL_TUNNEL_PORT="${PERMEANT_LOCAL_TUNNEL_PORT:-39099}"
 PERMEANT_STATE_DIR="${PERMEANT_STATE_DIR:-$ROOT_DIR/.permeant-e2e/aws}"
 PERMEANT_PREFLIGHT_SKIP_AWS="${PERMEANT_PREFLIGHT_SKIP_AWS:-0}"
@@ -76,6 +80,8 @@ REMOTE_START_SCRIPT=""
 TARGET_PROBE_LOCAL=""
 TARGET_LOG_DIR=""
 TUNNEL_PID_FILE=""
+PRODUCTION_TRANSPORT_CERT_DIR=""
+TARGET_PRODUCTION_TRANSPORT_CERT_DIR="/home/ubuntu/permeant-transport-certs"
 TARGET_AGENT_GRAPH_PACKAGE="/home/ubuntu/permeant-agent-graph-package"
 TARGET_AGENT_ACTIVITY_WORKSPACE="/tmp/permeant-agent-activity-workspace"
 TARGET_AGENT_ACTIVITY_REPORT_LOCAL=""
@@ -105,6 +111,10 @@ check_status() {
 
 need() {
   command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
+}
+
+production_transport_enabled() {
+  [[ "$PERMEANT_MIGRATION_TRANSPORT" == "production-wss" ]]
 }
 
 json_get() {
@@ -211,6 +221,7 @@ load_state() {
   TARGET_PROBE_LOCAL="$(json_get "$STATE_FILE" target_probe_local)"
   TUNNEL_PID_FILE="$RUN_DIR/tunnel.pid"
   TARGET_LOG_DIR="$RUN_DIR/target-logs"
+  PRODUCTION_TRANSPORT_CERT_DIR="$(json_get "$STATE_FILE" production_transport_cert_dir)"
   TARGET_AGENT_ACTIVITY_REPORT_LOCAL="$(json_get "$STATE_FILE" target_agent_activity_report_local)"
   TARGET_AGENT_ACTIVITY_GRAPH_LOCAL="$(json_get "$STATE_FILE" target_agent_activity_graph_local)"
   TARGET_AGENT_ACTIVITY_ARTIFACT_LOCAL="$(json_get "$STATE_FILE" target_agent_activity_artifact_local)"
@@ -298,6 +309,7 @@ create_state() {
   TARGET_PROBE_LOCAL="$RUN_DIR/vllm-runtime-probe.json"
   TARGET_LOG_DIR="$RUN_DIR/target-logs"
   TUNNEL_PID_FILE="$RUN_DIR/tunnel.pid"
+  PRODUCTION_TRANSPORT_CERT_DIR="$RUN_DIR/production-transport-certs"
   TARGET_AGENT_ACTIVITY_REPORT_LOCAL="$RUN_DIR/agent-activity-resume-report.json"
   TARGET_AGENT_ACTIVITY_GRAPH_LOCAL="$RUN_DIR/agent-activity-resumed-graph.json"
   TARGET_AGENT_ACTIVITY_ARTIFACT_LOCAL="$RUN_DIR/agent-activity-publish-announcement.md"
@@ -330,6 +342,9 @@ data = {
   "agent_activity_approve_publish": "$PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH",
   "agent_activity_return_home": "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME",
   "reverse_runtime_import": "$PERMEANT_REVERSE_RUNTIME_IMPORT",
+  "migration_transport": "$PERMEANT_MIGRATION_TRANSPORT",
+  "production_transport_port": "$PERMEANT_PRODUCTION_TRANSPORT_PORT",
+  "production_transport_cert_dir": "$PRODUCTION_TRANSPORT_CERT_DIR",
   "local_tunnel_port": "$PERMEANT_LOCAL_TUNNEL_PORT",
   "run_dir": "$RUN_DIR",
   "key_name": "$KEY_NAME",
@@ -356,10 +371,12 @@ validate_numeric_config() {
   [[ "$PERMEANT_VLLM_MAX_MODEL_LEN" =~ ^[0-9]+$ ]] || return 1
   [[ "$PERMEANT_CONTINUATION_MAX_TOKENS" =~ ^[0-9]+$ ]] || return 1
   [[ "$PERMEANT_LOCAL_TUNNEL_PORT" =~ ^[0-9]+$ ]] || return 1
+  [[ "$PERMEANT_PRODUCTION_TRANSPORT_PORT" =~ ^[0-9]+$ ]] || return 1
   (( PERMEANT_SEQ_LEN > 0 )) || return 1
   (( PERMEANT_VLLM_MAX_MODEL_LEN > PERMEANT_SEQ_LEN )) || return 1
   (( PERMEANT_CONTINUATION_MAX_TOKENS > 0 )) || return 1
   (( PERMEANT_LOCAL_TUNNEL_PORT > 0 && PERMEANT_LOCAL_TUNNEL_PORT <= 65535 )) || return 1
+  (( PERMEANT_PRODUCTION_TRANSPORT_PORT > 0 && PERMEANT_PRODUCTION_TRANSPORT_PORT <= 65535 )) || return 1
 }
 
 write_preflight_report() {
@@ -454,6 +471,22 @@ preflight_cmd() {
     check_status pass "configuration:reverse_runtime_import" "$PERMEANT_REVERSE_RUNTIME_IMPORT" >> "$checks_file"
   else
     check_status fail "configuration:reverse_runtime_import" "PERMEANT_REVERSE_RUNTIME_IMPORT must be 0 or 1" >> "$checks_file"
+  fi
+
+  if [[ "$PERMEANT_MIGRATION_TRANSPORT" == "production-wss" || "$PERMEANT_MIGRATION_TRANSPORT" == "ssh-tunnel" ]]; then
+    check_status pass "configuration:migration_transport" "$PERMEANT_MIGRATION_TRANSPORT" >> "$checks_file"
+  else
+    check_status fail "configuration:migration_transport" "PERMEANT_MIGRATION_TRANSPORT must be production-wss or ssh-tunnel" >> "$checks_file"
+  fi
+
+  if production_transport_enabled; then
+    if command -v openssl >/dev/null 2>&1; then
+      check_status pass "command:openssl" "found" >> "$checks_file"
+    else
+      check_status fail "command:openssl" "production-wss transport requires openssl for ephemeral mTLS certs" >> "$checks_file"
+    fi
+  else
+    check_status skip "command:openssl" "PERMEANT_MIGRATION_TRANSPORT=$PERMEANT_MIGRATION_TRANSPORT" >> "$checks_file"
   fi
 
   if [[ "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME" == "1" && "$PERMEANT_AGENT_ACTIVITY_RESUME" != "1" ]]; then
@@ -593,6 +626,13 @@ provision() {
     --group-id "$sg_id" \
     --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=$my_ip/32,Description=permeant-e2e-ssh}]" >/dev/null
 
+  if production_transport_enabled; then
+    aws ec2 authorize-security-group-ingress \
+      --region "$AWS_REGION" \
+      --group-id "$sg_id" \
+      --ip-permissions "IpProtocol=tcp,FromPort=$PERMEANT_PRODUCTION_TRANSPORT_PORT,ToPort=$PERMEANT_PRODUCTION_TRANSPORT_PORT,IpRanges=[{CidrIp=$my_ip/32,Description=permeant-e2e-production-wss}]" >/dev/null
+  fi
+
   instance="$(aws ec2 run-instances \
     --region "$AWS_REGION" \
     --image-id "$AWS_AMI_ID" \
@@ -624,6 +664,79 @@ provision() {
   die "SSH did not become ready"
 }
 
+generate_production_transport_certs() {
+  production_transport_enabled || return 0
+  need openssl
+  local ip
+  ip="$(public_ip)"
+  log "generating ephemeral production transport mTLS certificates"
+  mkdir -p "$PRODUCTION_TRANSPORT_CERT_DIR"
+  chmod 700 "$PRODUCTION_TRANSPORT_CERT_DIR"
+
+  openssl genrsa -out "$PRODUCTION_TRANSPORT_CERT_DIR/ca.key" 2048 >/dev/null 2>&1
+  {
+    printf '[v3_ca]\n'
+    printf 'basicConstraints=critical,CA:TRUE\n'
+    printf 'keyUsage=critical,keyCertSign,cRLSign\n'
+    printf 'subjectKeyIdentifier=hash\n'
+  } > "$PRODUCTION_TRANSPORT_CERT_DIR/ca.ext"
+  openssl req -new \
+    -key "$PRODUCTION_TRANSPORT_CERT_DIR/ca.key" \
+    -subj "/CN=permeant-e2e-ca-$RUN_ID" \
+    -out "$PRODUCTION_TRANSPORT_CERT_DIR/ca.csr" >/dev/null 2>&1
+  openssl x509 -req \
+    -in "$PRODUCTION_TRANSPORT_CERT_DIR/ca.csr" \
+    -signkey "$PRODUCTION_TRANSPORT_CERT_DIR/ca.key" \
+    -sha256 \
+    -days 1 \
+    -extensions v3_ca \
+    -extfile "$PRODUCTION_TRANSPORT_CERT_DIR/ca.ext" \
+    -out "$PRODUCTION_TRANSPORT_CERT_DIR/ca.crt" >/dev/null 2>&1
+
+  openssl genrsa -out "$PRODUCTION_TRANSPORT_CERT_DIR/server.key" 2048 >/dev/null 2>&1
+  openssl req -new \
+    -key "$PRODUCTION_TRANSPORT_CERT_DIR/server.key" \
+    -subj "/CN=permeant-target" \
+    -out "$PRODUCTION_TRANSPORT_CERT_DIR/server.csr" >/dev/null 2>&1
+  {
+    printf 'subjectAltName=DNS:permeant-target,IP:%s\n' "$ip"
+    printf 'basicConstraints=critical,CA:FALSE\n'
+    printf 'keyUsage=critical,digitalSignature,keyEncipherment\n'
+    printf 'extendedKeyUsage=serverAuth\n'
+  } > "$PRODUCTION_TRANSPORT_CERT_DIR/server.ext"
+  openssl x509 -req \
+    -in "$PRODUCTION_TRANSPORT_CERT_DIR/server.csr" \
+    -CA "$PRODUCTION_TRANSPORT_CERT_DIR/ca.crt" \
+    -CAkey "$PRODUCTION_TRANSPORT_CERT_DIR/ca.key" \
+    -CAcreateserial \
+    -out "$PRODUCTION_TRANSPORT_CERT_DIR/server.crt" \
+    -days 1 \
+    -sha256 \
+    -extfile "$PRODUCTION_TRANSPORT_CERT_DIR/server.ext" >/dev/null 2>&1
+
+  openssl genrsa -out "$PRODUCTION_TRANSPORT_CERT_DIR/client.key" 2048 >/dev/null 2>&1
+  openssl req -new \
+    -key "$PRODUCTION_TRANSPORT_CERT_DIR/client.key" \
+    -subj "/CN=permeant-source" \
+    -out "$PRODUCTION_TRANSPORT_CERT_DIR/client.csr" >/dev/null 2>&1
+  {
+    printf 'basicConstraints=critical,CA:FALSE\n'
+    printf 'keyUsage=critical,digitalSignature,keyEncipherment\n'
+    printf 'extendedKeyUsage=clientAuth\n'
+  } > "$PRODUCTION_TRANSPORT_CERT_DIR/client.ext"
+  openssl x509 -req \
+    -in "$PRODUCTION_TRANSPORT_CERT_DIR/client.csr" \
+    -CA "$PRODUCTION_TRANSPORT_CERT_DIR/ca.crt" \
+    -CAkey "$PRODUCTION_TRANSPORT_CERT_DIR/ca.key" \
+    -CAcreateserial \
+    -out "$PRODUCTION_TRANSPORT_CERT_DIR/client.crt" \
+    -days 1 \
+    -sha256 \
+    -extfile "$PRODUCTION_TRANSPORT_CERT_DIR/client.ext" >/dev/null 2>&1
+  chmod 600 "$PRODUCTION_TRANSPORT_CERT_DIR"/*.key
+  json_set "$STATE_FILE" production_transport_cert_dir "$PRODUCTION_TRANSPORT_CERT_DIR"
+}
+
 write_remote_scripts() {
   REMOTE_SETUP_SCRIPT="$RUN_DIR/remote-setup.sh"
   REMOTE_START_SCRIPT="$RUN_DIR/remote-start.sh"
@@ -638,8 +751,17 @@ if ! command -v cargo >/dev/null 2>&1; then
   curl https://sh.rustup.rs -sSf | sh -s -- -y
 fi
 export PATH=/home/ubuntu/.cargo/bin:$PATH
+export CARGO_HTTP_MULTIPLEXING=false
 cd /home/ubuntu/permeant-os
-cargo build
+for attempt in 1 2 3; do
+  if cargo build; then
+    break
+  fi
+  if [[ "$attempt" == "3" ]]; then
+    exit 1
+  fi
+  sleep "$((attempt * 10))"
+done
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -U pip setuptools wheel
@@ -679,9 +801,21 @@ export PERMEANT_INJECTOR_HOOK=/home/ubuntu/permeant-os/adapters/vllm_hook_templa
 export PERMEANT_VLLM_RUNTIME_HOOK=/home/ubuntu/permeant-os/adapters/vllm_http_runtime_hook.py:runtime_hook
 export PERMEANT_VLLM_RUNTIME_URL=http://127.0.0.1:29100
 nohup /home/ubuntu/permeant-os/target/debug/permeant-cli daemon --addr 127.0.0.1:29099 >/tmp/permeant-logs/daemon.log 2>&1 &
+if [[ '$PERMEANT_MIGRATION_TRANSPORT' == 'production-wss' ]]; then
+  nohup /home/ubuntu/permeant-os/.venv/bin/python /home/ubuntu/permeant-os/adapters/production_transport_proxy.py server \
+    --listen-host 0.0.0.0 \
+    --listen-port '$PERMEANT_PRODUCTION_TRANSPORT_PORT' \
+    --target-host 127.0.0.1 \
+    --target-port 29099 \
+    --certfile '$TARGET_PRODUCTION_TRANSPORT_CERT_DIR/server.crt' \
+    --keyfile '$TARGET_PRODUCTION_TRANSPORT_CERT_DIR/server.key' \
+    --cafile '$TARGET_PRODUCTION_TRANSPORT_CERT_DIR/ca.crt' \
+    >/tmp/permeant-logs/production-transport-server.log 2>&1 &
+fi
 sleep 5
 tail -40 /tmp/permeant-logs/receiver.log || true
 tail -40 /tmp/permeant-logs/daemon.log || true
+tail -40 /tmp/permeant-logs/production-transport-server.log || true
 REMOTE_START
 
   chmod +x "$REMOTE_SETUP_SCRIPT" "$REMOTE_START_SCRIPT"
@@ -707,6 +841,17 @@ copy_agent_graph_package_to_target() {
   json_set "$STATE_FILE" target_agent_graph_package "$TARGET_AGENT_GRAPH_PACKAGE"
 }
 
+copy_production_transport_certs_to_target() {
+  production_transport_enabled || return 0
+  [[ -d "$PRODUCTION_TRANSPORT_CERT_DIR" ]] || die "missing production transport cert dir: $PRODUCTION_TRANSPORT_CERT_DIR"
+  log "copying ephemeral production transport mTLS certificates to target"
+  ssh_target "rm -rf '$TARGET_PRODUCTION_TRANSPORT_CERT_DIR' && mkdir -p '$TARGET_PRODUCTION_TRANSPORT_CERT_DIR' && chmod 700 '$TARGET_PRODUCTION_TRANSPORT_CERT_DIR'"
+  scp_to_target "$PRODUCTION_TRANSPORT_CERT_DIR/ca.crt" "$TARGET_PRODUCTION_TRANSPORT_CERT_DIR/ca.crt"
+  scp_to_target "$PRODUCTION_TRANSPORT_CERT_DIR/server.crt" "$TARGET_PRODUCTION_TRANSPORT_CERT_DIR/server.crt"
+  scp_to_target "$PRODUCTION_TRANSPORT_CERT_DIR/server.key" "$TARGET_PRODUCTION_TRANSPORT_CERT_DIR/server.key"
+  ssh_target "chmod 600 '$TARGET_PRODUCTION_TRANSPORT_CERT_DIR/server.key'"
+}
+
 start_target() {
   [[ -f "$PERMEANT_SOURCE_CONTINUATION_FILE" ]] || die "missing source continuation file: $PERMEANT_SOURCE_CONTINUATION_FILE"
   scp_to_target "$PERMEANT_SOURCE_CONTINUATION_FILE" /home/ubuntu/permeant-source-continuation.json
@@ -718,17 +863,32 @@ start_target() {
 start_tunnel() {
   local ip
   ip="$(public_ip)"
-  log "opening SSH tunnel on localhost:$PERMEANT_LOCAL_TUNNEL_PORT"
-  ssh -N \
-    -L "$PERMEANT_LOCAL_TUNNEL_PORT:127.0.0.1:29099" \
-    -o ExitOnForwardFailure=yes \
-    -o StrictHostKeyChecking=yes \
-    -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" \
-    -i "$PEM_FILE" \
-    "ubuntu@$ip" &
+  if production_transport_enabled; then
+    [[ -d "$PRODUCTION_TRANSPORT_CERT_DIR" ]] || die "missing production transport cert dir: $PRODUCTION_TRANSPORT_CERT_DIR"
+    log "opening production WSS/mTLS transport on localhost:$PERMEANT_LOCAL_TUNNEL_PORT -> $ip:$PERMEANT_PRODUCTION_TRANSPORT_PORT"
+    python3 "$ROOT_DIR/adapters/production_transport_proxy.py" client \
+      --listen-host 127.0.0.1 \
+      --listen-port "$PERMEANT_LOCAL_TUNNEL_PORT" \
+      --remote-host "$ip" \
+      --remote-port "$PERMEANT_PRODUCTION_TRANSPORT_PORT" \
+      --server-name permeant-target \
+      --certfile "$PRODUCTION_TRANSPORT_CERT_DIR/client.crt" \
+      --keyfile "$PRODUCTION_TRANSPORT_CERT_DIR/client.key" \
+      --cafile "$PRODUCTION_TRANSPORT_CERT_DIR/ca.crt" \
+      > "$RUN_DIR/production-transport-client.log" 2>&1 &
+  else
+    log "opening SSH tunnel on localhost:$PERMEANT_LOCAL_TUNNEL_PORT"
+    ssh -N \
+      -L "$PERMEANT_LOCAL_TUNNEL_PORT:127.0.0.1:29099" \
+      -o ExitOnForwardFailure=yes \
+      -o StrictHostKeyChecking=yes \
+      -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" \
+      -i "$PEM_FILE" \
+      "ubuntu@$ip" &
+  fi
   echo "$!" > "$TUNNEL_PID_FILE"
   sleep 3
-  kill -0 "$(cat "$TUNNEL_PID_FILE")" 2>/dev/null || die "SSH tunnel failed to start"
+  kill -0 "$(cat "$TUNNEL_PID_FILE")" 2>/dev/null || die "$PERMEANT_MIGRATION_TRANSPORT transport failed to start"
 }
 
 stop_tunnel() {
@@ -787,6 +947,7 @@ collect_artifacts() {
   scp_from_target /tmp/permeant-vllm-reverse-runtime-state.json "$TARGET_REVERSE_RUNTIME_STATE_LOCAL" || true
   scp_from_target /tmp/permeant-logs/receiver.log "$TARGET_LOG_DIR/receiver.log" || true
   scp_from_target /tmp/permeant-logs/daemon.log "$TARGET_LOG_DIR/daemon.log" || true
+  scp_from_target /tmp/permeant-logs/production-transport-server.log "$TARGET_LOG_DIR/production-transport-server.log" || true
 }
 
 analyze_artifacts() {
@@ -1045,9 +1206,11 @@ run_cmd() {
   refresh_source_continuation
   discover_network
   write_remote_scripts
-  provision
   trap 'collect_artifacts || true; cleanup_cmd "$STATE_FILE" || true' EXIT
+  provision
+  generate_production_transport_certs
   copy_repo_and_setup
+  copy_production_transport_certs_to_target
   copy_agent_graph_package_to_target
   start_target
   start_tunnel

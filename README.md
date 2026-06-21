@@ -48,8 +48,9 @@ What works today:
   bounded payload sizes, CRC validation, stream IDs, and replay rejection.
   Transport negotiation uses an explicit fallback ladder from private
   `wss://`/mTLS to QUIC/mTLS to framed TCP/mTLS, while rejecting insecure
-  downgrades. The current AWS runner still uses the framed TCP daemon protocol
-  through an SSH tunnel until the deployment cutover is implemented.
+  downgrades. The AWS real-runtime runner now defaults to production
+  `wss://`/mTLS transport, with SSH tunneling retained as an explicit fallback
+  mode.
 
 What is still experimental:
 
@@ -114,6 +115,9 @@ What is still experimental:
 - `docs/aws-real-runtime-roundtrip-continuation-2026-06-20.md`: AWS
   round-trip proof that the target-updated graph/artifact evidence returns to
   the origin and origin-side work continues from that remote proof.
+- `docs/aws-real-runtime-production-transport-2026-06-20.md`: AWS
+  real-runtime proof that the default production `wss://`/mTLS transport works
+  for the current MLX-to-vLLM QATQ round-trip path.
 - `docs/adaptive-transfer-codecs.md`: adaptive transfer codec planning, semantics, and fallback behavior.
 - `docs/aws-real-runtime-e2e-runner.md`: repeatable AWS real-runtime E2E runner and cleanup/resume runbook.
 - `docs/aws-prewarm-image.md`: conservative AWS image/container prewarm recipe and cost guardrails.
@@ -128,12 +132,13 @@ Latest successful fidelity run:
 
 | Field | Value |
 | --- | --- |
-| Run ID | `20260620-210358` |
-| Manifest | `migration-20260620-211207-46427-manifest.json` |
+| Run ID | `20260620-224819` |
+| Manifest | `migration-20260620-225636-64284-manifest.json` |
 | Source | local MLX on Apple Silicon |
 | Target | AWS `g4dn.xlarge`, vLLM `0.23.0` |
 | Model | `Qwen/Qwen2.5-0.5B-Instruct` |
 | Prefix length | 2016 tokens |
+| Transport | production `wss://`/mTLS byte proxy on port `29443` |
 | Transfer quantization | `qatq` |
 | Agent Memory Graph | 27 nodes, 25 edges, 4 packaged artifacts, bound/aligned/resumed on target/returned to origin |
 | Layers | 24 |
@@ -142,10 +147,11 @@ Latest successful fidelity run:
 | Slot probe max value diff | `0.000558149999999813` |
 | Prefix-cache seeded blocks | 16 |
 | Decode fidelity | exact source/post-migration match for 16 generated tokens |
+| Transfer bytes | `6,294,528` of `49,545,216` uncompressed bytes; compression ratio `0.12704613095238096` |
 | Reverse runtime import | vLLM exported target decode boundary with proof hash `sha256:cc27f81da25d629d36e5b680d8986acf385b867d334ce67515912f2fbc1cce2f`; MLX imported the 2032-token target-advanced boundary and emitted origin proof hash `sha256:a4f0c01e5d02c9a07d6ca34fb95ce2d60232ea0a5583f88f0c45e61ae6a638d7` |
 | Agent activity continuation | AWS target resumed pending work, wrote `reports/publish/announcement.md`, emitted proof hash `sha256:b066a1dba9ed250eb54e1344c8d0092d8ad2d90dfe68bbfc1a0c740d18b6969c` |
 | Return-home continuation | origin verified the AWS graph/report/artifact, wrote `reports/roundtrip/origin-continuation.md`, emitted proof hash `sha256:052add6058521a13902515f759499b1350d5be4055d070d4e5428a9df0adb36d` |
-| Cleanup | instance, security group, and key pair deleted |
+| Cleanup | instance, security group, and key pair deleted; cleanup verified at `2026-06-20T23:08:47Z` |
 
 The earlier apparent fidelity gap at a longer prefix was traced to target context-window exhaustion, not a KV migration defect.
 This latest validation uses experimental QATQ transfer compression. QATQ is lossy
@@ -236,6 +242,7 @@ scripts/plan-transfer-codecs.py \
 
 | Run | Target | Source mode | Transport | Seq len | Total time (ms) | Effective bandwidth (Gbps) | Manifest |
 | --- | --- | --- | --- | ---: | ---: | ---: | --- |
+| AWS production WSS QATQ round trip | `g4dn.xlarge` | live MLX | production `wss://`/mTLS + QATQ complex graph-bound vLLM prefix-cache attachment + target graph resume + vLLM reverse export API + MLX reverse import + origin return-home proof | 2016 | 414148.584541 | 0.00048287964700385205 | `migration-20260620-225636-64284-manifest.json` |
 | AWS QATQ reverse runtime round trip | `g4dn.xlarge` | live MLX | SSH tunnel + QATQ complex graph-bound vLLM prefix-cache attachment + target graph resume + vLLM reverse export API + MLX reverse import + origin return-home proof | 2016 | 389327.437458 | 0.0007638025225847906 | `migration-20260620-211207-46427-manifest.json` |
 | AWS QATQ agent-activity continuation | `g4dn.xlarge` | live MLX | SSH tunnel + QATQ complex graph-bound vLLM prefix-cache attachment + target-side graph resume | 2016 | 389836.2535 | 0.0008036472740685385 | `migration-20260620-184608-67621-manifest.json` |
 | AWS QATQ complex graph-attached fidelity | `g4dn.xlarge` | live MLX | SSH tunnel + QATQ complex graph-bound vLLM prefix-cache attachment | 2016 | 386467.57175 | 0.0008050778400958065 | `migration-20260620-173846-50882-manifest.json` |

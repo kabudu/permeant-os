@@ -286,8 +286,9 @@ Deliverables:
   ad-hoc SSH tunnels and provider-specific HTTP bridges with private-network
   `wss://`/mTLS binary streaming first, then QUIC or RDMA/UCX/NIXL where the
   target deployment supports it.
-- [ ] Cut the AWS real-runtime runner over from SSH tunnel transport to the
-  production `wss://`/mTLS transport once certificate bootstrap is documented.
+- [x] Cut the AWS real-runtime runner over from SSH tunnel transport to the
+  production `wss://`/mTLS transport with ephemeral mTLS bootstrap, explicit
+  SSH fallback, cleanup verification, and a full real-runtime AWS proof.
 
 Exit criteria:
 
@@ -421,8 +422,9 @@ Scope:
 - [x] Add production transport foundation with signed session metadata,
   compact binary frames, mTLS-oriented profile negotiation, frame-size bounds,
   CRC validation, stream IDs, and replay rejection.
-- [ ] Cut the AWS real-runtime runner over to the production `wss://`/mTLS
-  transport once certificate bootstrap and benchmark comparison are documented.
+- [x] Cut the AWS real-runtime runner over to the production `wss://`/mTLS
+  transport with certificate bootstrap, explicit fallback, benchmark evidence,
+  and full MLX-to-AWS-vLLM-to-MLX round-trip validation.
 - [x] Prototype graph-attached migration manifest extensions and analyzer
   checks behind the existing Agent Memory Graph manifest path.
 - [x] Add content-addressed artifact packaging and restored-workspace
@@ -436,7 +438,7 @@ Scope:
   AWS identity, visible target subnet, and visible target AMI.
 - [x] Rerun the AWS real-runtime E2E validation horizon after the runner's
   source-continuation refresh fix to confirm source-exact decode fidelity.
-- [ ] Add a production secure bidirectional transport design covering private
+- [x] Add a production secure bidirectional transport design covering private
   network identity, binary streaming frames, backpressure, resume/retry
   semantics, and a benchmark plan against the current SSH-forwarded TCP path.
 - [x] Prove round-trip Agent Memory Graph continuity by migrating origin state

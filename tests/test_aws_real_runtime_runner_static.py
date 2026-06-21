@@ -51,3 +51,77 @@ def test_reverse_runtime_import_uses_target_export_api():
     assert "/export_reverse_runtime_state" in reverse_body
     assert "reverse_runtime_state" in reverse_body
     assert "source_reverse_import_url" in reverse_body
+
+
+def test_production_wss_is_default_migration_transport():
+    script = RUNNER.read_text()
+
+    assert 'PERMEANT_MIGRATION_TRANSPORT="${PERMEANT_MIGRATION_TRANSPORT:-production-wss}"' in script
+    assert 'PERMEANT_PRODUCTION_TRANSPORT_PORT="${PERMEANT_PRODUCTION_TRANSPORT_PORT:-29443}"' in script
+    assert "production_transport_enabled()" in script
+
+
+def test_production_transport_generates_and_copies_mtls_certs():
+    script = RUNNER.read_text()
+    cert_start = script.index("generate_production_transport_certs() {")
+    cert_body = script[cert_start : script.index("\nwrite_remote_scripts() {", cert_start)]
+    copy_start = script.index("copy_production_transport_certs_to_target() {")
+    copy_body = script[copy_start : script.index("\nstart_target() {", copy_start)]
+
+    assert "openssl req -new" in cert_body
+    assert "openssl x509 -req" in cert_body
+    assert "-signkey \"$PRODUCTION_TRANSPORT_CERT_DIR/ca.key\"" in cert_body
+    assert "basicConstraints=critical,CA:TRUE" in cert_body
+    assert "keyUsage=critical,keyCertSign,cRLSign" in cert_body
+    assert "extendedKeyUsage=serverAuth" in cert_body
+    assert "extendedKeyUsage=clientAuth" in cert_body
+    assert "keyUsage=critical,digitalSignature,keyEncipherment" in cert_body
+    assert "subjectAltName=DNS:permeant-target" in cert_body
+    assert "server.key" in copy_body
+    assert "client.key" not in copy_body
+
+
+def test_production_transport_proxy_replaces_ssh_tunnel_when_enabled():
+    script = RUNNER.read_text()
+    start_start = script.index("start_tunnel() {")
+    start_body = script[start_start : script.index("\nstop_tunnel() {", start_start)]
+    run_start = script.index("run_cmd() {")
+    run_body = script[run_start : script.index("\n}", run_start)]
+
+    assert "production_transport_proxy.py\" client" in start_body
+    assert "--remote-port \"$PERMEANT_PRODUCTION_TRANSPORT_PORT\"" in start_body
+    assert "ssh -N" in start_body
+    assert "generate_production_transport_certs" in run_body
+    assert "copy_production_transport_certs_to_target" in run_body
+    assert run_body.index("generate_production_transport_certs") < run_body.index("start_target")
+    assert run_body.index("copy_production_transport_certs_to_target") < run_body.index("start_target")
+
+
+def test_target_starts_production_wss_proxy():
+    script = RUNNER.read_text()
+    remote_start = script.index('cat > "$REMOTE_START_SCRIPT" <<REMOTE_START')
+    remote_body = script[remote_start : script.index("\nREMOTE_START", remote_start)]
+
+    assert "production_transport_proxy.py server" in remote_body
+    assert "--target-port 29099" in remote_body
+    assert "--cafile '$TARGET_PRODUCTION_TRANSPORT_CERT_DIR/ca.crt'" in remote_body
+
+
+def test_target_cargo_build_disables_http2_multiplexing_and_retries():
+    script = RUNNER.read_text()
+    setup_start = script.index('cat > "$REMOTE_SETUP_SCRIPT" <<\'REMOTE_SETUP\'')
+    setup_body = script[setup_start : script.index("\nREMOTE_SETUP", setup_start)]
+
+    assert "export CARGO_HTTP_MULTIPLEXING=false" in setup_body
+    assert "for attempt in 1 2 3; do" in setup_body
+    assert "if cargo build; then" in setup_body
+
+
+def test_run_installs_cleanup_trap_before_provisioning():
+    script = RUNNER.read_text()
+    run_start = script.index("run_cmd() {")
+    run_body = script[run_start : script.index("\n}", run_start)]
+
+    assert "trap 'collect_artifacts || true; cleanup_cmd \"$STATE_FILE\" || true' EXIT" in run_body
+    assert run_body.index("trap 'collect_artifacts") < run_body.index("provision")
+    assert run_body.index("trap 'collect_artifacts") < run_body.index("generate_production_transport_certs")
