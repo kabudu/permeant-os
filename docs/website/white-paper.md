@@ -2,9 +2,9 @@
 
 ## Live migration for AI agent state
 
-PermeantOS is an open-source research-preview system for live AI agent migration. It introduces a state-fluid hypervisor and the Unified State Exchange Format (USXF), a runtime-neutral format for moving active AI state across heterogeneous model runtimes.
+PermeantOS is an early open-source platform for live AI agent migration. It introduces a state-fluid hypervisor and the Unified State Exchange Format (USXF), a runtime-neutral format for moving active AI state across heterogeneous model runtimes.
 
-Today, PermeantOS focuses on live KV-cache migration: moving the active attention cache of a long-running model from one host to another so an agent can resume without expensive re-prefill. The roadmap extends this into full Agent Memory Graph migration, including conversation turns, tool calls, artifacts, retrieval memory, provenance, and pending work. The first graph milestones are now defined and validated on the current real-runtime path.
+Today, PermeantOS provides validated live KV-cache migration paths, Agent Memory Graph binding, production transport foundations, runtime adapter scaffolding, and repeatable evidence tooling. The roadmap now focuses on turning the validated breakthrough into a repeatable platform: stable releases, documentation, crates, binaries, broader adapters, longer horizons, compatibility evidence, and contributor-ready runtime contracts.
 
 ## Why this matters
 
@@ -14,9 +14,9 @@ PermeantOS treats agent state as portable infrastructure. Instead of binding sta
 
 ## What has been demonstrated
 
-PermeantOS has demonstrated that agents can move on the validated real-runtime path: a complex Agent Memory Graph package and live KV cache migrated from a local Apple Silicon MLX source runtime to an AWS NVIDIA vLLM target runtime, the target continued work, the vLLM target exported its decode boundary through a reverse runtime API, MLX imported that target-advanced state and continued at the origin, and the AWS-updated graph/artifact evidence returned to the origin where work continued from that remote proof.
+PermeantOS has demonstrated that agents can move on validated real-runtime paths. The strongest path migrates a complex Agent Memory Graph package and live KV cache from a local Apple Silicon MLX source runtime to an AWS NVIDIA vLLM target runtime over the production `wss://`/mTLS transport. The target accepts the imported state, continues decoding, resumes graph work, writes new evidence, exports the advanced decode boundary through a reverse runtime API, and returns graph/artifact proof to the origin. MLX then imports the target-advanced boundary and the origin continues from the returned evidence.
 
-Latest validated run:
+Latest long-horizon AWS run:
 
 | Field | Value |
 | --- | --- |
@@ -24,8 +24,9 @@ Latest validated run:
 | Target | AWS `g4dn.xlarge`, vLLM `0.23.0` |
 | Model | `Qwen/Qwen2.5-0.5B-Instruct` |
 | Prefix length | 1920 tokens |
-| Transfer quantization | experimental `qatq` |
-| Agent Memory Graph | 27 nodes, 25 edges, 4 packaged artifacts, bound, aligned, and resumed on target |
+| Transport | production `wss://`/mTLS byte proxy |
+| Transfer mode | experimental `qatq` for this historical long-horizon run |
+| Agent Memory Graph | 27 nodes, 25 edges, 4 packaged artifacts, bound, aligned, resumed on target, and returned to origin |
 | Layers | 24 |
 | Hash validation | passed |
 | Slot-probe max key diff | `0.006696999999999065` |
@@ -42,7 +43,7 @@ The follow-up round-trip run returned the AWS-updated graph/report/artifact evid
 
 This is a full validated round trip for the current runtime contract. The reverse path exports a canonical target decode boundary rather than copying vLLM GPU blocks byte-for-byte into MLX, because the runtimes use different physical KV layouts. MLX imports the target-generated boundary and materializes MLX-native KV state before continuing.
 
-The long-horizon QATQ run transferred 6,294,528 bytes from a 47,185,920-byte uncompressed KV payload, a compression ratio of `0.1333984375`. QATQ is lossy at the tensor-slot level, so the claim is not numerical losslessness. The claim is bounded sampled numeric drift plus exact observed source/post-migration and baseline/post-migration continuations for the configured 128-token horizon.
+The long-horizon QATQ run transferred 6,294,528 bytes from a 47,185,920-byte uncompressed KV payload, a compression ratio of `0.1333984375`. QATQ is lossy at the tensor-slot level in this run, so the production PermeantOS claim does not depend on QATQ being lossless. The claim is bounded sampled numeric drift plus exact observed source/post-migration and baseline/post-migration continuations for the configured 128-token horizon. QATQ is being matured separately before it is folded back into PermeantOS as a production codec.
 
 A matched FP8 transfer-quantized run used the same source, target, model,
 prefix length, continuation horizon, and Agent Memory Graph manifest. It
@@ -52,6 +53,8 @@ improved from 72.790 seconds to 63.020 seconds, while total migration time
 improved only modestly because this cold-host validation path is dominated by
 target runtime setup, commit, and attachment overhead.
 
+Follow-up validation broadened the runtime and model story. A raw-transfer TinyLlama MLX-to-vLLM run proved the first non-Qwen structural migration path, with exact target-baseline/post-migration continuation, reverse import, target graph activity, origin return-home continuation, and verified cleanup. A local MLX-to-llama.cpp proof exported canonical f32 K/V tensors from a live MLX source, verified token/span alignment, wrote those tensors directly into llama.cpp's internal `llama_kv_cache` backend tensors, and matched the MLX source continuation token-for-token at the aligned decode boundary.
+
 ## Architecture
 
 PermeantOS migration has eight main stages:
@@ -60,8 +63,8 @@ PermeantOS migration has eight main stages:
 2. Warm-start decision comparing migration cost with re-prefill cost.
 3. Source runtime KV extraction.
 4. Layout normalization into USXF.
-5. Encrypted and signed payload transfer.
-6. CRC-checked streaming to the target daemon.
+5. Signed, encrypted, negotiated transport, preferring private `wss://`/mTLS with explicit fallbacks.
+6. CRC-checked compact binary streaming to the target daemon.
 7. Target KV allocation, reshape, write, and prefix-cache attachment.
 8. Two-phase commit and validation.
 
@@ -88,17 +91,15 @@ The Agent Memory Graph v0 schema now defines:
 - token-span mappings from graph nodes to KV cache ranges.
 
 The current Agent Memory Graph work includes a local export/import harness,
-complex-agent package generation, optional graph hash metadata in migration
-manifests, analyzer alignment reporting, graph-attached live KV migration
-planning notes, prototype graph-to-KV span metadata in migration manifests, and
-AWS real-runtime validation with both minimal and complex graph packages. The
-next implementation step is durable target-side graph session storage and
-broader runtime coverage. The goal is to migrate not just model activations, but
-agent continuity.
+complex-agent package generation, graph hash metadata in migration manifests,
+analyzer alignment reporting, graph-to-KV span metadata, AWS real-runtime
+validation with minimal and complex graph packages, target-side graph resume
+proof, reverse runtime import proof, and origin return-home proof. The goal is
+to migrate not just model activations, but agent continuity.
 
 ## Status
 
-PermeantOS is a research preview. It is substantial enough to release and reproduce, but not production-ready.
+PermeantOS is a validated early platform. It is substantial enough to build on and reproduce, with explicit pre-1.0 limits around supported runtimes, compatibility, and release artifacts.
 
 Current strengths:
 
@@ -107,8 +108,14 @@ Current strengths:
   policy-governed pending tool work and new post-import graph evidence.
 - Reverse vLLM-to-MLX runtime import proof through the live target export API
   and live origin MLX import endpoint.
+- Origin return-home proof that verifies AWS-updated graph/artifact evidence
+  and continues from the returned state.
 - Rust core protocol and daemon.
 - MLX and vLLM live runtime adapters.
+- Reference PyTorch target adapter for independent migrated-state acceptance
+  proofs.
+- llama.cpp target adapter scaffolding, live state-file binding proof, raw
+  internal KV write proof, and MLX-to-llama.cpp canonical KV feed proof.
 - Agent Memory Graph v0 schema and specification.
 - Local Agent Memory Graph export/import harness with complex-agent packages.
 - Optional Agent Memory Graph hash metadata in migration manifests.
@@ -117,12 +124,20 @@ Current strengths:
 - Graph-attached AWS real-runtime validation for the current MLX-to-vLLM path.
 - FP8 graph-attached AWS validation with a 4x smaller transferred payload and
   exact 16-token continuation fidelity.
+- Raw-transfer TinyLlama MLX-to-vLLM structural E2E proof with reverse import,
+  target graph activity, origin return-home continuation, and cleanup evidence.
 - Complex-agent AWS validation with artifacts, memory, retrieval evidence,
   credential rebinding, pending tool policy, exact 16-token continuation
   fidelity, and verified cleanup.
-- Experimental QATQ AWS validation with about 8x smaller transferred payload
-  than raw f32, exact 128-token continuation fidelity on the validated
-  long-horizon path, and target-side Agent Memory Graph resume evidence.
+- Historical experimental QATQ AWS validation with about 8x smaller transferred
+  payload than raw f32, exact 128-token continuation fidelity on the validated
+  long-horizon path, target-side Agent Memory Graph resume evidence, and
+  origin return-home evidence. QATQ is being matured in its sibling project
+  before it is folded back into PermeantOS as a production codec.
+- Production transport foundation with signed session hello, compact binary
+  frames, bounded payloads, CRC validation, stream IDs, replay rejection, and an
+  explicit fallback ladder from private `wss://`/mTLS to QUIC/mTLS to framed
+  TCP/mTLS.
 - Graph-attached live KV migration planning notes and acceptance criteria.
 - Repeatable AWS E2E runner with cleanup verification.
 - Conservative AWS prewarm recipe for reducing E2E bootstrap time without
@@ -131,20 +146,21 @@ Current strengths:
 
 Current limitations:
 
-- Fidelity has been validated for one model family and a 128-token continuation
-  horizon.
+- Fidelity has been validated for specific model/runtime paths, including the
+  128-token Qwen2.5 MLX-to-vLLM AWS path, a raw-transfer TinyLlama MLX-to-vLLM
+  structural path, and a local MLX-to-llama.cpp canonical KV feed proof.
 - vLLM integration relies on internal runtime behavior that may change.
 - Python adapters are needed for Python-native ML runtimes.
-- Graph-attached KV migration has validated MLX-to-vLLM AWS proofs, including
-  one complex-agent package, but durable target-side graph session storage and
-  broader runtime coverage remain planned.
+- Runtime coverage is still intentionally bounded. Broader cloud matrices,
+  stable release artifacts, docs hub, crates, binaries, and longer-horizon
+  quantized-transfer fidelity evaluation remain planned.
 
 ## Learn more
 
-- Paper source: `docs/usxf-arxiv-paper.md`
-- arXiv bundle: `paper/arxiv/`
-- Roadmap: `ROADMAP.md`
-- Agent Memory Graph schema: `docs/agent-memory-graph.md`
-- Local graph harness: `examples/agent-memory-graph/`
-- Graph-attached KV migration plan: `docs/graph-attached-kv-migration-plan.md`
-- AWS E2E runbook: `docs/aws-real-runtime-e2e-runner.md`
+- Repository: [github.com/kabudu/permeant-os](https://github.com/kabudu/permeant-os)
+- Roadmap: [ROADMAP.md](https://github.com/kabudu/permeant-os/blob/master/ROADMAP.md)
+- Agent Memory Graph schema: [docs/agent-memory-graph.md](https://github.com/kabudu/permeant-os/blob/master/docs/agent-memory-graph.md)
+- Model/runtime validation matrix: [docs/model-runtime-validation-matrix.md](https://github.com/kabudu/permeant-os/blob/master/docs/model-runtime-validation-matrix.md)
+- llama.cpp canonical KV proof: [docs/llama-cpp-cross-runtime-canonical-kv-proof-2026-06-21.md](https://github.com/kabudu/permeant-os/blob/master/docs/llama-cpp-cross-runtime-canonical-kv-proof-2026-06-21.md)
+- AWS long-horizon proof: [docs/aws-real-runtime-long-horizon-2026-06-21.md](https://github.com/kabudu/permeant-os/blob/master/docs/aws-real-runtime-long-horizon-2026-06-21.md)
+- AWS E2E runbook: [docs/aws-real-runtime-e2e-runner.md](https://github.com/kabudu/permeant-os/blob/master/docs/aws-real-runtime-e2e-runner.md)
