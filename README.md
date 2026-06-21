@@ -107,6 +107,8 @@ What is still experimental:
 
 ## Key documents
 
+- `docs/index.md`: task-oriented documentation hub for installation, evidence,
+  adapter authoring, release artifacts, graph state, transport, and validation.
 - `ROADMAP.md`: full roadmap, including Agent Memory Graph migration phases.
 - `docs/agent-memory-graph.md`: Agent Memory Graph v0 schema specification.
 - `docs/versioning-policy.md`: USXF, Agent Memory Graph, report schema, and

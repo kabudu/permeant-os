@@ -15,6 +15,9 @@ and this project uses release tags compatible with semantic versioning.
 - Added a pre-publication release artifact builder, checksummed binary bundle
   manifest, install documentation, and GitHub Actions workflow for uploading
   release artifacts on tags or manual dispatch.
+- Added a task-oriented documentation hub in the repository and public website
+  docs pages for installation, evidence, adapter authoring, release artifacts,
+  and roadmap status.
 - Added model-family/runtime validation profiles and a matrix planner for
   broadening AWS real-runtime E2E evidence beyond the first Qwen MLX-to-vLLM
   path.
