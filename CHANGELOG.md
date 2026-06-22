@@ -24,6 +24,9 @@ and this project uses release tags compatible with semantic versioning.
 - Added scheduled/manual evidence jobs with a non-provisioning evidence report,
   uploaded artifacts, and a hard-confirmed self-hosted AWS real-runtime lane
   for cost-controlled validation.
+- Added a versioned adapter conformance report that runs runtime adapter tests,
+  framework adapter manifest/matrix checks, and reference graph export/import
+  fixtures for scheduled evidence jobs.
 - Added model-family/runtime validation profiles and a matrix planner for
   broadening AWS real-runtime E2E evidence beyond the first Qwen MLX-to-vLLM
   path.

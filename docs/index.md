@@ -35,7 +35,7 @@ reading the whole history.
 - [Runtime adapter protocol](runtime-adapter-protocol.md): command-backed
   extractor/injector contract.
 - [Agent framework adapters](agent-framework-adapters.md): capability manifests,
-  compatibility matrix, and conformance rules.
+  compatibility matrix, conformance rules, and report generation.
 - [PyTorch target adapter](pytorch-target-runtime-adapter.md): reference target
   runtime adapter and evidence criteria.
 - [llama.cpp target adapter](llama-cpp-target-runtime-adapter.md): llama.cpp
