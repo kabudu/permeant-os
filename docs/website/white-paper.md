@@ -4,7 +4,7 @@
 
 PermeantOS is an early open-source platform for live AI agent migration. It introduces a state-fluid hypervisor and the Unified State Exchange Format (USXF), a runtime-neutral format for moving active AI state across heterogeneous model runtimes.
 
-Today, PermeantOS provides validated live KV-cache migration paths, Agent Memory Graph binding, production transport foundations, runtime adapter scaffolding, and repeatable evidence tooling. The roadmap now focuses on turning the validated breakthrough into a repeatable platform: stable releases, documentation, crates, binaries, broader adapters, longer horizons, compatibility evidence, and contributor-ready runtime contracts.
+Today, PermeantOS provides validated live KV-cache migration paths, Agent Memory Graph binding, production transport foundations, runtime adapter scaffolding, repeatable evidence tooling, a public documentation hub, a generated claim-to-evidence index, and checksummed release artifact packaging. The current platform-maturity work focuses on the remaining steps toward a durable open-source release line: crate and SDK publication readiness, broader runtime adapters, longer horizons, compatibility evidence, automated evidence jobs, signed release assets, and contributor-ready runtime contracts.
 
 ## Why this matters
 
@@ -99,7 +99,7 @@ to migrate not just model activations, but agent continuity.
 
 ## Status
 
-PermeantOS is a validated early platform. It is substantial enough to build on and reproduce, with explicit pre-1.0 limits around supported runtimes, compatibility, and release artifacts.
+PermeantOS is a validated early platform. It is substantial enough to build on and reproduce, with explicit pre-1.0 limits around supported runtimes, compatibility, and publication.
 
 Current strengths:
 
@@ -138,6 +138,12 @@ Current strengths:
   frames, bounded payloads, CRC validation, stream IDs, replay rejection, and an
   explicit fallback ladder from private `wss://`/mTLS to QUIC/mTLS to framed
   TCP/mTLS.
+- Generated public evidence index mapping validated claims to proof reports,
+  repeatable commands, CI jobs, and known limitations.
+- Documentation hub on `www.permeantos.org` covering installation, evidence,
+  adapter authoring, release artifacts, and roadmap status.
+- Checksummed release artifact builder and GitHub Actions artifact workflow for
+  pre-publication binary bundles.
 - Graph-attached live KV migration planning notes and acceptance criteria.
 - Repeatable AWS E2E runner with cleanup verification.
 - Conservative AWS prewarm recipe for reducing E2E bootstrap time without
@@ -152,13 +158,17 @@ Current limitations:
 - vLLM integration relies on internal runtime behavior that may change.
 - Python adapters are needed for Python-native ML runtimes.
 - Runtime coverage is still intentionally bounded. Broader cloud matrices,
-  stable release artifacts, docs hub, crates, binaries, and longer-horizon
-  quantized-transfer fidelity evaluation remain planned.
+  crate publication readiness, Python SDK packaging, signed GitHub Releases,
+  binary distribution policy, and longer-horizon quantized-transfer fidelity
+  evaluation remain planned.
 
 ## Learn more
 
 - Repository: [github.com/kabudu/permeant-os](https://github.com/kabudu/permeant-os)
+- Documentation hub: [www.permeantos.org/docs](https://www.permeantos.org/docs/)
 - Roadmap: [ROADMAP.md](https://github.com/kabudu/permeant-os/blob/master/ROADMAP.md)
+- Evidence index: [docs/evidence-index.md](https://github.com/kabudu/permeant-os/blob/master/docs/evidence-index.md)
+- Release artifacts: [docs/release-artifacts.md](https://github.com/kabudu/permeant-os/blob/master/docs/release-artifacts.md)
 - Agent Memory Graph schema: [docs/agent-memory-graph.md](https://github.com/kabudu/permeant-os/blob/master/docs/agent-memory-graph.md)
 - Model/runtime validation matrix: [docs/model-runtime-validation-matrix.md](https://github.com/kabudu/permeant-os/blob/master/docs/model-runtime-validation-matrix.md)
 - llama.cpp canonical KV proof: [docs/llama-cpp-cross-runtime-canonical-kv-proof-2026-06-21.md](https://github.com/kabudu/permeant-os/blob/master/docs/llama-cpp-cross-runtime-canonical-kv-proof-2026-06-21.md)
