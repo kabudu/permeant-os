@@ -21,8 +21,8 @@ v<major>.<minor>.<patch>-<roadmap-slug>
 These tags are project milestones, not package publication events. Crates,
 Python packages, binaries, GitHub Releases, and signed artifacts are not
 published until the repository has explicit release infrastructure for them.
-The roadmap now treats that release infrastructure as productization work rather
-than research-only housekeeping.
+The roadmap now treats that release infrastructure as platform-maturity work
+rather than research-only housekeeping.
 
 The repository now has a release-artifact build path for pre-publication
 validation. `scripts/build-release-artifacts.py` creates checksummed binary
@@ -94,6 +94,7 @@ report schemas are:
 | `scripts/aws-real-runtime-e2e.sh preflight` | `permeantos-aws-e2e-preflight-v0` |
 | `scripts/generate-evidence-index.py` | `permeantos-evidence-index-v0` |
 | `scripts/build-release-artifacts.py` | `permeantos-release-artifacts-v0` |
+| `scripts/check-package-readiness.py` | `permeantos-package-readiness-v0` |
 
 Compatibility rules:
 

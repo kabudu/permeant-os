@@ -28,3 +28,9 @@ tonic = "0.10"
 prost = "0.12"
 prost-build = "0.12"
 qatq = { path = "crates/qatq-compat" }
+
+[workspace.package]
+license = "Apache-2.0"
+repository = "https://github.com/kabudu/permeant-os"
+homepage = "https://www.permeantos.org"
+readme = "README.md"

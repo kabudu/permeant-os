@@ -355,12 +355,12 @@ Exit criteria:
 - Users can run a minimal local demo in minutes.
 - Cloud E2E validation has a repeatable recipe and known cost envelope.
 
-## Productization Track: Open-Source Platform Maturity
+## Open-Source Platform Maturity
 
 PermeantOS has crossed the threshold from speculative prototype to a validated
-early platform. The productization track turns the proof trail into a repeatable
-open-source project with stable releases, docs, adapter contracts, and public
-evidence jobs.
+early platform. The platform-maturity track turns the proof trail into a
+repeatable open-source project with stable releases, docs, adapter contracts,
+and public evidence jobs.
 
 Deliverables:
 
@@ -375,7 +375,11 @@ Deliverables:
     dispatch.
 - Rust crate publication plan for PermeantOS crates once APIs are stable enough
   for semantic versioning.
+  - [x] Crate metadata, explicit `publish = false` release gate, publication
+    plan, and CI package-readiness verifier.
 - Python adapter SDK packaging once the command/hook surfaces settle.
+  - [x] Python SDK package metadata, package README, explicit publish gate, and
+    CI package-readiness verifier.
 - Documentation hub on `www.permeantos.org` or a future docs subdomain.
   - [x] Repository documentation hub plus public website docs pages for getting
     started, evidence, adapter authoring, release artifacts, and roadmap status.

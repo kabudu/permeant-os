@@ -18,6 +18,9 @@ and this project uses release tags compatible with semantic versioning.
 - Added a task-oriented documentation hub in the repository and public website
   docs pages for installation, evidence, adapter authoring, release artifacts,
   and roadmap status.
+- Added crate and Python SDK publication-readiness metadata, documentation, a
+  machine-readable readiness report, and CI gating that keeps registry
+  publishing disabled until the real-release policy is complete.
 - Added model-family/runtime validation profiles and a matrix planner for
   broadening AWS real-runtime E2E evidence beyond the first Qwen MLX-to-vLLM
   path.

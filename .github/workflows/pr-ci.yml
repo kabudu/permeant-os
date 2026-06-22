@@ -83,3 +83,6 @@ jobs:
 
       - name: Verify public evidence index
         run: scripts/generate-evidence-index.py --json-out /tmp/permeantos-evidence-index.json --markdown-out /tmp/permeantos-evidence-index.md
+
+      - name: Verify package publication readiness
+        run: scripts/check-package-readiness.py --json-out /tmp/permeantos-package-readiness.json

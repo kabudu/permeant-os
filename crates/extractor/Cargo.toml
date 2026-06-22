@@ -2,6 +2,12 @@
 name = "permeant-extractor"
 version = "0.1.0"
 edition = "2021"
+description = "PermeantOS source-runtime extraction adapter boundary"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+publish = false
 
 [dependencies]
 anyhow.workspace = true
