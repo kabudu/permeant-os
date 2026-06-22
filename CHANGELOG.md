@@ -37,6 +37,9 @@ and this project uses release tags compatible with semantic versioning.
 - Added `permeantos-publishing-policy-v0`, documenting ownership, credentials,
   signing, registry publishing, rollback, and current no-publishing enforcement,
   with a CI gate that verifies real publishing remains disabled.
+- Corrected stale roadmap and Agent Memory Graph checklist state for the
+  validated llama.cpp independent target path and graph-attached live-runtime
+  span validation.
 - Added model-family/runtime validation profiles and a matrix planner for
   broadening AWS real-runtime E2E evidence beyond the first Qwen MLX-to-vLLM
   path.
