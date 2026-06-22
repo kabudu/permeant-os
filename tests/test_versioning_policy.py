@@ -24,6 +24,7 @@ EXPECTED_TOOL_SCHEMAS = {
     "scripts/build-release-artifacts.py": "permeantos-release-artifacts-v0",
     "scripts/validate-release.py": "permeantos-release-validation-v0",
     "scripts/check-package-readiness.py": "permeantos-package-readiness-v0",
+    "scripts/check-publishing-policy.py": "permeantos-publishing-policy-v0",
     "scripts/run-evidence-job.py": "permeantos-evidence-job-v0",
     "scripts/run-adapter-conformance.py": "permeantos-adapter-conformance-v0",
     "crates/cli/src/main.rs": "permeantos-starter-demo-v0",

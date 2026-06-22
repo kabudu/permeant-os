@@ -4,7 +4,7 @@
 
 PermeantOS is an early open-source platform for live AI agent migration. It introduces a state-fluid hypervisor and the Unified State Exchange Format (USXF), a runtime-neutral format for moving active AI state across heterogeneous model runtimes.
 
-Today, PermeantOS provides validated live KV-cache migration paths, Agent Memory Graph binding, production transport foundations, runtime adapter scaffolding, repeatable evidence tooling, a public documentation hub, a generated claim-to-evidence index, checksummed release artifact packaging, an installed-binary starter migration demo, package and SDK publication-readiness gates, scheduled/manual evidence jobs, and versioned adapter conformance reporting. The current platform-maturity work focuses on the remaining steps toward a durable open-source release line: broader runtime adapters, longer horizons, compatibility evidence, signed release assets, and contributor-ready runtime contracts.
+Today, PermeantOS provides validated live KV-cache migration paths, Agent Memory Graph binding, production transport foundations, runtime adapter scaffolding, repeatable evidence tooling, a public documentation hub, a generated claim-to-evidence index, checksummed release artifact packaging, an installed-binary starter migration demo, package and SDK publication-readiness gates, a machine-checked publishing policy, scheduled/manual evidence jobs, and versioned adapter conformance reporting. The current platform-maturity work focuses on the remaining steps toward a durable open-source release line: broader runtime adapters, longer horizons, compatibility evidence, signed release assets, and contributor-ready runtime contracts.
 
 ## Why this matters
 
@@ -149,6 +149,9 @@ Current strengths:
 - Package and SDK publication-readiness gate covering Rust crate metadata,
   Python SDK metadata, README coverage, and packaging policy before any real
   registry publication.
+- Machine-checked publishing policy covering GitHub Release ownership, signing,
+  credentials, registry publishing, rollback, and current no-publishing
+  enforcement.
 - Scheduled/manual evidence jobs with a non-provisioning default lane and a
   hard-confirmed AWS real-runtime lane for future self-hosted evidence runners.
 - Versioned adapter conformance report covering command-backed runtime adapter

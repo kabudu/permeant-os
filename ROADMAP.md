@@ -396,6 +396,12 @@ Deliverables:
 - Python adapter SDK packaging once the command/hook surfaces settle.
   - [x] Python SDK package metadata, package README, explicit publish gate, and
     CI package-readiness verifier.
+- Real publishing policy for GitHub Releases, signing, crates.io, PyPI,
+  credentials, ownership, and rollback.
+  - [x] `permeantos-publishing-policy-v0` document and CI verifier that keeps
+    GitHub Release creation, signing, `cargo publish`, `twine upload`, and
+    package-registry publication disabled until a future real-release PR opens
+    the gate.
 - Documentation hub on `www.permeantos.org` or a future docs subdomain.
   - [x] Repository documentation hub plus public website docs pages for getting
     started, evidence, adapter authoring, release artifacts, and roadmap status.

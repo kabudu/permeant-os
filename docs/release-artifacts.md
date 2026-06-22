@@ -57,9 +57,10 @@ artifacts before the final changelog promotion.
 
 This workflow intentionally does not create GitHub Releases, publish crates, or
 publish package registry artifacts. Those steps remain behind the real-release
-gate in `docs/versioning-policy.md`: publishing requires documented ownership,
-credentials through the intended secure path, release validation, and an
-explicit user request for that release mode.
+gate in `docs/versioning-policy.md` and `docs/publishing-policy.md`: publishing
+requires documented ownership, credentials through the intended secure path,
+release validation, signing policy, rollback ownership, and an explicit user
+request for that release mode.
 
 ## Verify An Archive
 
@@ -114,5 +115,5 @@ These artifacts are pre-1.0 platform bundles. They prove that PermeantOS can
 produce and validate checksummed binary packages from the repository, but they
 are not yet registry-published packages or signed GitHub Release assets. The
 next release maturity step is to add GitHub Release creation and signing once
-the repository has the explicit publishing policy and credentials path for that
-mode.
+the repository has the explicit publishing policy, signing path, and credentials
+path for that mode.

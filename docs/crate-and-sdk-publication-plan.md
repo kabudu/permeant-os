@@ -23,9 +23,10 @@ The verifier checks that:
 - the report records that no crates or Python packages have been published.
 
 `publish = false` is intentional. Publishing remains behind the real-release
-gate in `docs/versioning-policy.md`: package ownership, credentials, release
-validation, semantic versioning, signing, and an explicit release request must
-exist before registry publication is enabled.
+gate in `docs/versioning-policy.md` and `docs/publishing-policy.md`: package
+ownership, credentials, release validation, semantic versioning, signing,
+rollback ownership, and an explicit release request must exist before registry
+publication is enabled.
 
 ## Rust Crate Plan
 
@@ -81,4 +82,5 @@ That boundary is enforced by:
 - `tests/test_package_readiness.py`;
 - `publish = false` in Rust crate manifests;
 - `tool.permeantos.release.publish = false` in the Python SDK manifest;
-- the real-release exception in Lazarus mode and `docs/versioning-policy.md`.
+- the real-release exception in Lazarus mode, `docs/versioning-policy.md`, and
+  `docs/publishing-policy.md`.

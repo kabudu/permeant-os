@@ -15,6 +15,8 @@ reading the whole history.
   binary bundles, verify archives, and install `permeant-cli`.
 - [Crate and SDK publication plan](crate-and-sdk-publication-plan.md): package
   metadata, publish-disabled gating, and future registry release steps.
+- [Publishing policy](publishing-policy.md): ownership, credentials, signing,
+  rollback, and current no-publishing enforcement.
 - [Versioning policy](versioning-policy.md): schema, report, artifact, and
   lightweight release versioning rules.
 
@@ -83,6 +85,7 @@ reading the whole history.
 
 - PermeantOS is pre-1.0; supported claims are bounded to validated paths.
 - GitHub Release publishing, crate publishing, signed assets, and Python
-  package publishing are not enabled yet.
+  package publishing are not enabled yet; `docs/publishing-policy.md` records
+  the gate that must be opened in a future real-release PR.
 - QATQ is being matured separately before it is folded back into PermeantOS as
   a production codec.

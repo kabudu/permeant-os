@@ -89,3 +89,6 @@ jobs:
 
       - name: Verify package publication readiness
         run: scripts/check-package-readiness.py --json-out /tmp/permeantos-package-readiness.json
+
+      - name: Verify publishing policy gate
+        run: scripts/check-publishing-policy.py --json-out /tmp/permeantos-publishing-policy.json
