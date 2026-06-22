@@ -2,6 +2,12 @@
 name = "permeant-cli"
 version = "0.1.0"
 edition = "2021"
+description = "PermeantOS command-line tooling for live AI agent state migration"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+publish = false
 
 [dependencies]
 serde.workspace = true

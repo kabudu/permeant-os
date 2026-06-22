@@ -22,6 +22,7 @@ EXPECTED_TOOL_SCHEMAS = {
     "scripts/aws-real-runtime-e2e.sh": "permeantos-aws-e2e-preflight-v0",
     "scripts/generate-evidence-index.py": "permeantos-evidence-index-v0",
     "scripts/build-release-artifacts.py": "permeantos-release-artifacts-v0",
+    "scripts/check-package-readiness.py": "permeantos-package-readiness-v0",
 }
 
 

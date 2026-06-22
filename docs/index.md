@@ -12,6 +12,8 @@ reading the whole history.
   simulated migration, benchmark collection, and cloud-host workflows.
 - [Release artifacts](release-artifacts.md): build checksummed binary bundles,
   verify archives, and install `permeant-cli`.
+- [Crate and SDK publication plan](crate-and-sdk-publication-plan.md): package
+  metadata, publish-disabled gating, and future registry release steps.
 - [Versioning policy](versioning-policy.md): schema, report, artifact, and
   lightweight release versioning rules.
 

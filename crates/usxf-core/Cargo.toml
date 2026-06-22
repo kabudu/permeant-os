@@ -2,6 +2,12 @@
 name = "usxf-core"
 version = "0.1.0"
 edition = "2021"
+description = "Unified State Exchange Format core types for PermeantOS"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+publish = false
 
 [dependencies]
 serde.workspace = true
