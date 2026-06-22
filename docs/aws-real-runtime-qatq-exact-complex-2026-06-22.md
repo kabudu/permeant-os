@@ -168,10 +168,12 @@ committed to source control.
 The exact QATQ live path is now validated in a real AWS migration. Remaining
 QATQ work belongs in the standalone QATQ project:
 
-- replace the in-tree exact compatibility container with the pinned external
-  QATQ crate once its API is frozen;
+- rerun this AWS profile with the pinned external QATQ crate, not the in-tree
+  `qatq-compat` container;
 - provide true lossless compression for exact tensor payloads;
-- rerun this profile with the external crate and compare against raw, `zstd`,
-  and `lz4` for the same migration bundle;
+- compare QATQ against raw, `zstd`, and `lz4` for the same packed KV artifacts;
+- accept a QATQ transfer-size reduction claim only if QATQ exact transferred
+  bytes are less than or equal to raw bytes;
+- record any future `qatq-compat` run as an exact compatibility proof only;
 - keep PermeantOS fail-closed on checksum, dtype, shape, model, and task-probe
   mismatches.

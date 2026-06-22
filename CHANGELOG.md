@@ -51,6 +51,10 @@ and this project uses release tags compatible with semantic versioning.
   export, MLX reverse import, origin return-home continuation, direct cleanup
   verification, and an explicit caveat that the current exact QATQ container is
   lossless but not yet size-reducing.
+- Clarified QATQ integration instructions to distinguish the in-tree
+  compatibility path from the standalone QATQ crate path, requiring the
+  standalone crate and raw/`zstd`/`lz4` comparison before any QATQ compression
+  claim.
 - Added model-family/runtime validation profiles and a matrix planner for
   broadening AWS real-runtime E2E evidence beyond the first Qwen MLX-to-vLLM
   path.

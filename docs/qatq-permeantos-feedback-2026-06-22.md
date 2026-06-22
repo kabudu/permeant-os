@@ -75,6 +75,13 @@ than raw. The standalone QATQ project still needs the production lossless
 compression implementation before PermeantOS can claim QATQ reduces migration
 size.
 
+The next AWS rerun for compression validation must use the pinned standalone
+`qatq` crate from the QATQ repository, not the in-tree `qatq-compat`
+compatibility container. Acceptance requires QATQ exact transferred bytes to be
+less than or equal to raw bytes, with QATQ, raw, `zstd`, and `lz4` reported for
+the same packed KV artifacts. Any run that still uses `qatq-compat` should be
+recorded as an exact compatibility proof only.
+
 ## API Feedback For QATQ
 
 The typed tensor API shape is suitable for PermeantOS:
@@ -105,12 +112,15 @@ and fail-closed restore behaviour are also covered by tests.
 
 Still required before QATQ API freeze acceptance:
 
-- run PermeantOS against the sibling QATQ crate instead of the in-tree shim;
+- run PermeantOS against the sibling QATQ crate instead of the in-tree shim for
+  the next AWS compression-validation pass;
 - replace the exact wrapper with a genuinely size-reducing lossless compression
   path, then rerun the same AWS profile;
 - pack larger real runtime-exported KV bytes into one or more QATQ exact bundles
   once the standalone crate exposes the production container API;
 - exercise rollback by corrupting or deleting a QATQ artifact and proving target
   activation aborts with the source remaining authoritative;
-- run QATQ size/throughput comparisons against `zstd` and `lz4` for the same
-  packed migration bundle.
+- run QATQ size/throughput comparisons against raw, `zstd`, and `lz4` for the
+  same packed migration bundle;
+- accept a QATQ compression claim only when QATQ exact transferred bytes are
+  less than or equal to raw bytes.

@@ -33,6 +33,25 @@ bytes were 50,337,024 versus 47,185,920 raw bytes. True lossless compression
 remains a standalone QATQ engineering requirement before QATQ should be folded
 back into the PermeantOS production codec path.
 
+## Two Integration Paths
+
+PermeantOS must keep these paths separate in documentation, evidence, and
+release claims.
+
+| Path | Components | Purpose | Expected result | Claim boundary |
+| --- | --- | --- | --- | --- |
+| Compatibility path | In-tree `qatq-compat` plus `permeant-qatq-migration` | Prove exact migration semantics, manifest checks, dtype/shape validation, and fail-closed restore behaviour. | May be larger than raw because it is an exact compatibility container. | Record as an exact compatibility proof only. Do not use for QATQ compression or transfer-size reduction claims. |
+| Standalone QATQ crate path | Pinned external `qatq` crate from the QATQ repository | Validate actual exact typed tensor compression in the live migration path. | Must be lossless and must transfer no more bytes than raw for the accepted migration bundle. | Required before any claim that QATQ reduces transfer size. |
+
+The next AWS rerun for QATQ compression validation must use the pinned
+standalone `qatq` crate, not the in-tree compatibility container. It must export
+one canonical migration bundle, run QATQ, raw, `zstd`, and `lz4` against that
+same packed KV artifact set, and publish a single comparison table covering
+bytes transferred, encode time, decode time, and continuation fidelity.
+
+Warning: if `qatq-compat` is used, record the run as an exact compatibility
+proof only, not a QATQ compression proof.
+
 Recommended pin for the first PermeantOS integration pass:
 
 ```toml
@@ -314,6 +333,7 @@ checks:
 
 | check | pass condition |
 | --- | --- |
+| Codec provenance | Compression-validation runs use the pinned standalone `qatq` crate from the QATQ repository, not in-tree `qatq-compat`. |
 | Source encode | Every migration tensor/bundle encodes with `qatq-exact` or QATC. |
 | Source local verify | Decode equals source bytes for every artifact before upload. |
 | AWS transfer | S3/EBS artifact checksums match the manifest on target. |
@@ -321,7 +341,8 @@ checks:
 | Task behavior | Migrated task resumes and passes the PermeantOS task-decision probe. |
 | Rollback | Corrupt or missing QATQ artifacts abort activation and leave source authoritative. |
 | Resource limits | Oversized/corrupt QATC payloads are rejected before allocation-heavy decode. |
-| Compression | Packed migration bundles report QATQ size and throughput against zstd and lz4. |
+| Compression gate | QATQ exact transferred bytes are less than or equal to raw bytes for the same packed KV artifact set. |
+| Compression comparison | Packed migration bundles report QATQ versus raw, `zstd`, and `lz4` size and throughput for the same artifacts. |
 
 For direct benchmark evidence, run:
 
@@ -362,6 +383,8 @@ python3 scripts/llama_cpp_kv_matrix.py \
   finer chunking only where PermeantOS needs random access or streaming restore.
 - Record encode/decode latency in the migration timeline so QATQ can be judged
   against the live migration SLO.
+- Treat any run that uses `qatq-compat` as a correctness-only compatibility
+  proof, even if its manifest storage label is `qatq-exact`.
 
 ## Feedback QATQ Needs From PermeantOS
 
@@ -373,6 +396,8 @@ Before QATQ freezes the API, PermeantOS should report:
 - preferred chunk sizing for live migration latency and memory limits;
 - whether streaming decode or random-access chunks are required;
 - whether storage labels and public function names are clear enough;
-- compression and throughput results from at least one real AWS migration trial;
+- compression and throughput results from at least one real AWS migration trial
+  that uses the standalone `qatq` crate and compares QATQ against raw, `zstd`,
+  and `lz4` on the same packed KV artifacts;
 - any security review findings around corrupt containers, manifests, or AWS
   object handling.
