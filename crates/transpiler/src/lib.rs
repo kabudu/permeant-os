@@ -185,12 +185,12 @@ mod tests {
     }
 
     #[test]
-    fn test_qatq_phase2_transfer_compressed_roundtrip_is_exact() {
+    fn test_qatq_transfer_zeroes_roundtrip_is_exact() {
         let floats = vec![0.0_f32; 128];
         let encoded = quant::encode_qatq_phase2_transfer(&floats).unwrap();
 
-        assert_eq!(encoded.storage_name(), quant::QATQ_PHASE2_STORAGE);
-        assert_eq!(encoded.strategy_name(), Some("byte-plane-blocks"));
+        assert_eq!(encoded.storage_name(), quant::QATQ_EXACT_F32LE_STORAGE);
+        assert_eq!(encoded.strategy_name(), Some("qatq-exact"));
         assert!(encoded.payload.len() < encoded.raw_f32le_len);
 
         let decoded = quant::decode_qatq_phase2_transfer(
@@ -203,7 +203,7 @@ mod tests {
     }
 
     #[test]
-    fn test_qatq_phase2_transfer_pass_through_roundtrip_is_exact() {
+    fn test_qatq_transfer_high_entropy_roundtrip_is_exact() {
         let floats = vec![
             f32::from_bits(0x0102_0304),
             f32::from_bits(0x1122_3344),
@@ -212,12 +212,8 @@ mod tests {
         ];
         let encoded = quant::encode_qatq_phase2_transfer(&floats).unwrap();
 
-        assert_eq!(
-            encoded.storage_name(),
-            quant::RAW_F32LE_PASS_THROUGH_STORAGE
-        );
-        assert_eq!(encoded.strategy_name(), None);
-        assert_eq!(encoded.payload.len(), encoded.raw_f32le_len);
+        assert_eq!(encoded.storage_name(), quant::QATQ_EXACT_F32LE_STORAGE);
+        assert_eq!(encoded.strategy_name(), Some("qatq-exact"));
 
         let decoded = quant::decode_qatq_phase2_transfer(
             encoded.storage_name(),

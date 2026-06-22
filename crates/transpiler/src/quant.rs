@@ -222,28 +222,7 @@ pub fn dequantize_e5m2_scaled(data: &[u8], scale: f32) -> Vec<f32> {
 }
 
 pub fn encode_qatq_phase2_transfer(data: &[f32]) -> Result<QatqPhase2Transfer> {
-    let decision =
-        qatq::try_encode_phase2_lossless_decision_with_config(data, qatq::Phase1Config::default())
-            .map_err(|err| anyhow::anyhow!("QATQ phase2 decision failed: {err}"))?;
-
-    match decision {
-        qatq::Phase2EncodeDecision::Compressed {
-            payload,
-            strategy,
-            raw_f32le_len,
-        } => Ok(QatqPhase2Transfer {
-            storage: QatqTransferStorage::QatqPhase2 {
-                strategy: strategy.as_str(),
-            },
-            payload,
-            raw_f32le_len,
-        }),
-        qatq::Phase2EncodeDecision::PassThroughRaw { bytes } => Ok(QatqPhase2Transfer {
-            raw_f32le_len: bytes.len(),
-            storage: QatqTransferStorage::RawF32LePassThrough,
-            payload: bytes,
-        }),
-    }
+    encode_qatq_exact_f32le_transfer(data)
 }
 
 pub fn encode_qatq_exact_f32le_transfer(data: &[f32]) -> Result<QatqPhase2Transfer> {

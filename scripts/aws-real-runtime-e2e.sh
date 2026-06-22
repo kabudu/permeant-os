@@ -22,6 +22,7 @@ Environment overrides:
   PERMEANT_SEQ_LEN                   default: 2016
   PERMEANT_VLLM_MAX_MODEL_LEN        default: 2048
   PERMEANT_TRANSFER_QUANTIZATION     default: none (none, fp8, qatq)
+  PERMEANT_QATQ_STANDALONE_PATH      default: ../qatq when qatq transfer is used
   PERMEANT_CONTINUATION_MAX_TOKENS   default: 16
   PERMEANT_FIDELITY_HORIZONS         default: 16,32,64,128
   PERMEANT_SOURCE_URL                default: http://127.0.0.1:29101
@@ -59,6 +60,7 @@ PERMEANT_TARGET_RUNTIME="${PERMEANT_TARGET_RUNTIME:-vllm}"
 PERMEANT_SEQ_LEN="${PERMEANT_SEQ_LEN:-2016}"
 PERMEANT_VLLM_MAX_MODEL_LEN="${PERMEANT_VLLM_MAX_MODEL_LEN:-2048}"
 PERMEANT_TRANSFER_QUANTIZATION="${PERMEANT_TRANSFER_QUANTIZATION:-none}"
+PERMEANT_QATQ_STANDALONE_PATH="${PERMEANT_QATQ_STANDALONE_PATH:-$ROOT_DIR/../qatq}"
 PERMEANT_CONTINUATION_MAX_TOKENS="${PERMEANT_CONTINUATION_MAX_TOKENS:-16}"
 PERMEANT_FIDELITY_HORIZONS="${PERMEANT_FIDELITY_HORIZONS:-16,32,64,128}"
 PERMEANT_SOURCE_URL="${PERMEANT_SOURCE_URL:-http://127.0.0.1:29101}"
@@ -353,6 +355,7 @@ data = {
   "seq_len": "$PERMEANT_SEQ_LEN",
   "vllm_max_model_len": "$PERMEANT_VLLM_MAX_MODEL_LEN",
   "transfer_quantization": "$PERMEANT_TRANSFER_QUANTIZATION",
+  "qatq_standalone_path": "$PERMEANT_QATQ_STANDALONE_PATH",
   "model_layer_count": "${PERMEANT_MODEL_LAYER_COUNT:-}",
   "model_q_heads": "${PERMEANT_MODEL_Q_HEADS:-}",
   "model_kv_heads": "${PERMEANT_MODEL_KV_HEADS:-}",
@@ -572,6 +575,13 @@ preflight_cmd() {
     check_status pass "configuration:transfer_quantization" "$PERMEANT_TRANSFER_QUANTIZATION is supported by the current runner" >> "$checks_file"
   else
     check_status fail "configuration:transfer_quantization" "unsupported PERMEANT_TRANSFER_QUANTIZATION: $PERMEANT_TRANSFER_QUANTIZATION" >> "$checks_file"
+  fi
+  if [[ "$PERMEANT_TRANSFER_QUANTIZATION" == "qatq" ]]; then
+    if [[ -f "$PERMEANT_QATQ_STANDALONE_PATH/Cargo.toml" ]]; then
+      check_status pass "local:qatq_standalone" "standalone QATQ crate found at $PERMEANT_QATQ_STANDALONE_PATH" >> "$checks_file"
+    else
+      check_status fail "local:qatq_standalone" "standalone QATQ crate missing at $PERMEANT_QATQ_STANDALONE_PATH" >> "$checks_file"
+    fi
   fi
 
   if [[ "$PERMEANT_AGENT_ACTIVITY_RESUME" == "0" || "$PERMEANT_AGENT_ACTIVITY_RESUME" == "1" ]]; then
@@ -969,8 +979,14 @@ REMOTE_START
 
 copy_repo_and_setup() {
   log "copying committed repository snapshot to target"
-  ssh_target 'rm -rf /home/ubuntu/permeant-os && mkdir -p /home/ubuntu/permeant-os'
+  ssh_target 'rm -rf /home/ubuntu/permeant-os /home/ubuntu/qatq && mkdir -p /home/ubuntu/permeant-os'
   git -C "$ROOT_DIR" archive --format=tar HEAD | ssh_target 'tar -xf - -C /home/ubuntu/permeant-os'
+  if [[ "$PERMEANT_TRANSFER_QUANTIZATION" == "qatq" ]]; then
+    [[ -f "$PERMEANT_QATQ_STANDALONE_PATH/Cargo.toml" ]] || die "standalone QATQ crate missing at $PERMEANT_QATQ_STANDALONE_PATH"
+    log "copying standalone QATQ crate snapshot to target"
+    ssh_target 'mkdir -p /home/ubuntu/qatq'
+    git -C "$PERMEANT_QATQ_STANDALONE_PATH" archive --format=tar HEAD | ssh_target 'tar -xf - -C /home/ubuntu/qatq'
+  fi
   scp_to_target "$REMOTE_SETUP_SCRIPT" /home/ubuntu/permeant-remote-setup.sh
   log "running target setup"
   ssh_target 'bash /home/ubuntu/permeant-remote-setup.sh'
@@ -1151,6 +1167,64 @@ print(json.dumps({
     "max_value_abs_diff": max_value,
     "first_failure": failures[0] if failures else None,
 }, indent=2))
+PY
+}
+
+enforce_qatq_live_compression_gate() {
+  [[ "$PERMEANT_TRANSFER_QUANTIZATION" == "qatq" ]] || return 0
+  local manifest
+  manifest="$(json_get "$STATE_FILE" manifest)"
+  [[ -n "$manifest" ]] || die "QATQ live compression gate cannot run without a migration manifest"
+  [[ -f "$ROOT_DIR/$manifest" ]] || die "QATQ live compression gate manifest not found: $ROOT_DIR/$manifest"
+  log "enforcing QATQ live compression gate"
+  python3 - "$ROOT_DIR/$manifest" "$RUN_DIR/qatq-live-compression-gate.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest_path = Path(sys.argv[1])
+out_path = Path(sys.argv[2])
+manifest = json.loads(manifest_path.read_text())
+
+raw = int(manifest.get("raw_f32le_baseline_bytes") or manifest.get("uncompressed_bytes") or 0)
+transferred = int(manifest.get("transferred_bytes") or 0)
+zstd_bytes = int(manifest.get("zstd_raw_f32le_bytes") or 0)
+lz4_bytes = int(manifest.get("lz4_raw_f32le_bytes") or 0)
+pass_through = int(manifest.get("qatq_pass_through_chunks") or 0)
+compressed_chunks = int(manifest.get("qatq_compressed_chunks") or 0)
+strategies = manifest.get("qatq_strategies") or {}
+
+checks = {
+    "migration_success": manifest.get("success") is True,
+    "uses_qatq_exact": strategies.get("qatq-exact", 0) > 0,
+    "no_qatq_pass_through": pass_through == 0,
+    "qatq_lte_raw": transferred <= raw if raw else False,
+    "qatq_lte_zstd": transferred <= zstd_bytes if zstd_bytes else False,
+    "qatq_lte_lz4": transferred <= lz4_bytes if lz4_bytes else False,
+}
+passed = all(checks.values())
+def ratio(value: int, denom: int) -> float | None:
+    return (value / denom) if denom else None
+report = {
+    "schema_version": "permeantos-qatq-live-compression-gate-v0",
+    "status": "pass" if passed else "fail",
+    "manifest": str(manifest_path),
+    "checks": checks,
+    "raw_f32le_baseline_bytes": raw,
+    "qatq_transferred_bytes": transferred,
+    "zstd_raw_f32le_bytes": zstd_bytes,
+    "lz4_raw_f32le_bytes": lz4_bytes,
+    "qatq_ratio_vs_raw": ratio(transferred, raw),
+    "zstd_ratio_vs_raw": ratio(zstd_bytes, raw),
+    "lz4_ratio_vs_raw": ratio(lz4_bytes, raw),
+    "qatq_compressed_chunks": compressed_chunks,
+    "qatq_pass_through_chunks": pass_through,
+    "qatq_strategies": strategies,
+}
+out_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+print(json.dumps(report, indent=2, sort_keys=True))
+if not passed:
+    raise SystemExit("QATQ live compression gate failed")
 PY
 }
 
@@ -1369,6 +1443,7 @@ run_cmd() {
   run_migration
   collect_artifacts
   analyze_artifacts
+  enforce_qatq_live_compression_gate
   run_reverse_runtime_import
   run_agent_activity_resume
   run_agent_activity_return_home
