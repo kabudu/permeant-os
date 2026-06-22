@@ -67,6 +67,11 @@ def test_release_artifact_builder_emits_manifest_checksums_and_archive():
         assert f"{root}/bin/permeant-cli" in names
         assert f"{root}/INSTALL.md" in names
         assert f"{root}/LICENSE" in names
+        with tarfile.open(archive, "r:gz") as tar:
+            install = tar.extractfile(f"{root}/INSTALL.md")
+            assert install is not None
+            install_text = install.read().decode("utf-8")
+        assert "permeant-cli starter-demo --seq-len 128 --out-dir .permeant-demo" in install_text
 
 
 def test_release_artifact_builder_rejects_unsafe_version_components():
@@ -103,3 +108,11 @@ def test_release_validation_workflow_builds_validates_and_uploads_reports():
     assert "gh release" not in workflow
     assert "cargo publish" not in workflow
     assert "twine upload" not in workflow
+
+
+def test_pr_ci_runs_starter_migration_demo():
+    workflow = (ROOT / ".github" / "workflows" / "pr-ci.yml").read_text()
+
+    assert "Run starter migration demo" in workflow
+    assert "cargo run --locked --bin permeant-cli -- starter-demo" in workflow
+    assert "--out-dir /tmp/permeantos-starter-demo" in workflow

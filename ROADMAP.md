@@ -370,6 +370,9 @@ Deliverables:
     conformance, evidence-index generation, validation-plan output,
     AWS preflight skip reports, package-readiness verification, and uploaded
     evidence artifacts.
+  - [x] Non-provisioning evidence jobs run the local starter migration demo and
+    upload `permeantos-starter-demo-v0` evidence without creating cloud
+    resources.
 - Scheduled or manually approved real-runtime evidence jobs for AWS validation
   with strict cost controls and cleanup verification.
   - [x] Manual-only AWS real-runtime evidence workflow path guarded by explicit
@@ -383,6 +386,9 @@ Deliverables:
   - [x] Tag/manual release validation workflow that verifies tag format,
     changelog promotion, artifact checksums, archive contents, and
     package-readiness evidence without publishing GitHub Releases or packages.
+  - [x] Installed-binary starter migration demo that runs a bounded loopback
+    migration, validates the committed manifest, and writes a
+    `permeantos-starter-demo-v0` report.
 - Rust crate publication plan for PermeantOS crates once APIs are stable enough
   for semantic versioning.
   - [x] Crate metadata, explicit `publish = false` release gate, publication
@@ -451,6 +457,8 @@ Quality bar:
 - CI verifies unit, integration, schema, adapter, and local E2E paths.
 - Real-runtime evidence jobs are repeatable, cost-bounded, and cleanup-verified.
 - Users can install a binary or package and run the starter migration demo.
+  - [x] `permeant-cli starter-demo` runs from the installed CLI and is exercised
+    in PR CI.
 
 ### v0.3 Agent Graph Prototype
 

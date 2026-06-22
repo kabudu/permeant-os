@@ -98,10 +98,33 @@ def non_provisioning(out_dir: Path) -> dict[str, Any]:
     python = sys.executable
     evidence_tests = list(NON_PROVISIONING_TESTS)
     include_socket_tests = os.getenv("PERMEANT_EVIDENCE_INCLUDE_SOCKET_TESTS", "1") != "0"
+    include_starter_demo = os.getenv("PERMEANT_EVIDENCE_INCLUDE_STARTER_DEMO", "0") == "1"
     if include_socket_tests:
         evidence_tests.extend(SOCKET_TESTS)
 
     steps.append(run_step("adapter-and-evidence-tests", [python, "-m", "pytest", *evidence_tests], out_dir))
+    if include_starter_demo:
+        steps.append(
+            run_step(
+                "starter-migration-demo",
+                [
+                    "cargo",
+                    "run",
+                    "--locked",
+                    "--bin",
+                    "permeant-cli",
+                    "--",
+                    "starter-demo",
+                    "--seq-len",
+                    "128",
+                    "--out-dir",
+                    str(out_dir / "starter-demo"),
+                    "--timeout-seconds",
+                    "30",
+                ],
+                out_dir,
+            )
+        )
     steps.append(
         run_step(
             "adapter-conformance-report",
@@ -170,6 +193,7 @@ def non_provisioning(out_dir: Path) -> dict[str, Any]:
         {
             "claim_boundary": "No cloud resources are created. AWS, local build, and live source-runtime checks are recorded as skipped in the AWS preflight report.",
             "socket_tests_included": include_socket_tests,
+            "starter_demo_included": include_starter_demo,
         },
     )
 

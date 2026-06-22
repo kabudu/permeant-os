@@ -31,6 +31,9 @@ and this project uses release tags compatible with semantic versioning.
   `permeantos-release-validation-v0` report that verifies changelog promotion,
   release artifact checksums, archive contents, and package-readiness evidence
   without publishing GitHub Releases or package registry artifacts.
+- Added `permeant-cli starter-demo`, a one-command loopback migration demo for
+  installed binaries that validates the committed manifest, emits
+  `permeantos-starter-demo-v0`, and runs in PR CI.
 - Added model-family/runtime validation profiles and a matrix planner for
   broadening AWS real-runtime E2E evidence beyond the first Qwen MLX-to-vLLM
   path.

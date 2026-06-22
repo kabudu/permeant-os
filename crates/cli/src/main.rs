@@ -3,7 +3,9 @@ use chrono::Utc;
 use clap::{Parser, Subcommand, ValueEnum};
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::time::{timeout, Duration};
 
 use permeant_extractor::extract_kv_cache;
 use permeant_injector::KVConnectorBase_V1;
@@ -75,6 +77,17 @@ enum Commands {
         #[arg(long)]
         agent_graph_manifest: Option<String>,
     },
+    /// Run a one-command local starter migration demo on loopback
+    StarterDemo {
+        #[arg(short, long, default_value_t = 512)]
+        seq_len: usize,
+        #[arg(long, value_enum, default_value_t = TransferCodec::None)]
+        transfer_codec: TransferCodec,
+        #[arg(long, default_value = ".permeant-demo")]
+        out_dir: PathBuf,
+        #[arg(long, default_value_t = 30)]
+        timeout_seconds: u64,
+    },
     /// Inspect a serialized USXF JSON header or package
     Inspect {
         #[arg(short, long)]
@@ -114,8 +127,17 @@ async fn main() -> Result<()> {
                 seq_len,
                 selected_codec,
                 agent_graph_manifest.as_deref(),
+                None,
             )
             .await?;
+        }
+        Commands::StarterDemo {
+            seq_len,
+            transfer_codec,
+            out_dir,
+            timeout_seconds,
+        } => {
+            run_starter_demo(seq_len, transfer_codec, &out_dir, timeout_seconds).await?;
         }
         Commands::Inspect { file } => {
             run_inspect(&file)?;
@@ -647,11 +669,180 @@ fn describe_runtime_target_device() -> String {
     format!("{}/{}/{}", env.os, env.arch, env.hostname)
 }
 
-fn write_migration_manifest(manifest: &MigrationManifest) -> Result<String> {
+fn write_migration_manifest(
+    manifest: &MigrationManifest,
+    out_dir: Option<&Path>,
+) -> Result<String> {
     let manifest_str = serde_json::to_string_pretty(manifest)?;
     let filename = format!("{}-manifest.json", manifest.run_id);
-    std::fs::write(&filename, &manifest_str)?;
-    Ok(filename)
+    let path = if let Some(out_dir) = out_dir {
+        std::fs::create_dir_all(out_dir).with_context(|| {
+            format!(
+                "Failed to create manifest output directory {}",
+                out_dir.display()
+            )
+        })?;
+        out_dir.join(filename)
+    } else {
+        PathBuf::from(filename)
+    };
+    std::fs::write(&path, &manifest_str)?;
+    Ok(path.display().to_string())
+}
+
+#[derive(serde::Serialize)]
+struct StarterDemoReport {
+    schema_version: String,
+    generated_at: String,
+    success: bool,
+    target_addr: String,
+    sequence_length: usize,
+    transfer_codec: String,
+    manifest_path: String,
+    manifest_sha256: String,
+    report_path: String,
+}
+
+fn validate_starter_demo_manifest(
+    manifest_path: &Path,
+    target_addr: &str,
+    seq_len: usize,
+    transfer_codec: TransferCodec,
+) -> Result<()> {
+    let manifest_bytes = std::fs::read(manifest_path).with_context(|| {
+        format!(
+            "Failed to read starter demo manifest {}",
+            manifest_path.display()
+        )
+    })?;
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&manifest_bytes).with_context(|| {
+            format!(
+                "Failed to parse starter demo manifest {}",
+                manifest_path.display()
+            )
+        })?;
+
+    let success = manifest
+        .get("success")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    if !success {
+        bail!("starter demo manifest did not record a successful migration");
+    }
+    if manifest
+        .get("phase_status")
+        .and_then(|value| value.as_str())
+        != Some("committed")
+    {
+        bail!("starter demo manifest phase_status is not committed");
+    }
+    if manifest.get("target_addr").and_then(|value| value.as_str()) != Some(target_addr) {
+        bail!("starter demo manifest target address does not match the loopback daemon");
+    }
+    if manifest
+        .get("sequence_length")
+        .and_then(|value| value.as_u64())
+        != Some(seq_len as u64)
+    {
+        bail!("starter demo manifest sequence length does not match the requested demo");
+    }
+    if manifest
+        .get("transfer_quantization")
+        .and_then(|value| value.as_str())
+        != Some(transfer_codec.manifest_value())
+    {
+        bail!("starter demo manifest transfer codec does not match the requested demo");
+    }
+
+    Ok(())
+}
+
+async fn run_starter_demo(
+    seq_len: usize,
+    transfer_codec: TransferCodec,
+    out_dir: &Path,
+    timeout_seconds: u64,
+) -> Result<()> {
+    if seq_len == 0 {
+        bail!("starter demo sequence length must be greater than zero");
+    }
+    if timeout_seconds == 0 {
+        bail!("starter demo timeout must be greater than zero");
+    }
+    std::fs::create_dir_all(out_dir).with_context(|| {
+        format!(
+            "Failed to create starter demo output directory {}",
+            out_dir.display()
+        )
+    })?;
+
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .context("Failed to bind starter demo loopback daemon")?;
+    let addr = listener
+        .local_addr()
+        .context("Failed to read starter demo loopback daemon address")?;
+    let target_addr = addr.to_string();
+    let timeout_duration = Duration::from_secs(timeout_seconds);
+
+    println!(
+        "Starting PermeantOS starter demo on {} (Context: {} tokens, Transfer Codec: {})...",
+        target_addr,
+        seq_len,
+        transfer_codec.manifest_value()
+    );
+
+    let daemon_task = tokio::spawn(async move {
+        let (mut socket, peer) = listener.accept().await?;
+        println!("[StarterDemo] Accepted loopback migration from {:?}", peer);
+        let mut orchestrator = MigrationOrchestrator::new(ResourcePolicy::default());
+        let mut injector = KVConnectorBase_V1::new(256);
+        let aes_key = [7u8; 32];
+        handle_migration_connection(&mut socket, &mut orchestrator, &mut injector, &aes_key).await
+    });
+
+    let manifest_path = timeout(
+        timeout_duration,
+        run_sim_migrate(&target_addr, seq_len, transfer_codec, None, Some(out_dir)),
+    )
+    .await
+    .context("starter demo timed out while running local migration")??;
+
+    timeout(timeout_duration, daemon_task)
+        .await
+        .context("starter demo timed out while waiting for loopback daemon shutdown")?
+        .context("starter demo loopback daemon task failed")??;
+
+    let manifest_path = PathBuf::from(manifest_path);
+    validate_starter_demo_manifest(&manifest_path, &target_addr, seq_len, transfer_codec)?;
+    let manifest_bytes = std::fs::read(&manifest_path)?;
+    let manifest_sha256 = compute_sha256(&manifest_bytes);
+    let report_path = out_dir.join("starter-demo-report.json");
+    let report = StarterDemoReport {
+        schema_version: "permeantos-starter-demo-v0".to_string(),
+        generated_at: Utc::now().to_rfc3339(),
+        success: true,
+        target_addr,
+        sequence_length: seq_len,
+        transfer_codec: transfer_codec.manifest_value().to_string(),
+        manifest_path: manifest_path.display().to_string(),
+        manifest_sha256,
+        report_path: report_path.display().to_string(),
+    };
+    std::fs::write(&report_path, serde_json::to_string_pretty(&report)? + "\n").with_context(
+        || {
+            format!(
+                "Failed to write starter demo report {}",
+                report_path.display()
+            )
+        },
+    )?;
+
+    println!("Starter demo completed successfully.");
+    println!("Migration manifest: {}", manifest_path.display());
+    println!("Demo report: {}", report_path.display());
+    Ok(())
 }
 
 fn ensure_sha256_field(field_name: &str, value: &str) -> Result<()> {
@@ -1096,7 +1287,8 @@ async fn run_sim_migrate(
     seq_len: usize,
     transfer_codec: TransferCodec,
     agent_graph_manifest_path: Option<&str>,
-) -> Result<()> {
+    manifest_out_dir: Option<&Path>,
+) -> Result<String> {
     let total_start = std::time::Instant::now();
     let run_id = format!(
         "migration-{}-{}",
@@ -1412,7 +1604,7 @@ async fn run_sim_migrate(
                     error_message: Some(error_text.clone()),
                     agent_graph: agent_graph_manifest,
                 };
-                let filename = write_migration_manifest(&manifest)?;
+                let filename = write_migration_manifest(&manifest, manifest_out_dir)?;
                 println!("Saved failed migration benchmark manifest: {}", filename);
                 bail!(
                     "Target daemon rejected Agent Memory Graph binding: {}",
@@ -1487,8 +1679,9 @@ async fn run_sim_migrate(
                 agent_graph: agent_graph_manifest.clone(),
             };
 
-            let filename = write_migration_manifest(&manifest)?;
+            let filename = write_migration_manifest(&manifest, manifest_out_dir)?;
             println!("Saved migration benchmark manifest: {}", filename);
+            Ok(filename)
         } else {
             let error_text = format!("{:?}", error_message);
             let manifest = MigrationManifest {
@@ -1535,15 +1728,13 @@ async fn run_sim_migrate(
                 error_message: Some(error_text.clone()),
                 agent_graph: agent_graph_manifest,
             };
-            let filename = write_migration_manifest(&manifest)?;
+            let filename = write_migration_manifest(&manifest, manifest_out_dir)?;
             println!("Saved failed migration benchmark manifest: {}", filename);
             bail!("Target daemon failed to commit: {:?}", error_message);
         }
     } else {
         bail!("Unexpected commit response");
     }
-
-    Ok(())
 }
 
 fn run_inspect(file_path: &str) -> Result<()> {
@@ -1962,5 +2153,48 @@ mod tests {
         let error = validate_agent_graph_binding(&binding, &header)
             .expect_err("binding without a KV hash should fail");
         assert!(error.to_string().contains("must include kv_hash"));
+    }
+
+    #[test]
+    fn validates_starter_demo_manifest_success_contract() {
+        let path = temp_manifest_path("starter-demo-manifest");
+        fs::write(
+            &path,
+            r#"{
+  "success": true,
+  "phase_status": "committed",
+  "target_addr": "127.0.0.1:9099",
+  "sequence_length": 128,
+  "transfer_quantization": "none"
+}"#,
+        )
+        .unwrap();
+
+        validate_starter_demo_manifest(&path, "127.0.0.1:9099", 128, TransferCodec::None).unwrap();
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn rejects_starter_demo_manifest_without_commit() {
+        let path = temp_manifest_path("bad-starter-demo-manifest");
+        fs::write(
+            &path,
+            r#"{
+  "success": true,
+  "phase_status": "streamed",
+  "target_addr": "127.0.0.1:9099",
+  "sequence_length": 128,
+  "transfer_quantization": "none"
+}"#,
+        )
+        .unwrap();
+
+        let error =
+            validate_starter_demo_manifest(&path, "127.0.0.1:9099", 128, TransferCodec::None)
+                .expect_err("starter demo manifest must prove committed phase");
+
+        assert!(error.to_string().contains("phase_status"));
+        let _ = fs::remove_file(path);
     }
 }

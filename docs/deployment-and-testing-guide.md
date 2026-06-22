@@ -49,7 +49,27 @@ cargo test
 
 ---
 
-### Step 3.3: Run the Local End-to-End Live Migration
+### Step 3.3: Run the Local Starter Migration Demo
+
+The fastest local proof is the one-command starter demo:
+
+```bash
+cargo run --bin permeant-cli -- starter-demo --seq-len 128 --out-dir .permeant-demo
+```
+
+The command starts a loopback target daemon on an ephemeral `127.0.0.1` port,
+runs a bounded simulated KV migration, waits for the daemon to commit, validates
+the generated manifest, and writes:
+
+- `.permeant-demo/starter-demo-report.json`
+- `.permeant-demo/migration-YYYYMMDD-HHMMSS-PID-manifest.json`
+
+The starter report uses schema `permeantos-starter-demo-v0` and records the
+manifest path, manifest hash, sequence length, transfer codec, and loopback
+target address. This is the recommended first command after installing a
+release artifact.
+
+### Step 3.4: Run the Manual Local End-to-End Migration
 You can run a complete, simulated migration process locally using the CLI binary.
 
 1. **Start the Hypervisor Daemon Listener:**

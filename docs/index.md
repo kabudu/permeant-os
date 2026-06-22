@@ -9,7 +9,8 @@ reading the whole history.
 
 - [README](../README.md): project status, supported paths, and quick start.
 - [Deployment and testing guide](deployment-and-testing-guide.md): local daemon,
-  simulated migration, benchmark collection, and cloud-host workflows.
+  one-command starter demo, simulated migration, benchmark collection, and
+  cloud-host workflows.
 - [Release artifacts](release-artifacts.md): build and validate checksummed
   binary bundles, verify archives, and install `permeant-cli`.
 - [Crate and SDK publication plan](crate-and-sdk-publication-plan.md): package

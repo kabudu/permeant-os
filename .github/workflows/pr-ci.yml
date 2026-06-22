@@ -49,6 +49,9 @@ jobs:
       - name: Test workspace
         run: cargo test --locked
 
+      - name: Run starter migration demo
+        run: cargo run --locked --bin permeant-cli -- starter-demo --seq-len 128 --out-dir /tmp/permeantos-starter-demo --timeout-seconds 30
+
   python:
     name: Python tests
     runs-on: ubuntu-latest

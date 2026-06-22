@@ -100,6 +100,7 @@ report schemas are:
 | `scripts/check-package-readiness.py` | `permeantos-package-readiness-v0` |
 | `scripts/run-evidence-job.py` | `permeantos-evidence-job-v0` |
 | `scripts/run-adapter-conformance.py` | `permeantos-adapter-conformance-v0` |
+| `permeant-cli starter-demo` | `permeantos-starter-demo-v0` |
 
 Compatibility rules:
 
