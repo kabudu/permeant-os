@@ -174,13 +174,15 @@ source_reverse_import_url() {
 }
 
 validate_source_continuation_file() {
-  python3 - "$PERMEANT_SOURCE_CONTINUATION_FILE" "$PERMEANT_SEQ_LEN" <<'PY'
+  python3 - "$PERMEANT_SOURCE_CONTINUATION_FILE" "$PERMEANT_SEQ_LEN" "$PERMEANT_CONTINUATION_MAX_TOKENS" "$PERMEANT_VLLM_MAX_MODEL_LEN" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
 required_tokens = int(sys.argv[2])
+continuation_tokens = int(sys.argv[3])
+max_model_len = int(sys.argv[4])
 try:
     payload = json.loads(path.read_text())
 except FileNotFoundError:
@@ -198,6 +200,12 @@ if not isinstance(prompt_token_count, int):
 if prompt_token_count < required_tokens:
     raise SystemExit(
         f"source continuation prompt_token_count {prompt_token_count} is below required seq_len {required_tokens}"
+    )
+if prompt_token_count + continuation_tokens > max_model_len:
+    raise SystemExit(
+        "source continuation prompt leaves no target decode headroom: "
+        f"prompt_token_count {prompt_token_count} + continuation {continuation_tokens} > "
+        f"vLLM max model length {max_model_len}"
     )
 if not isinstance(prompt_token_ids, list) or len(prompt_token_ids) < required_tokens:
     raise SystemExit(

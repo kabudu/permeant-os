@@ -44,6 +44,13 @@ and this project uses release tags compatible with semantic versioning.
   `permeant-qatq-migration`, typed-byte manifest validation, fail-closed
   checksum/dtype/shape checks, and API-freeze feedback for the sibling QATQ
   project.
+- Added AWS QATQ exact complex validation report for run `20260622-150451`,
+  proving a 1,920-token MLX-to-AWS-vLLM production WSS migration with 384
+  `qatq-exact` chunks, zero QATQ pass-through chunks, exact 128-token
+  continuation fidelity, complex Agent Memory Graph activity, vLLM reverse
+  export, MLX reverse import, origin return-home continuation, direct cleanup
+  verification, and an explicit caveat that the current exact QATQ container is
+  lossless but not yet size-reducing.
 - Added model-family/runtime validation profiles and a matrix planner for
   broadening AWS real-runtime E2E evidence beyond the first Qwen MLX-to-vLLM
   path.
@@ -97,6 +104,9 @@ and this project uses release tags compatible with semantic versioning.
 - Adjusted the Qwen2.5 1.5B validation profile to use a 1984-token migrated
   prefix after local probing showed the 2016-token prefix left no source
   continuation headroom.
+- AWS real-runtime source continuation validation now checks the actual
+  refreshed prompt length plus continuation tokens against the target model
+  context window before cloud provisioning continues.
 
 ## [0.1.29-production-transport] - 2026-06-21
 

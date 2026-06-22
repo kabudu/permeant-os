@@ -44,6 +44,41 @@ class EvidenceRecord:
 
 EVIDENCE: tuple[EvidenceRecord, ...] = (
     EvidenceRecord(
+        id="qwen25-mlx-vllm-aws-qatq-exact-complex-roundtrip",
+        title="Qwen2.5 MLX to AWS vLLM QATQ exact complex round trip",
+        claim=(
+            "Live Qwen2.5 KV state migrated from local MLX to AWS vLLM over "
+            "production WSS/mTLS with every transfer chunk using the QATQ exact "
+            "container path, exact 128-token continuation fidelity, complex "
+            "Agent Memory Graph target activity, reverse runtime import, and "
+            "origin return-home continuation."
+        ),
+        status="validated-real-runtime",
+        model="Qwen/Qwen2.5-0.5B-Instruct",
+        model_family="qwen2.5",
+        source_runtime="mlx",
+        target_runtime="vllm",
+        transport="production-wss-mtls",
+        transfer_mode="qatq-exact-f32le",
+        horizon_tokens=128,
+        proof_reports=(
+            "docs/aws-real-runtime-qatq-exact-complex-2026-06-22.md",
+            "docs/qatq-permeantos-feedback-2026-06-22.md",
+        ),
+        commands=(
+            "PERMEANT_TRANSFER_QUANTIZATION=qatq PERMEANT_SEQ_LEN=1920 PERMEANT_CONTINUATION_MAX_TOKENS=128 scripts/aws-real-runtime-e2e.sh run",
+        ),
+        ci_jobs=(
+            "PR CI / Python tests / Run AWS E2E preflight smoke test",
+            "PR CI / Python tests / Run Python tests",
+        ),
+        limitations=(
+            "The current exact QATQ compatibility path is lossless but not size-reducing; the recorded run transferred about 6.7% more bytes than raw due to container overhead.",
+            "PermeantOS still needs to switch from the in-tree compatibility shim to the standalone QATQ crate once the QATQ API and lossless compression path are ready.",
+            "The vLLM adapter relies on runtime internals that may change between vLLM versions.",
+        ),
+    ),
+    EvidenceRecord(
         id="qwen25-mlx-vllm-aws-long-horizon-roundtrip",
         title="Qwen2.5 MLX to AWS vLLM long-horizon round trip",
         claim=(

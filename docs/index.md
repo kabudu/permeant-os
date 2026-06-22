@@ -28,6 +28,10 @@ reading the whole history.
   validated and planned model-family/runtime profiles.
 - [AWS long-horizon proof](aws-real-runtime-long-horizon-2026-06-21.md):
   Qwen2.5 MLX-to-AWS-vLLM 128-token continuation evidence.
+- [AWS QATQ exact complex proof](aws-real-runtime-qatq-exact-complex-2026-06-22.md):
+  Qwen2.5 MLX-to-AWS-vLLM exact-QATQ live migration with complex Agent Memory
+  Graph resume, reverse runtime import, return-home continuation, and explicit
+  compression caveat.
 - [TinyLlama AWS proof](aws-real-runtime-tinyllama-2026-06-21.md):
   raw-transfer non-Qwen structural E2E validation.
 - [llama.cpp canonical KV proof](llama-cpp-cross-runtime-canonical-kv-proof-2026-06-21.md):
@@ -81,8 +85,9 @@ reading the whole history.
 - [Adaptive transfer codecs](adaptive-transfer-codecs.md): raw, FP8, and future
   codec planning with fallback semantics.
 - [QATQ PermeantOS feedback](qatq-permeantos-feedback-2026-06-22.md):
-  exact migration artifact contract, API-freeze feedback, and remaining AWS
-  trial evidence required before QATQ is folded back into the production path.
+  exact migration artifact contract, AWS exact-QATQ live migration feedback,
+  API-freeze feedback, and remaining compression work before QATQ is folded
+  back into the production path.
 
 ## Current Limits
 

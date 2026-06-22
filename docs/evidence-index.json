@@ -1,6 +1,35 @@
 {
-  "record_count": 4,
+  "record_count": 5,
   "records": [
+    {
+      "ci_jobs": [
+        "PR CI / Python tests / Run AWS E2E preflight smoke test",
+        "PR CI / Python tests / Run Python tests"
+      ],
+      "claim": "Live Qwen2.5 KV state migrated from local MLX to AWS vLLM over production WSS/mTLS with every transfer chunk using the QATQ exact container path, exact 128-token continuation fidelity, complex Agent Memory Graph target activity, reverse runtime import, and origin return-home continuation.",
+      "commands": [
+        "PERMEANT_TRANSFER_QUANTIZATION=qatq PERMEANT_SEQ_LEN=1920 PERMEANT_CONTINUATION_MAX_TOKENS=128 scripts/aws-real-runtime-e2e.sh run"
+      ],
+      "horizon_tokens": 128,
+      "id": "qwen25-mlx-vllm-aws-qatq-exact-complex-roundtrip",
+      "limitations": [
+        "The current exact QATQ compatibility path is lossless but not size-reducing; the recorded run transferred about 6.7% more bytes than raw due to container overhead.",
+        "PermeantOS still needs to switch from the in-tree compatibility shim to the standalone QATQ crate once the QATQ API and lossless compression path are ready.",
+        "The vLLM adapter relies on runtime internals that may change between vLLM versions."
+      ],
+      "model": "Qwen/Qwen2.5-0.5B-Instruct",
+      "model_family": "qwen2.5",
+      "proof_reports": [
+        "docs/aws-real-runtime-qatq-exact-complex-2026-06-22.md",
+        "docs/qatq-permeantos-feedback-2026-06-22.md"
+      ],
+      "source_runtime": "mlx",
+      "status": "validated-real-runtime",
+      "target_runtime": "vllm",
+      "title": "Qwen2.5 MLX to AWS vLLM QATQ exact complex round trip",
+      "transfer_mode": "qatq-exact-f32le",
+      "transport": "production-wss-mtls"
+    },
     {
       "ci_jobs": [
         "PR CI / Python tests / Run AWS E2E preflight smoke test",

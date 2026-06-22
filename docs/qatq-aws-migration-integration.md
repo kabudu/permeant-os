@@ -15,12 +15,23 @@ PermeantOS is a Rust project, so the primary integration should use QATQ as a
 Rust crate dependency. Use a pinned source dependency for this trial; do not
 depend on a crates.io package yet.
 
-Current PermeantOS feedback from the first Rust integration slice is recorded
+Current PermeantOS feedback from the first Rust integration slice and AWS trial
+is recorded
 in [`docs/qatq-permeantos-feedback-2026-06-22.md`](qatq-permeantos-feedback-2026-06-22.md).
 That slice adds a `permeant-qatq-migration` crate for exact typed migration
 artifacts, manifest checksums, dtype/shape validation, and fail-closed restore
-tests. It is not yet the real AWS migration trial; it is the local API and
-manifest contract needed before the AWS trial can safely use QATQ exact.
+tests. The follow-up AWS run
+[`20260622-150451`](aws-real-runtime-qatq-exact-complex-2026-06-22.md)
+validated the live `qatq-exact` transfer path for a 1,920-token MLX-to-vLLM
+migration, complex Agent Memory Graph resume, reverse runtime import, and
+origin return-home continuation.
+
+That AWS run used the in-tree exact compatibility container and transferred
+384 `qatq-exact` chunks with zero pass-through chunks. It proved lossless
+containerised transfer and continuation, not a size reduction: transferred
+bytes were 50,337,024 versus 47,185,920 raw bytes. True lossless compression
+remains a standalone QATQ engineering requirement before QATQ should be folded
+back into the PermeantOS production codec path.
 
 Recommended pin for the first PermeantOS integration pass:
 

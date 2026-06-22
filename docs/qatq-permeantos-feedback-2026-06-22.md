@@ -41,6 +41,40 @@ Validation command:
 cargo test -p permeant-qatq-migration --locked
 ```
 
+## What Passed In AWS
+
+PermeantOS also completed a real AWS MLX-to-vLLM migration using the exact QATQ
+live transfer path:
+
+- run: `20260622-150451`
+- report:
+  [`docs/aws-real-runtime-qatq-exact-complex-2026-06-22.md`](aws-real-runtime-qatq-exact-complex-2026-06-22.md)
+- model: `Qwen/Qwen2.5-0.5B-Instruct`
+- migrated prefix: 1,920 tokens
+- continuation proof: exact 128-token source/post-migration and
+  target-baseline/post-migration comparison
+- transport: production `wss://`/mTLS
+- agent graph: complex 27-node, 25-edge graph with four artifacts
+- reverse path: vLLM reverse export, MLX reverse import, target graph activity,
+  and origin return-home continuation all passed
+
+QATQ-specific migration metrics:
+
+- `qatq_compressed_chunks: 384`
+- `qatq_pass_through_chunks: 0`
+- `qatq_strategies: { "qatq-exact": 384 }`
+- `uncompressed_bytes: 47185920`
+- `transferred_bytes: 50337024`
+- `compression_ratio: 1.0667805989583334`
+
+This validates the live exact QATQ container path and fail-closed restore
+boundary in a real AWS migration. It does not yet validate a QATQ compression
+benefit: the current in-tree compatibility path preserves exact `f32`
+little-endian bytes and adds container overhead, so it transferred more bytes
+than raw. The standalone QATQ project still needs the production lossless
+compression implementation before PermeantOS can claim QATQ reduces migration
+size.
+
 ## API Feedback For QATQ
 
 The typed tensor API shape is suitable for PermeantOS:
@@ -65,18 +99,17 @@ QATQ should consider adding or freezing public helpers for:
 
 ## Current Boundaries
 
-This is not yet the real AWS migration trial requested by the integration
-guide. It proves the local Rust API contract, manifest/checksum boundary, and
-fail-closed restore behaviour.
+The real AWS exact-QATQ migration trial has passed for the Qwen2.5
+MLX-to-vLLM profile. The local Rust API contract, manifest/checksum boundary,
+and fail-closed restore behaviour are also covered by tests.
 
 Still required before QATQ API freeze acceptance:
 
 - run PermeantOS against the sibling QATQ crate instead of the in-tree shim;
-- pack real runtime-exported KV bytes into one or more QATQ exact bundles;
-- transfer the encoded artifacts through AWS storage or the live migration
-  channel;
-- decode on the target, verify checksums, restore runtime tensors, and pass the
-  target task-decision probe;
+- replace the exact wrapper with a genuinely size-reducing lossless compression
+  path, then rerun the same AWS profile;
+- pack larger real runtime-exported KV bytes into one or more QATQ exact bundles
+  once the standalone crate exposes the production container API;
 - exercise rollback by corrupting or deleting a QATQ artifact and proving target
   activation aborts with the source remaining authoritative;
 - run QATQ size/throughput comparisons against `zstd` and `lz4` for the same
