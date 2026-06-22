@@ -317,12 +317,14 @@ Deliverables:
   backend rejects the head-dim-128 shape during `BatchPrefillWithPagedKVCache`;
   keep this profile unvalidated until a supported target backend/runtime path
   is implemented.
-- [ ] Add at least one independent target runtime path beyond vLLM. The next
-  hard step is an out-of-tree llama.cpp live KV binding hook, not an upstream
-  llama.cpp patch: bind PermeantOS canonical KV tensors into a live
-  `llama_context`, prove the following decode used the imported KV state, and
-  only consider upstreaming once the hook proves the API shape and PermeantOS
-  has a stronger adoption case.
+- [x] Add at least one independent target runtime path beyond vLLM. The
+  llama.cpp path now includes a state-file live binding proof, a private-header
+  raw internal KV writer, and an MLX-to-llama.cpp canonical KV feed proof where
+  tokenizer/span alignment is verified, imported canonical tensors are written
+  into `llama_kv_cache`, deliberate corruption changes decode, and restore
+  matches the MLX source continuation at the aligned boundary. Broader
+  llama.cpp claims still require longer-horizon and additional model-family
+  validation.
 
 Exit criteria:
 

@@ -428,5 +428,6 @@ and KV-span representation.
   criteria.
 - [x] Prototype graph-attached live KV migration manifest extensions and analyzer
   checks.
-- [ ] Implement live-runtime graph-attached span production and target
-  validation.
+- [x] Implement live-runtime graph-attached span production and target
+  validation through MLX source span metadata, target import-worker validation,
+  analyzer alignment checks, and graph-attached AWS target/origin proof runs.
