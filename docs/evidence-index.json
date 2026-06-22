@@ -1,6 +1,35 @@
 {
-  "record_count": 6,
+  "record_count": 7,
   "records": [
+    {
+      "ci_jobs": [
+        "PR CI / Python tests / Run AWS E2E preflight smoke test",
+        "PR CI / Python tests / Run Python tests"
+      ],
+      "claim": "Live Qwen2.5 KV state migrated from local MLX to AWS vLLM over production WSS/mTLS using the standalone QATQ crate, exact 128-token continuation fidelity, a passing QATQ <= raw/zstd/lz4 live compression gate on streamed block artifacts, complex Agent Memory Graph target activity, reverse runtime import, and origin return-home continuation.",
+      "commands": [
+        "PERMEANT_TRANSFER_QUANTIZATION=qatq PERMEANT_QATQ_STANDALONE_PATH=/Users/kabudu/projex/qatq PERMEANT_SEQ_LEN=1920 PERMEANT_CONTINUATION_MAX_TOKENS=128 scripts/aws-real-runtime-e2e.sh run"
+      ],
+      "horizon_tokens": 128,
+      "id": "qwen25-mlx-vllm-aws-standalone-qatq-compression-roundtrip",
+      "limitations": [
+        "This validates the recorded Qwen2.5 MLX-to-vLLM AWS path; additional models and runtime adapters still need standalone-QATQ live validation.",
+        "PermeantOS currently consumes the sibling QATQ checkout by path for local/AWS validation until the QATQ API freeze and package decision are complete.",
+        "The vLLM adapter relies on runtime internals that may change between vLLM versions."
+      ],
+      "model": "Qwen/Qwen2.5-0.5B-Instruct",
+      "model_family": "qwen2.5",
+      "proof_reports": [
+        "docs/aws-real-runtime-qatq-standalone-compression-2026-06-22.md",
+        "docs/qatq-permeantos-feedback-2026-06-22.md"
+      ],
+      "source_runtime": "mlx",
+      "status": "validated-real-runtime",
+      "target_runtime": "vllm",
+      "title": "Qwen2.5 MLX to AWS vLLM standalone QATQ compression round trip",
+      "transfer_mode": "standalone-qatq-exact",
+      "transport": "production-wss-mtls"
+    },
     {
       "ci_jobs": [
         "PR CI / Python tests / Run AWS E2E preflight smoke test",

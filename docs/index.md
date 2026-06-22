@@ -32,6 +32,10 @@ reading the whole history.
   Qwen2.5 MLX-to-AWS-vLLM exact-QATQ live migration with complex Agent Memory
   Graph resume, reverse runtime import, return-home continuation, and explicit
   compression caveat.
+- [AWS standalone QATQ compression proof](aws-real-runtime-qatq-standalone-compression-2026-06-22.md):
+  live MLX-to-AWS-vLLM migration using the standalone QATQ crate, exact
+  128-token continuation, reverse/return-home proof, and a passing QATQ <= raw,
+  zstd, and lz4 live compression gate.
 - [QATQ standalone compression gate](qatq-standalone-compression-gate-2026-06-22.md):
   standalone QATQ crate compression proof on the same 47 MB full-KV bundle,
   beating raw, `zstd`, and `lz4` while preserving exact bytes.

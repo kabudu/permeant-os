@@ -105,6 +105,35 @@ The standalone `competitive-compression` gate passed. A separate
 `qatq encode-chunked` / `qatq decode` / `cmp` check also proved the QATC
 container restored the packed bundle byte-for-byte.
 
+## What Passed In AWS With Standalone QATQ
+
+PermeantOS then replaced the live migration compatibility path with the
+standalone QATQ crate and completed a real AWS MLX-to-vLLM migration:
+
+- run: `20260622-194940`
+- report:
+  [`docs/aws-real-runtime-qatq-standalone-compression-2026-06-22.md`](aws-real-runtime-qatq-standalone-compression-2026-06-22.md)
+- PermeantOS commit: `c0c7c8e`
+- QATQ commit: `3d223bc`
+- model: `Qwen/Qwen2.5-0.5B-Instruct`
+- migrated prefix: 1,920 tokens
+- continuation proof: exact 128-token source/post-migration and
+  target-baseline/post-migration comparison
+- transport: production `wss://`/mTLS
+- reverse path: vLLM reverse export, MLX reverse import, target graph activity,
+  and origin return-home continuation all passed
+
+The live compression gate passed on the streamed block artifacts:
+
+| Codec | Bytes | Ratio vs raw block baseline |
+| --- | ---: | ---: |
+| raw f32 block baseline | 50,331,648 | 1.0000 |
+| standalone QATQ exact | 14,004,990 | 0.2782541513442993 |
+| zstd raw-f32le | 20,405,381 | 0.4054184953371684 |
+| lz4 raw-f32le | 28,739,217 | 0.5709969401359558 |
+
+The live run used 384 `qatq-exact` chunks and zero QATQ pass-through chunks.
+
 ## API Feedback For QATQ
 
 The typed tensor API shape is suitable for PermeantOS:
@@ -135,12 +164,9 @@ and fail-closed restore behaviour are also covered by tests.
 
 Still required before QATQ API freeze acceptance:
 
-- run PermeantOS against the sibling QATQ crate instead of the in-tree shim for
-  the next AWS compression-validation pass;
-- replace the exact wrapper in live migration with the standalone QATQ crate,
-  then rerun the same AWS profile;
 - exercise rollback by corrupting or deleting a QATQ artifact and proving target
   activation aborts with the source remaining authoritative;
-- carry the standalone compression gate into the AWS live migration artifacts
-  so the transferred bytes, not only local captures, are compared against raw,
-  `zstd`, and `lz4`.
+- broaden standalone-QATQ live validation to additional models and runtime
+  adapters;
+- decide how PermeantOS should consume QATQ after the API freeze: pinned git
+  revision, submodule, vendored source, or crates.io package.

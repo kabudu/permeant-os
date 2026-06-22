@@ -59,6 +59,13 @@ and this project uses release tags compatible with semantic versioning.
   PermeantOS Qwen2.5 full-KV bundle, showing QATQ exact container output of
   14,522,992 bytes, byte-for-byte decode restoration, and a passing competitive
   compression gate against raw, `zstd`, and `lz4`.
+- Wired the live migration path to the standalone sibling QATQ crate, added
+  live raw/`zstd`/`lz4` compression baseline counters and
+  `permeantos-qatq-live-compression-gate-v0`, and validated AWS run
+  `20260622-194940` with 14,004,990 QATQ transferred bytes versus 50,331,648
+  raw block-baseline bytes, 20,405,381 zstd bytes, and 28,739,217 lz4 bytes,
+  while preserving exact 128-token continuation, reverse import, target graph
+  activity, origin return-home continuation, and cleanup proof.
 - Added model-family/runtime validation profiles and a matrix planner for
   broadening AWS real-runtime E2E evidence beyond the first Qwen MLX-to-vLLM
   path.
