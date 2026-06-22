@@ -79,6 +79,40 @@ EVIDENCE: tuple[EvidenceRecord, ...] = (
         ),
     ),
     EvidenceRecord(
+        id="qwen25-mlx-kv-standalone-qatq-compression-gate",
+        title="Qwen2.5 MLX full-KV standalone QATQ compression gate",
+        claim=(
+            "A full 1,920-token Qwen2.5 MLX KV bundle with all 24 key/value "
+            "layers was exported as raw f32 little-endian bytes, compressed "
+            "with the standalone QATQ crate, restored byte-for-byte, and "
+            "benchmarked against raw, zstd, and lz4 on the same packed bundle."
+        ),
+        status="validated-local-compression",
+        model="Qwen/Qwen2.5-0.5B-Instruct",
+        model_family="qwen2.5",
+        source_runtime="mlx",
+        target_runtime="none",
+        transport="local-files",
+        transfer_mode="standalone-qatq-exact-container",
+        horizon_tokens=None,
+        proof_reports=(
+            "docs/qatq-standalone-compression-gate-2026-06-22.md",
+            "docs/qatq-permeantos-feedback-2026-06-22.md",
+        ),
+        commands=(
+            "scripts/export-qatq-captures.py --model Qwen/Qwen2.5-0.5B-Instruct --seq-lens 1920 --layer-points 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23 --tensor-roles key,value",
+            "/Users/kabudu/projex/qatq/target/debug/qatq-bench --no-synthetic --exact-only --gate-policy competitive-compression --input permeantos-qwen25-1920-full-kv:<packed-bundle.f32le>",
+            "/Users/kabudu/projex/qatq/target/debug/qatq encode-chunked --max-values-per-chunk 65536 --dtype f32 <packed-bundle.f32le> <packed-bundle.qatc>",
+            "/Users/kabudu/projex/qatq/target/debug/qatq decode <packed-bundle.qatc> <decoded.f32le> && cmp <packed-bundle.f32le> <decoded.f32le>",
+        ),
+        ci_jobs=(),
+        limitations=(
+            "This is a local standalone compression proof, not yet a live AWS migration proof using the standalone QATQ crate.",
+            "The live PermeantOS migration path still needs to replace the in-tree compatibility container with the pinned standalone QATQ crate.",
+            "The timing numbers were captured from a local debug build and should not be treated as final release-performance figures.",
+        ),
+    ),
+    EvidenceRecord(
         id="qwen25-mlx-vllm-aws-long-horizon-roundtrip",
         title="Qwen2.5 MLX to AWS vLLM long-horizon round trip",
         claim=(

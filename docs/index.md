@@ -32,6 +32,9 @@ reading the whole history.
   Qwen2.5 MLX-to-AWS-vLLM exact-QATQ live migration with complex Agent Memory
   Graph resume, reverse runtime import, return-home continuation, and explicit
   compression caveat.
+- [QATQ standalone compression gate](qatq-standalone-compression-gate-2026-06-22.md):
+  standalone QATQ crate compression proof on the same 47 MB full-KV bundle,
+  beating raw, `zstd`, and `lz4` while preserving exact bytes.
 - [TinyLlama AWS proof](aws-real-runtime-tinyllama-2026-06-21.md):
   raw-transfer non-Qwen structural E2E validation.
 - [llama.cpp canonical KV proof](llama-cpp-cross-runtime-canonical-kv-proof-2026-06-21.md):
@@ -86,8 +89,8 @@ reading the whole history.
   codec planning with fallback semantics.
 - [QATQ PermeantOS feedback](qatq-permeantos-feedback-2026-06-22.md):
   exact migration artifact contract, AWS exact-QATQ live migration feedback,
-  API-freeze feedback, and remaining compression work before QATQ is folded
-  back into the production path.
+  standalone compression-gate feedback, and remaining live-AWS integration work
+  before QATQ is folded back into the production path.
 
 ## Current Limits
 

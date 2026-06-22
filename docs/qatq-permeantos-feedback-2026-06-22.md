@@ -82,6 +82,29 @@ less than or equal to raw bytes, with QATQ, raw, `zstd`, and `lz4` reported for
 the same packed KV artifacts. Any run that still uses `qatq-compat` should be
 recorded as an exact compatibility proof only.
 
+## What Passed With Standalone QATQ
+
+PermeantOS exported a full 1,920-token MLX KV bundle for
+`Qwen/Qwen2.5-0.5B-Instruct` and benchmarked it with the standalone QATQ repo at
+commit `3d223bc`. The packed bundle contained 48 tensors, one key and one value
+capture for each of 24 layers, and was 47,185,920 raw f32 little-endian bytes.
+
+Detailed report:
+[`docs/qatq-standalone-compression-gate-2026-06-22.md`](qatq-standalone-compression-gate-2026-06-22.md)
+
+Standalone compression results:
+
+| Codec | Encoded bytes | Ratio vs raw f32 | Exact bits |
+| --- | ---: | ---: | --- |
+| `zstd-raw-f32le` | 20,713,110 | 0.4390 | yes |
+| `lz4-raw-f32le` | 29,767,595 | 0.6309 | yes |
+| `qatq-exact` | 14,097,901 | 0.2988 | yes |
+| `qatq-exact-container` | 14,522,992 | 0.3078 | yes |
+
+The standalone `competitive-compression` gate passed. A separate
+`qatq encode-chunked` / `qatq decode` / `cmp` check also proved the QATC
+container restored the packed bundle byte-for-byte.
+
 ## API Feedback For QATQ
 
 The typed tensor API shape is suitable for PermeantOS:
@@ -114,13 +137,10 @@ Still required before QATQ API freeze acceptance:
 
 - run PermeantOS against the sibling QATQ crate instead of the in-tree shim for
   the next AWS compression-validation pass;
-- replace the exact wrapper with a genuinely size-reducing lossless compression
-  path, then rerun the same AWS profile;
-- pack larger real runtime-exported KV bytes into one or more QATQ exact bundles
-  once the standalone crate exposes the production container API;
+- replace the exact wrapper in live migration with the standalone QATQ crate,
+  then rerun the same AWS profile;
 - exercise rollback by corrupting or deleting a QATQ artifact and proving target
   activation aborts with the source remaining authoritative;
-- run QATQ size/throughput comparisons against raw, `zstd`, and `lz4` for the
-  same packed migration bundle;
-- accept a QATQ compression claim only when QATQ exact transferred bytes are
-  less than or equal to raw bytes.
+- carry the standalone compression gate into the AWS live migration artifacts
+  so the transferred bytes, not only local captures, are compared against raw,
+  `zstd`, and `lz4`.

@@ -55,6 +55,10 @@ and this project uses release tags compatible with semantic versioning.
   compatibility path from the standalone QATQ crate path, requiring the
   standalone crate and raw/`zstd`/`lz4` comparison before any QATQ compression
   claim.
+- Added a standalone QATQ compression gate report for a real 47,185,920-byte
+  PermeantOS Qwen2.5 full-KV bundle, showing QATQ exact container output of
+  14,522,992 bytes, byte-for-byte decode restoration, and a passing competitive
+  compression gate against raw, `zstd`, and `lz4`.
 - Added model-family/runtime validation profiles and a matrix planner for
   broadening AWS real-runtime E2E evidence beyond the first Qwen MLX-to-vLLM
   path.
