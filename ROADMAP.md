@@ -366,8 +366,15 @@ Deliverables:
 
 - Automated CI evidence jobs for local E2E, adapter conformance, schema
   validation, and non-provisioning cloud preflight.
+  - [x] Scheduled/manual non-provisioning evidence workflow with adapter
+    conformance, evidence-index generation, validation-plan output,
+    AWS preflight skip reports, package-readiness verification, and uploaded
+    evidence artifacts.
 - Scheduled or manually approved real-runtime evidence jobs for AWS validation
   with strict cost controls and cleanup verification.
+  - [x] Manual-only AWS real-runtime evidence workflow path guarded by explicit
+    `RUN_AWS_REAL_RUNTIME` confirmation, protected environment, self-hosted
+    runner label, runner state directory, and uploaded evidence artifacts.
 - Stable release artifacts: GitHub Releases, signed binaries, checksums, and
   installation instructions.
   - [x] Checksummed binary bundle builder, release manifest schema, install

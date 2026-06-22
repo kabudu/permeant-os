@@ -1,0 +1,106 @@
+name: Evidence Jobs
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Evidence mode to run
+        required: true
+        default: non-provisioning
+        type: choice
+        options:
+          - non-provisioning
+          - aws-real-runtime
+      validation_profile:
+        description: Validation profile for aws-real-runtime mode
+        required: true
+        default: qwen2.5-0.5b-mlx-vllm
+      confirm_aws_cost:
+        description: Type RUN_AWS_REAL_RUNTIME to allow AWS provisioning
+        required: false
+        default: ""
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event.inputs.mode || 'scheduled-non-provisioning' }}
+  cancel-in-progress: false
+
+jobs:
+  non-provisioning-evidence:
+    name: Non-provisioning evidence
+    if: ${{ github.event_name == 'schedule' || github.event.inputs.mode == 'non-provisioning' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6.2.0
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest jsonschema requests numpy
+
+      - name: Run non-provisioning evidence job
+        run: |
+          python scripts/run-evidence-job.py \
+            --mode non-provisioning \
+            --out-dir dist/evidence
+
+      - name: Upload evidence reports
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: permeantos-non-provisioning-evidence-${{ github.run_id }}
+          path: dist/evidence
+          if-no-files-found: error
+
+  aws-real-runtime-evidence:
+    name: AWS real-runtime evidence
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'aws-real-runtime' && github.event.inputs.confirm_aws_cost == 'RUN_AWS_REAL_RUNTIME' }}
+    runs-on:
+      - self-hosted
+      - permeantos-aws-evidence
+    timeout-minutes: 240
+    environment: aws-real-runtime-evidence
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.0
+
+      - name: Run manually approved AWS evidence job
+        env:
+          PERMEANT_VALIDATION_PROFILE: ${{ github.event.inputs.validation_profile }}
+        run: |
+          python scripts/run-evidence-job.py \
+            --mode aws-real-runtime \
+            --profile "$PERMEANT_VALIDATION_PROFILE" \
+            --confirm RUN_AWS_REAL_RUNTIME \
+            --out-dir dist/evidence
+
+      - name: Upload AWS evidence reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: permeantos-aws-real-runtime-evidence-${{ github.run_id }}
+          path: dist/evidence
+          if-no-files-found: warn
+
+  aws-real-runtime-not-authorised:
+    name: AWS real-runtime not authorised
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'aws-real-runtime' && github.event.inputs.confirm_aws_cost != 'RUN_AWS_REAL_RUNTIME' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Refuse unconfirmed AWS run
+        run: |
+          echo "AWS real-runtime evidence requires confirm_aws_cost=RUN_AWS_REAL_RUNTIME"
+          exit 1

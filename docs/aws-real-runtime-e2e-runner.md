@@ -159,6 +159,41 @@ scripts/aws-real-runtime-e2e.sh preflight
 Skipped checks are recorded as `skip`, not `pass`, so a scheduled report cannot
 be mistaken for a full cloud-readiness proof.
 
+## GitHub Evidence Jobs
+
+The `Evidence Jobs` workflow has two lanes:
+
+- a scheduled/manual non-provisioning lane that runs adapter conformance tests,
+  regenerates the public evidence index, emits model/runtime validation plans,
+  runs AWS preflight with AWS/build/source checks explicitly skipped, verifies
+  package readiness, and uploads `permeantos-evidence-job-v0` artifacts;
+- a manual-only AWS real-runtime lane that requires
+  `confirm_aws_cost=RUN_AWS_REAL_RUNTIME`, the protected
+  `aws-real-runtime-evidence` environment, and a self-hosted runner labelled
+  `permeantos-aws-evidence`.
+
+The scheduled lane never provisions AWS resources. The AWS lane is deliberately
+not configured for GitHub-hosted runners because it requires account
+credentials, source-runtime access, cleanup verification, and operator approval.
+Use it only from an environment that can run the same cleanup discipline as the
+local runbook.
+
+Local equivalent:
+
+```bash
+scripts/run-evidence-job.py --mode non-provisioning --out-dir dist/evidence
+```
+
+Manual AWS equivalent:
+
+```bash
+scripts/run-evidence-job.py \
+  --mode aws-real-runtime \
+  --profile qwen2.5-0.5b-mlx-vllm \
+  --confirm RUN_AWS_REAL_RUNTIME \
+  --out-dir dist/evidence
+```
+
 ## Process guarantees
 
 The runner avoids the manual mistakes from earlier ad hoc runs:
