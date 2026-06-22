@@ -95,6 +95,7 @@ report schemas are:
 | `scripts/generate-evidence-index.py` | `permeantos-evidence-index-v0` |
 | `scripts/build-release-artifacts.py` | `permeantos-release-artifacts-v0` |
 | `scripts/check-package-readiness.py` | `permeantos-package-readiness-v0` |
+| `scripts/run-evidence-job.py` | `permeantos-evidence-job-v0` |
 
 Compatibility rules:
 

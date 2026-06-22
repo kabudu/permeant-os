@@ -21,6 +21,9 @@ and this project uses release tags compatible with semantic versioning.
 - Added crate and Python SDK publication-readiness metadata, documentation, a
   machine-readable readiness report, and CI gating that keeps registry
   publishing disabled until the real-release policy is complete.
+- Added scheduled/manual evidence jobs with a non-provisioning evidence report,
+  uploaded artifacts, and a hard-confirmed self-hosted AWS real-runtime lane
+  for cost-controlled validation.
 - Added model-family/runtime validation profiles and a matrix planner for
   broadening AWS real-runtime E2E evidence beyond the first Qwen MLX-to-vLLM
   path.

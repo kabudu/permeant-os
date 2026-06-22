@@ -61,7 +61,7 @@ reading the whole history.
 - [Production transport](production-transport.md): secure transport profile,
   binary frames, fallback ladder, and replay rejection.
 - [AWS real-runtime E2E runner](aws-real-runtime-e2e-runner.md): preflight,
-  run, status, cleanup, and cost controls.
+  run, status, cleanup, GitHub evidence jobs, and cost controls.
 - [AWS prewarm image](aws-prewarm-image.md): conservative bootstrap acceleration
   without always-on infrastructure.
 
