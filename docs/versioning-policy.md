@@ -33,7 +33,7 @@ Validation` workflows upload those reports as GitHub Actions artifacts for tags
 or manual dispatch. This is packaging readiness, not GitHub Release publishing.
 Creating GitHub Releases, signing assets, publishing crates, or publishing
 Python packages still requires the real-release gate described in Lazarus mode
-and a future documented publishing policy.
+and `docs/publishing-policy.md`.
 
 ## USXF
 
@@ -98,6 +98,7 @@ report schemas are:
 | `scripts/build-release-artifacts.py` | `permeantos-release-artifacts-v0` |
 | `scripts/validate-release.py` | `permeantos-release-validation-v0` |
 | `scripts/check-package-readiness.py` | `permeantos-package-readiness-v0` |
+| `scripts/check-publishing-policy.py` | `permeantos-publishing-policy-v0` |
 | `scripts/run-evidence-job.py` | `permeantos-evidence-job-v0` |
 | `scripts/run-adapter-conformance.py` | `permeantos-adapter-conformance-v0` |
 | `permeant-cli starter-demo` | `permeantos-starter-demo-v0` |

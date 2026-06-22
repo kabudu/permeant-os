@@ -34,6 +34,9 @@ and this project uses release tags compatible with semantic versioning.
 - Added `permeant-cli starter-demo`, a one-command loopback migration demo for
   installed binaries that validates the committed manifest, emits
   `permeantos-starter-demo-v0`, and runs in PR CI.
+- Added `permeantos-publishing-policy-v0`, documenting ownership, credentials,
+  signing, registry publishing, rollback, and current no-publishing enforcement,
+  with a CI gate that verifies real publishing remains disabled.
 - Added model-family/runtime validation profiles and a matrix planner for
   broadening AWS real-runtime E2E evidence beyond the first Qwen MLX-to-vLLM
   path.

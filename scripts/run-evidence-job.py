@@ -186,6 +186,17 @@ def non_provisioning(out_dir: Path) -> dict[str, Any]:
             out_dir,
         )
     )
+    steps.append(
+        run_step(
+            "publishing-policy",
+            [
+                str(ROOT / "scripts" / "check-publishing-policy.py"),
+                "--json-out",
+                str(out_dir / "publishing-policy.json"),
+            ],
+            out_dir,
+        )
+    )
     return write_report(
         out_dir,
         "non-provisioning",

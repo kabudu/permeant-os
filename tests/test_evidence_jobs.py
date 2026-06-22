@@ -28,6 +28,7 @@ def test_evidence_workflow_has_safe_scheduled_non_provisioning_lane():
     assert "starter-migration-demo" in runner
     assert "starter-demo" in runner
     assert "run-adapter-conformance.py" in runner
+    assert "check-publishing-policy.py" in runner
     assert 'PERMEANT_EVIDENCE_INCLUDE_SOCKET_TESTS", "1"' in runner
 
 
@@ -92,8 +93,10 @@ def test_non_provisioning_evidence_job_emits_report_and_skips_cloud():
             "plan-model-runtime-validations",
             "aws-preflight-non-provisioning",
             "package-readiness",
+            "publishing-policy",
         } == step_names
         assert (out_dir / "adapter-conformance" / "adapter-conformance-report.json").is_file()
+        assert (out_dir / "publishing-policy.json").is_file()
         preflight_state = out_dir / "aws-preflight-state" / "latest"
         preflight_report = json.loads((preflight_state / "preflight-report.json").read_text())
         checks = {check["name"]: check["status"] for check in preflight_report["checks"]}
