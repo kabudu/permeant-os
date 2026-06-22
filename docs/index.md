@@ -80,6 +80,9 @@ reading the whole history.
   raw-vs-quantized manifest comparisons.
 - [Adaptive transfer codecs](adaptive-transfer-codecs.md): raw, FP8, and future
   codec planning with fallback semantics.
+- [QATQ PermeantOS feedback](qatq-permeantos-feedback-2026-06-22.md):
+  exact migration artifact contract, API-freeze feedback, and remaining AWS
+  trial evidence required before QATQ is folded back into the production path.
 
 ## Current Limits
 

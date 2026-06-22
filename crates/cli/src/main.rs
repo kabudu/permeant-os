@@ -12,8 +12,9 @@ use permeant_injector::KVConnectorBase_V1;
 use permeant_orchestrator::{MigrationOrchestrator, ResourcePolicy};
 use permeant_transpiler::{
     canonical_to_vllm_block_key, canonical_to_vllm_block_value, compute_optimal_scale,
-    decode_qatq_phase2_transfer, dequantize_e4m3_scaled, encode_qatq_phase2_transfer,
-    quantize_e4m3_scaled, Tensor, QATQ_PHASE2_STORAGE, RAW_F32LE_PASS_THROUGH_STORAGE,
+    decode_qatq_phase2_transfer, dequantize_e4m3_scaled, encode_qatq_exact_f32le_transfer,
+    quantize_e4m3_scaled, Tensor, QATQ_EXACT_F32LE_STORAGE, QATQ_PHASE2_STORAGE,
+    RAW_F32LE_PASS_THROUGH_STORAGE,
 };
 use permeant_transport::{
     compute_crc32, recv_message, send_message, verify_chunk_crc32, AgentGraphBinding,
@@ -290,13 +291,13 @@ async fn handle_migration_connection(
                         );
                     }
                     match codec.storage.as_str() {
-                        QATQ_PHASE2_STORAGE | RAW_F32LE_PASS_THROUGH_STORAGE => {
-                            decode_qatq_phase2_transfer(
-                                &codec.storage,
-                                &data,
-                                expected_float_count,
-                            )?
-                        }
+                        QATQ_EXACT_F32LE_STORAGE
+                        | QATQ_PHASE2_STORAGE
+                        | RAW_F32LE_PASS_THROUGH_STORAGE => decode_qatq_phase2_transfer(
+                            &codec.storage,
+                            &data,
+                            expected_float_count,
+                        )?,
                         other => bail!("Unsupported QATQ payload storage: {other}"),
                     }
                 }
@@ -1231,7 +1232,7 @@ impl QatqDecisionStats {
             return;
         };
         match codec.storage.as_str() {
-            QATQ_PHASE2_STORAGE => {
+            QATQ_EXACT_F32LE_STORAGE | QATQ_PHASE2_STORAGE => {
                 self.compressed_chunks += 1;
                 self.compressed_bytes += payload.data.len() as u64;
                 if let Some(strategy) = &codec.strategy {
@@ -1267,7 +1268,7 @@ fn encode_payload(data: &[f32], transfer_codec: TransferCodec) -> Result<Encoded
             })
         }
         TransferCodec::Qatq => {
-            let transfer = encode_qatq_phase2_transfer(data)?;
+            let transfer = encode_qatq_exact_f32le_transfer(data)?;
             let codec = PayloadCodecMetadata {
                 transfer_codec: "qatq".to_string(),
                 storage: transfer.storage_name().to_string(),

@@ -1,0 +1,16 @@
+[package]
+name = "permeant-qatq-migration"
+version = "0.1.0"
+edition = "2021"
+description = "PermeantOS QATQ exact migration artifact manifest and verification helpers"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+publish = false
+
+[dependencies]
+qatq.workspace = true
+serde.workspace = true
+sha2.workspace = true
+thiserror.workspace = true

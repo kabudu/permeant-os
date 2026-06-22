@@ -15,6 +15,13 @@ PermeantOS is a Rust project, so the primary integration should use QATQ as a
 Rust crate dependency. Use a pinned source dependency for this trial; do not
 depend on a crates.io package yet.
 
+Current PermeantOS feedback from the first Rust integration slice is recorded
+in [`docs/qatq-permeantos-feedback-2026-06-22.md`](qatq-permeantos-feedback-2026-06-22.md).
+That slice adds a `permeant-qatq-migration` crate for exact typed migration
+artifacts, manifest checksums, dtype/shape validation, and fail-closed restore
+tests. It is not yet the real AWS migration trial; it is the local API and
+manifest contract needed before the AWS trial can safely use QATQ exact.
+
 Recommended pin for the first PermeantOS integration pass:
 
 ```toml

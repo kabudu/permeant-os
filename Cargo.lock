@@ -632,6 +632,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "permeant-qatq-migration"
+version = "0.1.0"
+dependencies = [
+ "qatq",
+ "serde",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
 name = "permeant-transpiler"
 version = "0.1.0"
 dependencies = [

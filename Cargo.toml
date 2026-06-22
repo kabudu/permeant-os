@@ -8,6 +8,7 @@ members = [
     "crates/extractor",
     "crates/injector",
     "crates/qatq-compat",
+    "crates/qatq-migration",
     "crates/cli"
 ]
 
