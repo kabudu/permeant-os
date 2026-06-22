@@ -88,3 +88,18 @@ def test_release_artifact_builder_rejects_unsafe_version_components():
 
         assert result.returncode != 0
         assert "version must match" in result.stderr
+
+
+def test_release_validation_workflow_builds_validates_and_uploads_reports():
+    workflow = (ROOT / ".github" / "workflows" / "release-validation.yml").read_text()
+
+    assert "scripts/build-release-artifacts.py" in workflow
+    assert "scripts/check-package-readiness.py --json-out dist/release/package-readiness.json" in workflow
+    assert "scripts/validate-release.py" in workflow
+    assert "--package-readiness dist/release/package-readiness.json" in workflow
+    assert "dist/release/release-validation.json" in workflow
+    assert "actions/upload-artifact@v7.0.1" in workflow
+    assert "contents: read" in workflow
+    assert "gh release" not in workflow
+    assert "cargo publish" not in workflow
+    assert "twine upload" not in workflow

@@ -1,10 +1,14 @@
 # Release Artifacts
 
-PermeantOS release artifacts are built by `scripts/build-release-artifacts.py`.
-The script creates a binary archive, `checksums.txt`, and a machine-readable
-`release-manifest.json` without publishing anything.
+PermeantOS release artifacts are built by `scripts/build-release-artifacts.py`
+and validated by `scripts/validate-release.py`. The builder creates a binary
+archive, `checksums.txt`, and a machine-readable `release-manifest.json`
+without publishing anything. The validator checks the tag format, changelog
+promotion, artifact manifest, archive checksums, archive contents, and optional
+package-readiness report.
 
 Current artifact schema: `permeantos-release-artifacts-v0`.
+Current validation schema: `permeantos-release-validation-v0`.
 
 ## Build Locally
 
@@ -44,6 +48,13 @@ The `Release Artifacts` workflow runs on:
 It builds the Linux `x86_64-unknown-linux-gnu` bundle and uploads the archive,
 checksum file, and manifest as workflow artifacts.
 
+The `Release Validation` workflow runs on the same tag pattern and on manual
+dispatch. It builds the Linux artifact bundle, runs the package-readiness gate,
+and writes `release-validation.json`. Tag-triggered runs are strict: the
+matching changelog section must already be promoted out of `Unreleased`.
+Manual candidate runs may set `allow_unreleased_changelog=true` when validating
+artifacts before the final changelog promotion.
+
 This workflow intentionally does not create GitHub Releases, publish crates, or
 publish package registry artifacts. Those steps remain behind the real-release
 gate in `docs/versioning-policy.md`: publishing requires documented ownership,
@@ -65,6 +76,17 @@ On macOS, use:
 shasum -a 256 -c checksums.txt
 ```
 
+Validate the full local artifact set:
+
+```bash
+scripts/check-package-readiness.py --json-out dist/release/package-readiness.json
+scripts/validate-release.py \
+  --version v0.1.30-platform \
+  --artifact-dir dist/release \
+  --package-readiness dist/release/package-readiness.json \
+  --json-out dist/release/release-validation.json
+```
+
 ## Install
 
 Extract the archive and put the bundled binary on `PATH`:
@@ -78,7 +100,8 @@ permeant-cli --help
 ## Compatibility Boundary
 
 These artifacts are pre-1.0 platform bundles. They prove that PermeantOS can
-produce checksummed binary packages from the repository, but they are not yet
-registry-published packages or signed GitHub Release assets. The next release
-maturity step is to add GitHub Release creation and signing once the repository
-has the explicit publishing policy and credentials path for that mode.
+produce and validate checksummed binary packages from the repository, but they
+are not yet registry-published packages or signed GitHub Release assets. The
+next release maturity step is to add GitHub Release creation and signing once
+the repository has the explicit publishing policy and credentials path for that
+mode.
