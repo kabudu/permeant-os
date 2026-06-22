@@ -45,12 +45,30 @@ jobs:
           python-version: "3.11"
           cache: pip
 
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-evidence-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-evidence-cargo-
+
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install pytest jsonschema requests numpy
 
       - name: Run non-provisioning evidence job
+        env:
+          PERMEANT_EVIDENCE_INCLUDE_STARTER_DEMO: "1"
         run: |
           python scripts/run-evidence-job.py \
             --mode non-provisioning \

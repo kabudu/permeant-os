@@ -129,6 +129,12 @@ def stage_artifact(version: str, target: str, binary: Path, out_dir: Path) -> Pa
                 "",
                 "Verify the downloaded archive against `checksums.txt` before installing.",
                 "",
+                "Run the starter migration demo:",
+                "",
+                "```bash",
+                "permeant-cli starter-demo --seq-len 128 --out-dir .permeant-demo",
+                "```",
+                "",
             ]
         ),
         encoding="utf-8",

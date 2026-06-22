@@ -242,6 +242,17 @@ Build the Rust CLI:
 cargo build
 ```
 
+Run the one-command local starter migration demo:
+
+```bash
+./target/debug/permeant-cli starter-demo --seq-len 128 --out-dir .permeant-demo
+```
+
+The demo starts a loopback target daemon, migrates a small simulated KV cache,
+commits it through the same local transport/protocol path used by
+`daemon`/`sim-migrate`, and writes `.permeant-demo/starter-demo-report.json`
+plus the migration manifest.
+
 Run a local simulated migration target:
 
 ```bash

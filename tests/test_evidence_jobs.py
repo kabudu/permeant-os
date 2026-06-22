@@ -22,7 +22,11 @@ def test_evidence_workflow_has_safe_scheduled_non_provisioning_lane():
     assert "--mode non-provisioning" in workflow
     assert "ubuntu-latest" in workflow
     assert "permeantos-non-provisioning-evidence" in workflow
+    assert "PERMEANT_EVIDENCE_INCLUDE_STARTER_DEMO: \"1\"" in workflow
+    assert "rustup toolchain install stable --profile minimal" in workflow
     assert '"tests/test_runtime_http_bridge.py"' in runner
+    assert "starter-migration-demo" in runner
+    assert "starter-demo" in runner
     assert "run-adapter-conformance.py" in runner
     assert 'PERMEANT_EVIDENCE_INCLUDE_SOCKET_TESTS", "1"' in runner
 
@@ -57,7 +61,11 @@ def test_evidence_runner_rejects_unconfirmed_aws_mode_without_side_effects():
 def test_non_provisioning_evidence_job_emits_report_and_skips_cloud():
     with tempfile.TemporaryDirectory() as tmpdir:
         out_dir = pathlib.Path(tmpdir) / "evidence"
-        env = {**os.environ, "PERMEANT_EVIDENCE_INCLUDE_SOCKET_TESTS": "0"}
+        env = {
+            **os.environ,
+            "PERMEANT_EVIDENCE_INCLUDE_SOCKET_TESTS": "0",
+            "PERMEANT_EVIDENCE_INCLUDE_STARTER_DEMO": "0",
+        }
         result = subprocess.run(
             [sys.executable, str(RUNNER), "--mode", "non-provisioning", "--out-dir", str(out_dir)],
             cwd=ROOT,
@@ -75,6 +83,7 @@ def test_non_provisioning_evidence_job_emits_report_and_skips_cloud():
         assert report["cloud_resources_created"] is False
         assert report["cleanup_required"] is False
         assert report["socket_tests_included"] is False
+        assert report["starter_demo_included"] is False
         step_names = {step["name"] for step in report["steps"]}
         assert {
             "adapter-and-evidence-tests",

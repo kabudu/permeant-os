@@ -97,6 +97,17 @@ export PATH="$PWD/permeantos-<version>-<target>/bin:$PATH"
 permeant-cli --help
 ```
 
+Run the starter migration demo from the installed binary:
+
+```bash
+permeant-cli starter-demo --seq-len 128 --out-dir .permeant-demo
+```
+
+The demo starts a loopback daemon, performs a bounded simulated KV migration,
+validates the committed manifest, and writes
+`.permeant-demo/starter-demo-report.json` using schema
+`permeantos-starter-demo-v0`.
+
 ## Compatibility Boundary
 
 These artifacts are pre-1.0 platform bundles. They prove that PermeantOS can

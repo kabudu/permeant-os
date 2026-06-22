@@ -26,6 +26,7 @@ EXPECTED_TOOL_SCHEMAS = {
     "scripts/check-package-readiness.py": "permeantos-package-readiness-v0",
     "scripts/run-evidence-job.py": "permeantos-evidence-job-v0",
     "scripts/run-adapter-conformance.py": "permeantos-adapter-conformance-v0",
+    "crates/cli/src/main.rs": "permeantos-starter-demo-v0",
 }
 
 
