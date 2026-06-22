@@ -37,6 +37,17 @@ capabilities.
 
 ## Commands
 
+Run the full adapter conformance gate:
+
+```bash
+scripts/run-adapter-conformance.py --out-dir dist/adapter-conformance
+```
+
+It emits `permeantos-adapter-conformance-v0` JSON at
+`dist/adapter-conformance/adapter-conformance-report.json`, writes the
+framework adapter manifest and compatibility matrix, exports each reference
+adapter package, and imports each package back through the verifier.
+
 Print the adapter capability manifest:
 
 ```bash

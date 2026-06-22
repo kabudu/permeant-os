@@ -392,6 +392,9 @@ Deliverables:
     started, evidence, adapter authoring, release artifacts, and roadmap status.
 - Runtime adapter authoring guide with conformance fixtures and evidence
   requirements.
+  - [x] Versioned adapter conformance report covering command-backed runtime
+    adapter tests, framework adapter manifest/matrix output, and reference
+    graph export/import fixtures.
 - Public evidence dashboard or generated evidence index linking each validated
   runtime/model path to proof reports, commands, and known limitations.
   - [x] Generated evidence index with schema-versioned JSON, Markdown summary,

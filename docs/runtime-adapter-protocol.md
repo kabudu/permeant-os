@@ -258,6 +258,19 @@ This repo now includes starter adapter entry points:
 - `adapters/pytorch_injector.py`
 - `adapters/llamacpp_injector.py`
 
+## Conformance Gate
+
+Run the adapter conformance report before claiming a new runtime adapter:
+
+```bash
+scripts/run-adapter-conformance.py --out-dir dist/adapter-conformance
+```
+
+The report runs the command-backed runtime adapter tests, framework adapter
+manifest/matrix checks, and reference graph export/import fixtures. New adapter
+families should add fixtures here before they are included in scheduled
+evidence jobs.
+
 Both scripts already speak the documented stdin/stdout JSON contract.
 
 They support fixture-backed bring-up immediately:

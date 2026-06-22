@@ -23,6 +23,7 @@ def test_evidence_workflow_has_safe_scheduled_non_provisioning_lane():
     assert "ubuntu-latest" in workflow
     assert "permeantos-non-provisioning-evidence" in workflow
     assert '"tests/test_runtime_http_bridge.py"' in runner
+    assert "run-adapter-conformance.py" in runner
     assert 'PERMEANT_EVIDENCE_INCLUDE_SOCKET_TESTS", "1"' in runner
 
 
@@ -77,11 +78,13 @@ def test_non_provisioning_evidence_job_emits_report_and_skips_cloud():
         step_names = {step["name"] for step in report["steps"]}
         assert {
             "adapter-and-evidence-tests",
+            "adapter-conformance-report",
             "generate-evidence-index",
             "plan-model-runtime-validations",
             "aws-preflight-non-provisioning",
             "package-readiness",
         } == step_names
+        assert (out_dir / "adapter-conformance" / "adapter-conformance-report.json").is_file()
         preflight_state = out_dir / "aws-preflight-state" / "latest"
         preflight_report = json.loads((preflight_state / "preflight-report.json").read_text())
         checks = {check["name"]: check["status"] for check in preflight_report["checks"]}

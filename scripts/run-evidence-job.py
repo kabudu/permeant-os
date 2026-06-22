@@ -23,14 +23,11 @@ SCHEMA_VERSION = "permeantos-evidence-job-v0"
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT_DIR = ROOT / "dist" / "evidence"
 NON_PROVISIONING_TESTS = (
-    "tests/test_agent_framework_adapters.py",
-    "tests/test_runtime_adapters.py",
-    "tests/test_pytorch_runtime_adapter.py",
-    "tests/test_llamacpp_runtime_adapter.py",
     "tests/test_generate_evidence_index.py",
     "tests/test_plan_model_runtime_validations.py",
     "tests/test_aws_real_runtime_e2e_preflight.py",
     "tests/test_package_readiness.py",
+    "tests/test_adapter_conformance_report.py",
 )
 SOCKET_TESTS = ("tests/test_runtime_http_bridge.py",)
 
@@ -105,6 +102,18 @@ def non_provisioning(out_dir: Path) -> dict[str, Any]:
         evidence_tests.extend(SOCKET_TESTS)
 
     steps.append(run_step("adapter-and-evidence-tests", [python, "-m", "pytest", *evidence_tests], out_dir))
+    steps.append(
+        run_step(
+            "adapter-conformance-report",
+            [
+                python,
+                str(ROOT / "scripts" / "run-adapter-conformance.py"),
+                "--out-dir",
+                str(out_dir / "adapter-conformance"),
+            ],
+            out_dir,
+        )
+    )
     steps.append(
         run_step(
             "generate-evidence-index",

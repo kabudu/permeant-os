@@ -4,7 +4,7 @@
 
 PermeantOS is an early open-source platform for live AI agent migration. It introduces a state-fluid hypervisor and the Unified State Exchange Format (USXF), a runtime-neutral format for moving active AI state across heterogeneous model runtimes.
 
-Today, PermeantOS provides validated live KV-cache migration paths, Agent Memory Graph binding, production transport foundations, runtime adapter scaffolding, repeatable evidence tooling, a public documentation hub, a generated claim-to-evidence index, and checksummed release artifact packaging. The current platform-maturity work focuses on the remaining steps toward a durable open-source release line: crate and SDK publication readiness, broader runtime adapters, longer horizons, compatibility evidence, automated evidence jobs, signed release assets, and contributor-ready runtime contracts.
+Today, PermeantOS provides validated live KV-cache migration paths, Agent Memory Graph binding, production transport foundations, runtime adapter scaffolding, repeatable evidence tooling, a public documentation hub, a generated claim-to-evidence index, checksummed release artifact packaging, package and SDK publication-readiness gates, scheduled/manual evidence jobs, and versioned adapter conformance reporting. The current platform-maturity work focuses on the remaining steps toward a durable open-source release line: broader runtime adapters, longer horizons, compatibility evidence, signed release assets, and contributor-ready runtime contracts.
 
 ## Why this matters
 
@@ -144,6 +144,14 @@ Current strengths:
   adapter authoring, release artifacts, and roadmap status.
 - Checksummed release artifact builder and GitHub Actions artifact workflow for
   pre-publication binary bundles.
+- Package and SDK publication-readiness gate covering Rust crate metadata,
+  Python SDK metadata, README coverage, and packaging policy before any real
+  registry publication.
+- Scheduled/manual evidence jobs with a non-provisioning default lane and a
+  hard-confirmed AWS real-runtime lane for future self-hosted evidence runners.
+- Versioned adapter conformance report covering command-backed runtime adapter
+  tests, framework adapter manifests, compatibility matrices, and graph
+  export/import fixtures.
 - Graph-attached live KV migration planning notes and acceptance criteria.
 - Repeatable AWS E2E runner with cleanup verification.
 - Conservative AWS prewarm recipe for reducing E2E bootstrap time without
@@ -158,9 +166,9 @@ Current limitations:
 - vLLM integration relies on internal runtime behavior that may change.
 - Python adapters are needed for Python-native ML runtimes.
 - Runtime coverage is still intentionally bounded. Broader cloud matrices,
-  crate publication readiness, Python SDK packaging, signed GitHub Releases,
-  binary distribution policy, and longer-horizon quantized-transfer fidelity
-  evaluation remain planned.
+  signed GitHub Releases, binary distribution policy, production package
+  publication, and longer-horizon quantized-transfer fidelity evaluation remain
+  planned.
 
 ## Learn more
 
