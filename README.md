@@ -162,6 +162,9 @@ What is still experimental:
   Graph package validation for the graph-attached MLX-to-vLLM path.
 - `docs/aws-real-runtime-qatq-2026-06-20.md`: experimental
   Quaternion-Augmented TurboQuant AWS real-runtime validation.
+- `docs/qatq-aws-migration-integration.md`: crate-first QATQ integration
+  guide for the next AWS live-migration confirmation pass before QATQ API
+  freeze.
 - `docs/agent-activity-continuation-proof-2026-06-20.md`: deterministic
   Agent Memory Graph resume proof showing post-import tool activity and new
   graph evidence.
