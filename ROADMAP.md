@@ -380,6 +380,9 @@ Deliverables:
   - [x] Checksummed binary bundle builder, release manifest schema, install
     instructions, and GitHub Actions artifact upload workflow for tags/manual
     dispatch.
+  - [x] Tag/manual release validation workflow that verifies tag format,
+    changelog promotion, artifact checksums, archive contents, and
+    package-readiness evidence without publishing GitHub Releases or packages.
 - Rust crate publication plan for PermeantOS crates once APIs are stable enough
   for semantic versioning.
   - [x] Crate metadata, explicit `publish = false` release gate, publication
@@ -513,7 +516,7 @@ Scope:
 - [x] Build graph-attached live KV migration planning notes and acceptance
   criteria before changing the migration protocol.
 - [x] Add pull request CI for Rust and Python validation.
-- [ ] Add tag/release validation workflow once release packaging, binaries, or
+- [x] Add tag/release validation workflow once release packaging, binaries, or
   crate publishing become part of the product flow.
 - [x] Add non-provisioning AWS E2E preflight validation and wire it into PR CI
   with AWS/source/build checks explicitly skipped.

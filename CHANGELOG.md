@@ -27,6 +27,10 @@ and this project uses release tags compatible with semantic versioning.
 - Added a versioned adapter conformance report that runs runtime adapter tests,
   framework adapter manifest/matrix checks, and reference graph export/import
   fixtures for scheduled evidence jobs.
+- Added a tag/manual release validation workflow and
+  `permeantos-release-validation-v0` report that verifies changelog promotion,
+  release artifact checksums, archive contents, and package-readiness evidence
+  without publishing GitHub Releases or package registry artifacts.
 - Added model-family/runtime validation profiles and a matrix planner for
   broadening AWS real-runtime E2E evidence beyond the first Qwen MLX-to-vLLM
   path.

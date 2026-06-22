@@ -24,14 +24,16 @@ published until the repository has explicit release infrastructure for them.
 The roadmap now treats that release infrastructure as platform-maturity work
 rather than research-only housekeeping.
 
-The repository now has a release-artifact build path for pre-publication
-validation. `scripts/build-release-artifacts.py` creates checksummed binary
-archives and a manifest, and the `Release Artifacts` workflow uploads those as
-GitHub Actions artifacts for tags or manual dispatch. This is packaging
-readiness, not GitHub Release publishing. Creating GitHub Releases, signing
-assets, publishing crates, or publishing Python packages still requires the
-real-release gate described in Lazarus mode and a future documented publishing
-policy.
+The repository now has release-artifact and release-validation paths for
+pre-publication validation. `scripts/build-release-artifacts.py` creates
+checksummed binary archives and a manifest, and `scripts/validate-release.py`
+checks tag format, changelog promotion, archive checksums, archive contents,
+and package-readiness evidence. The `Release Artifacts` and `Release
+Validation` workflows upload those reports as GitHub Actions artifacts for tags
+or manual dispatch. This is packaging readiness, not GitHub Release publishing.
+Creating GitHub Releases, signing assets, publishing crates, or publishing
+Python packages still requires the real-release gate described in Lazarus mode
+and a future documented publishing policy.
 
 ## USXF
 
@@ -94,6 +96,7 @@ report schemas are:
 | `scripts/aws-real-runtime-e2e.sh preflight` | `permeantos-aws-e2e-preflight-v0` |
 | `scripts/generate-evidence-index.py` | `permeantos-evidence-index-v0` |
 | `scripts/build-release-artifacts.py` | `permeantos-release-artifacts-v0` |
+| `scripts/validate-release.py` | `permeantos-release-validation-v0` |
 | `scripts/check-package-readiness.py` | `permeantos-package-readiness-v0` |
 | `scripts/run-evidence-job.py` | `permeantos-evidence-job-v0` |
 | `scripts/run-adapter-conformance.py` | `permeantos-adapter-conformance-v0` |
