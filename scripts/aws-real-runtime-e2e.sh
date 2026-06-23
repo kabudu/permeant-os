@@ -174,13 +174,15 @@ source_reverse_import_url() {
 }
 
 validate_source_continuation_file() {
-  python3 - "$PERMEANT_SOURCE_CONTINUATION_FILE" "$PERMEANT_SEQ_LEN" <<'PY'
+  python3 - "$PERMEANT_SOURCE_CONTINUATION_FILE" "$PERMEANT_SEQ_LEN" "$PERMEANT_CONTINUATION_MAX_TOKENS" "$PERMEANT_VLLM_MAX_MODEL_LEN" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
 required_tokens = int(sys.argv[2])
+continuation_tokens = int(sys.argv[3])
+max_model_len = int(sys.argv[4])
 try:
     payload = json.loads(path.read_text())
 except FileNotFoundError:
@@ -198,6 +200,12 @@ if not isinstance(prompt_token_count, int):
 if prompt_token_count < required_tokens:
     raise SystemExit(
         f"source continuation prompt_token_count {prompt_token_count} is below required seq_len {required_tokens}"
+    )
+if prompt_token_count + continuation_tokens > max_model_len:
+    raise SystemExit(
+        "source continuation prompt leaves no target decode headroom: "
+        f"prompt_token_count {prompt_token_count} + continuation {continuation_tokens} > "
+        f"vLLM max model length {max_model_len}"
     )
 if not isinstance(prompt_token_ids, list) or len(prompt_token_ids) < required_tokens:
     raise SystemExit(
@@ -565,7 +573,6 @@ preflight_cmd() {
   else
     check_status fail "configuration:transfer_quantization" "unsupported PERMEANT_TRANSFER_QUANTIZATION: $PERMEANT_TRANSFER_QUANTIZATION" >> "$checks_file"
   fi
-
   if [[ "$PERMEANT_AGENT_ACTIVITY_RESUME" == "0" || "$PERMEANT_AGENT_ACTIVITY_RESUME" == "1" ]]; then
     check_status pass "configuration:agent_activity_resume" "$PERMEANT_AGENT_ACTIVITY_RESUME" >> "$checks_file"
   else
@@ -1146,6 +1153,64 @@ print(json.dumps({
 PY
 }
 
+enforce_qatq_live_compression_gate() {
+  [[ "$PERMEANT_TRANSFER_QUANTIZATION" == "qatq" ]] || return 0
+  local manifest
+  manifest="$(json_get "$STATE_FILE" manifest)"
+  [[ -n "$manifest" ]] || die "QATQ live compression gate cannot run without a migration manifest"
+  [[ -f "$ROOT_DIR/$manifest" ]] || die "QATQ live compression gate manifest not found: $ROOT_DIR/$manifest"
+  log "enforcing QATQ live compression gate"
+  python3 - "$ROOT_DIR/$manifest" "$RUN_DIR/qatq-live-compression-gate.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest_path = Path(sys.argv[1])
+out_path = Path(sys.argv[2])
+manifest = json.loads(manifest_path.read_text())
+
+raw = int(manifest.get("raw_f32le_baseline_bytes") or manifest.get("uncompressed_bytes") or 0)
+transferred = int(manifest.get("transferred_bytes") or 0)
+zstd_bytes = int(manifest.get("zstd_raw_f32le_bytes") or 0)
+lz4_bytes = int(manifest.get("lz4_raw_f32le_bytes") or 0)
+pass_through = int(manifest.get("qatq_pass_through_chunks") or 0)
+compressed_chunks = int(manifest.get("qatq_compressed_chunks") or 0)
+strategies = manifest.get("qatq_strategies") or {}
+
+checks = {
+    "migration_success": manifest.get("success") is True,
+    "uses_qatq_exact": strategies.get("qatq-exact", 0) > 0,
+    "no_qatq_pass_through": pass_through == 0,
+    "qatq_lte_raw": transferred <= raw if raw else False,
+    "qatq_lte_zstd": transferred <= zstd_bytes if zstd_bytes else False,
+    "qatq_lte_lz4": transferred <= lz4_bytes if lz4_bytes else False,
+}
+passed = all(checks.values())
+def ratio(value: int, denom: int) -> float | None:
+    return (value / denom) if denom else None
+report = {
+    "schema_version": "permeantos-qatq-live-compression-gate-v0",
+    "status": "pass" if passed else "fail",
+    "manifest": str(manifest_path),
+    "checks": checks,
+    "raw_f32le_baseline_bytes": raw,
+    "qatq_transferred_bytes": transferred,
+    "zstd_raw_f32le_bytes": zstd_bytes,
+    "lz4_raw_f32le_bytes": lz4_bytes,
+    "qatq_ratio_vs_raw": ratio(transferred, raw),
+    "zstd_ratio_vs_raw": ratio(zstd_bytes, raw),
+    "lz4_ratio_vs_raw": ratio(lz4_bytes, raw),
+    "qatq_compressed_chunks": compressed_chunks,
+    "qatq_pass_through_chunks": pass_through,
+    "qatq_strategies": strategies,
+}
+out_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+print(json.dumps(report, indent=2, sort_keys=True))
+if not passed:
+    raise SystemExit("QATQ live compression gate failed")
+PY
+}
+
 run_reverse_runtime_import() {
   [[ "$PERMEANT_REVERSE_RUNTIME_IMPORT" == "1" ]] || return 0
   log "exporting vLLM target decode boundary through reverse runtime API"
@@ -1361,6 +1426,7 @@ run_cmd() {
   run_migration
   collect_artifacts
   analyze_artifacts
+  enforce_qatq_live_compression_gate
   run_reverse_runtime_import
   run_agent_activity_resume
   run_agent_activity_return_home

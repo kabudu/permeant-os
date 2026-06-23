@@ -12,15 +12,17 @@ publish = false
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+lz4_flex.workspace = true
+zstd.workspace = true
 tokio.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 chrono.workspace = true
 rand.workspace = true
-usxf-core = { path = "../usxf-core" }
-permeant-transpiler = { path = "../transpiler" }
-permeant-transport = { path = "../transport" }
-permeant-orchestrator = { path = "../orchestrator" }
-permeant-extractor = { path = "../extractor" }
-permeant-injector = { path = "../injector" }
+usxf-core = { version = "0.1.0", path = "../usxf-core" }
+permeant-transpiler = { version = "0.1.0", path = "../transpiler" }
+permeant-transport = { version = "0.1.0", path = "../transport" }
+permeant-orchestrator = { version = "0.1.0", path = "../orchestrator" }
+permeant-extractor = { version = "0.1.0", path = "../extractor" }
+permeant-injector = { version = "0.1.0", path = "../injector" }

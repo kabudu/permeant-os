@@ -4,6 +4,11 @@ PermeantOS now has package metadata and a CI gate for Rust crates and the
 Python SDK, but it does not publish registry packages yet.
 
 Current readiness schema: `permeantos-package-readiness-v0`.
+Current release version schema: `permeantos-release-version-consistency-v0`.
+
+The repository-level release manifest is `release.toml`. It is the source of
+truth for the current product SemVer, future product tag, publish-disabled
+package set, binary package identity, and GitHub Release publishing flag.
 
 ## Current Gate
 
@@ -21,6 +26,36 @@ The verifier checks that:
   classifiers, and an existing package README;
 - the Python SDK declares `tool.permeantos.release.publish = false`;
 - the report records that no crates or Python packages have been published.
+
+Run the crate packaging verifier:
+
+```bash
+scripts/check-crate-packaging.py --json-out /tmp/permeantos-crate-packaging.json
+```
+
+The packaging verifier checks that every internal path dependency has a
+matching version constraint and runs `cargo package --locked --no-verify` for
+workspace crates that do not depend on unpublished internal crates. Downstream
+crate package verification is reported as deferred until the internal crates are
+published in order; Cargo resolves versioned path dependencies against
+crates.io during packaging, so those archives cannot be produced honestly before
+the upstream packages exist.
+
+Run the release version consistency verifier:
+
+```bash
+scripts/check-release-version.py --json-out /tmp/permeantos-release-version.json
+```
+
+For a future real product/package release, use product mode so the requested tag
+must match `release.toml`:
+
+```bash
+scripts/check-release-version.py \
+  --release-version v0.1.0 \
+  --release-kind product \
+  --json-out /tmp/permeantos-release-version.json
+```
 
 `publish = false` is intentional. Publishing remains behind the real-release
 gate in `docs/versioning-policy.md` and `docs/publishing-policy.md`: package
@@ -40,19 +75,25 @@ The first publishable crate set should be split by API stability:
 | `permeant-extractor` | Source runtime adapter boundary | Metadata complete, publish gated |
 | `permeant-injector` | Target runtime adapter boundary | Metadata complete, publish gated |
 | `permeant-orchestrator` | Migration orchestration and commit coordination | Metadata complete, publish gated |
+| `permeant-qatq-migration` | Exact typed QATQ migration artifact manifests and restore validation | Metadata complete, publish gated |
 | `permeant-cli` | Binary CLI package | Metadata complete, publish gated |
-| `qatq` | Temporary compatibility shim only | Metadata complete, publish gated; replace with external QATQ crate when mature |
+| external `qatq` | QATQ exact transfer-compression codec | Consumed from crates.io as `qatq = "0.1.1"` |
 
 Before enabling crates.io publication:
 
 1. Decide crate ownership and reserved package names.
-2. Replace path-only dependencies with versioned dependencies suitable for
-   crates.io packaging.
-3. Run `cargo package --list --locked` and `cargo package --locked` for every
-   publishable crate.
-4. Verify README, licence, repository, homepage, keywords, and categories.
-5. Document the crate publish order and rollback procedure.
-6. Enable publishing crate by crate by removing `publish = false` only in the
+2. Keep internal path dependencies paired with matching version constraints
+   suitable for crates.io packaging.
+3. Run `scripts/check-crate-packaging.py` and review the dry-run/deferred
+   package report.
+4. Run `scripts/check-release-version.py --release-kind product` and confirm
+   the tag, Rust crate versions, Python SDK version, binary package identity,
+   and publish-disabled flags are aligned with `release.toml`.
+5. Run full `cargo package --locked` verification in publish order once each
+   upstream internal crate is available to downstream package verification.
+6. Verify README, licence, repository, homepage, keywords, and categories.
+7. Document the crate publish order and rollback procedure.
+8. Enable publishing crate by crate by removing `publish = false` only in the
    release PR that performs the real publish.
 
 ## Python SDK Plan
@@ -79,6 +120,9 @@ publish Python packages, or sign release assets.
 That boundary is enforced by:
 
 - `scripts/check-package-readiness.py`;
+- `scripts/check-crate-packaging.py`;
+- `scripts/check-release-version.py`;
+- `release.toml`;
 - `tests/test_package_readiness.py`;
 - `publish = false` in Rust crate manifests;
 - `tool.permeantos.release.publish = false` in the Python SDK manifest;

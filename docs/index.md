@@ -14,7 +14,8 @@ reading the whole history.
 - [Release artifacts](release-artifacts.md): build and validate checksummed
   binary bundles, verify archives, and install `permeant-cli`.
 - [Crate and SDK publication plan](crate-and-sdk-publication-plan.md): package
-  metadata, publish-disabled gating, and future registry release steps.
+  metadata, release manifest consistency, publish-disabled gating, and future
+  registry release steps.
 - [Publishing policy](publishing-policy.md): ownership, credentials, signing,
   rollback, and current no-publishing enforcement.
 - [Versioning policy](versioning-policy.md): schema, report, artifact, and
@@ -28,6 +29,17 @@ reading the whole history.
   validated and planned model-family/runtime profiles.
 - [AWS long-horizon proof](aws-real-runtime-long-horizon-2026-06-21.md):
   Qwen2.5 MLX-to-AWS-vLLM 128-token continuation evidence.
+- [AWS QATQ exact complex proof](aws-real-runtime-qatq-exact-complex-2026-06-22.md):
+  Qwen2.5 MLX-to-AWS-vLLM exact-QATQ live migration with complex Agent Memory
+  Graph resume, reverse runtime import, return-home continuation, and explicit
+  compression caveat.
+- [AWS standalone QATQ compression proof](aws-real-runtime-qatq-standalone-compression-2026-06-22.md):
+  live MLX-to-AWS-vLLM migration using the standalone QATQ crate, exact
+  128-token continuation, reverse/return-home proof, and a passing QATQ <= raw,
+  zstd, and lz4 live compression gate.
+- [QATQ standalone compression gate](qatq-standalone-compression-gate-2026-06-22.md):
+  standalone QATQ crate compression proof on the same 47 MB full-KV bundle,
+  beating raw, `zstd`, and `lz4` while preserving exact bytes.
 - [TinyLlama AWS proof](aws-real-runtime-tinyllama-2026-06-21.md):
   raw-transfer non-Qwen structural E2E validation.
 - [llama.cpp canonical KV proof](llama-cpp-cross-runtime-canonical-kv-proof-2026-06-21.md):
@@ -80,12 +92,17 @@ reading the whole history.
   raw-vs-quantized manifest comparisons.
 - [Adaptive transfer codecs](adaptive-transfer-codecs.md): raw, FP8, and future
   codec planning with fallback semantics.
+- [QATQ PermeantOS feedback](qatq-permeantos-feedback-2026-06-22.md):
+  exact migration artifact contract, AWS exact-QATQ live migration feedback,
+  standalone compression-gate feedback, and remaining live-AWS integration work
+  before QATQ is folded back into the production path.
 
 ## Current Limits
 
 - PermeantOS is pre-1.0; supported claims are bounded to validated paths.
 - GitHub Release publishing, crate publishing, signed assets, and Python
-  package publishing are not enabled yet; `docs/publishing-policy.md` records
-  the gate that must be opened in a future real-release PR.
+  package publishing are not enabled yet; `release.toml` and
+  `docs/publishing-policy.md` record the gate that must be opened in a future
+  real-release PR.
 - QATQ is being matured separately before it is folded back into PermeantOS as
   a production codec.

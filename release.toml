@@ -1,0 +1,31 @@
+schema_version = "permeantos-release-manifest-v0"
+product_name = "permeantos"
+product_version = "0.1.0"
+product_tag = "v0.1.0"
+release_mode = "pre-publication"
+
+[rust]
+publish = false
+binary_crate = "permeant-cli"
+crates = [
+  "usxf-core",
+  "permeant-transport",
+  "permeant-transpiler",
+  "permeant-extractor",
+  "permeant-injector",
+  "permeant-orchestrator",
+  "permeant-qatq-migration",
+  "permeant-cli",
+]
+
+[python]
+publish = false
+package = "permeantos"
+
+[binaries]
+publish = false
+package = "permeant-cli"
+archive_prefix = "permeantos"
+
+[github_release]
+publish = false

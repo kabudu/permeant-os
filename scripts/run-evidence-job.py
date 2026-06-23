@@ -27,6 +27,8 @@ NON_PROVISIONING_TESTS = (
     "tests/test_plan_model_runtime_validations.py",
     "tests/test_aws_real_runtime_e2e_preflight.py",
     "tests/test_package_readiness.py",
+    "tests/test_crate_packaging.py",
+    "tests/test_release_version.py",
     "tests/test_adapter_conformance_report.py",
 )
 SOCKET_TESTS = ("tests/test_runtime_http_bridge.py",)
@@ -188,11 +190,33 @@ def non_provisioning(out_dir: Path) -> dict[str, Any]:
     )
     steps.append(
         run_step(
+            "crate-packaging",
+            [
+                str(ROOT / "scripts" / "check-crate-packaging.py"),
+                "--json-out",
+                str(out_dir / "crate-packaging.json"),
+            ],
+            out_dir,
+        )
+    )
+    steps.append(
+        run_step(
             "publishing-policy",
             [
                 str(ROOT / "scripts" / "check-publishing-policy.py"),
                 "--json-out",
                 str(out_dir / "publishing-policy.json"),
+            ],
+            out_dir,
+        )
+    )
+    steps.append(
+        run_step(
+            "release-version-consistency",
+            [
+                str(ROOT / "scripts" / "check-release-version.py"),
+                "--json-out",
+                str(out_dir / "release-version.json"),
             ],
             out_dir,
         )

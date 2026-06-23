@@ -44,6 +44,111 @@ class EvidenceRecord:
 
 EVIDENCE: tuple[EvidenceRecord, ...] = (
     EvidenceRecord(
+        id="qwen25-mlx-vllm-aws-standalone-qatq-compression-roundtrip",
+        title="Qwen2.5 MLX to AWS vLLM standalone QATQ compression round trip",
+        claim=(
+            "Live Qwen2.5 KV state migrated from local MLX to AWS vLLM over "
+            "production WSS/mTLS using the standalone QATQ crate, exact "
+            "128-token continuation fidelity, a passing QATQ <= raw/zstd/lz4 "
+            "live compression gate on streamed block artifacts, complex Agent "
+            "Memory Graph target activity, reverse runtime import, and origin "
+            "return-home continuation."
+        ),
+        status="validated-real-runtime",
+        model="Qwen/Qwen2.5-0.5B-Instruct",
+        model_family="qwen2.5",
+        source_runtime="mlx",
+        target_runtime="vllm",
+        transport="production-wss-mtls",
+        transfer_mode="standalone-qatq-exact",
+        horizon_tokens=128,
+        proof_reports=(
+            "docs/aws-real-runtime-qatq-standalone-compression-2026-06-22.md",
+            "docs/qatq-permeantos-feedback-2026-06-22.md",
+        ),
+        commands=(
+            "PERMEANT_TRANSFER_QUANTIZATION=qatq PERMEANT_SEQ_LEN=1920 PERMEANT_CONTINUATION_MAX_TOKENS=128 scripts/aws-real-runtime-e2e.sh run",
+        ),
+        ci_jobs=(
+            "PR CI / Python tests / Run AWS E2E preflight smoke test",
+            "PR CI / Python tests / Run Python tests",
+        ),
+        limitations=(
+            "This validates the recorded Qwen2.5 MLX-to-vLLM AWS path; additional models and runtime adapters still need standalone-QATQ live validation.",
+            "The recorded AWS run used a sibling QATQ checkout before crates.io publication; current PermeantOS builds consume the published qatq 0.1.1 crate.",
+            "The vLLM adapter relies on runtime internals that may change between vLLM versions.",
+        ),
+    ),
+    EvidenceRecord(
+        id="qwen25-mlx-vllm-aws-qatq-exact-complex-roundtrip",
+        title="Qwen2.5 MLX to AWS vLLM QATQ exact complex round trip",
+        claim=(
+            "Live Qwen2.5 KV state migrated from local MLX to AWS vLLM over "
+            "production WSS/mTLS with every transfer chunk using the QATQ exact "
+            "container path, exact 128-token continuation fidelity, complex "
+            "Agent Memory Graph target activity, reverse runtime import, and "
+            "origin return-home continuation."
+        ),
+        status="validated-real-runtime",
+        model="Qwen/Qwen2.5-0.5B-Instruct",
+        model_family="qwen2.5",
+        source_runtime="mlx",
+        target_runtime="vllm",
+        transport="production-wss-mtls",
+        transfer_mode="qatq-exact-f32le",
+        horizon_tokens=128,
+        proof_reports=(
+            "docs/aws-real-runtime-qatq-exact-complex-2026-06-22.md",
+            "docs/qatq-permeantos-feedback-2026-06-22.md",
+        ),
+        commands=(
+            "PERMEANT_TRANSFER_QUANTIZATION=qatq PERMEANT_SEQ_LEN=1920 PERMEANT_CONTINUATION_MAX_TOKENS=128 scripts/aws-real-runtime-e2e.sh run",
+        ),
+        ci_jobs=(
+            "PR CI / Python tests / Run AWS E2E preflight smoke test",
+            "PR CI / Python tests / Run Python tests",
+        ),
+        limitations=(
+            "The current exact QATQ compatibility path is lossless but not size-reducing; the recorded run transferred about 6.7% more bytes than raw due to container overhead.",
+            "This is historical compatibility evidence; release-facing compression evidence should use the published qatq crate path.",
+            "The vLLM adapter relies on runtime internals that may change between vLLM versions.",
+        ),
+    ),
+    EvidenceRecord(
+        id="qwen25-mlx-kv-standalone-qatq-compression-gate",
+        title="Qwen2.5 MLX full-KV standalone QATQ compression gate",
+        claim=(
+            "A full 1,920-token Qwen2.5 MLX KV bundle with all 24 key/value "
+            "layers was exported as raw f32 little-endian bytes, compressed "
+            "with the standalone QATQ crate, restored byte-for-byte, and "
+            "benchmarked against raw, zstd, and lz4 on the same packed bundle."
+        ),
+        status="validated-local-compression",
+        model="Qwen/Qwen2.5-0.5B-Instruct",
+        model_family="qwen2.5",
+        source_runtime="mlx",
+        target_runtime="none",
+        transport="local-files",
+        transfer_mode="standalone-qatq-exact-container",
+        horizon_tokens=None,
+        proof_reports=(
+            "docs/qatq-standalone-compression-gate-2026-06-22.md",
+            "docs/qatq-permeantos-feedback-2026-06-22.md",
+        ),
+        commands=(
+            "scripts/export-qatq-captures.py --model Qwen/Qwen2.5-0.5B-Instruct --seq-lens 1920 --layer-points 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23 --tensor-roles key,value",
+            "/Users/kabudu/projex/qatq/target/debug/qatq-bench --no-synthetic --exact-only --gate-policy competitive-compression --input permeantos-qwen25-1920-full-kv:<packed-bundle.f32le>",
+            "/Users/kabudu/projex/qatq/target/debug/qatq encode-chunked --max-values-per-chunk 65536 --dtype f32 <packed-bundle.f32le> <packed-bundle.qatc>",
+            "/Users/kabudu/projex/qatq/target/debug/qatq decode <packed-bundle.qatc> <decoded.f32le> && cmp <packed-bundle.f32le> <decoded.f32le>",
+        ),
+        ci_jobs=(),
+        limitations=(
+            "This is a local standalone compression proof; the live AWS proof is tracked separately.",
+            "The recorded local proof used a sibling QATQ checkout before crates.io publication; current PermeantOS builds consume the published qatq 0.1.1 crate.",
+            "The timing numbers were captured from a local debug build and should not be treated as final release-performance figures.",
+        ),
+    ),
+    EvidenceRecord(
         id="qwen25-mlx-vllm-aws-long-horizon-roundtrip",
         title="Qwen2.5 MLX to AWS vLLM long-horizon round trip",
         claim=(

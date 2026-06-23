@@ -28,7 +28,8 @@ def test_generator_emits_public_evidence_index_json():
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["schema_version"] == "permeantos-evidence-index-v0"
-    assert payload["record_count"] == 4
+    assert payload["record_count"] == len(payload["records"])
+    assert payload["record_count"] >= 7
     record_ids = {record["id"] for record in payload["records"]}
     assert "qwen25-mlx-vllm-aws-long-horizon-roundtrip" in record_ids
     assert "tinyllama-mlx-vllm-aws-raw-structural" in record_ids

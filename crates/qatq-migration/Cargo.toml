@@ -1,8 +1,8 @@
 [package]
-name = "permeant-transpiler"
+name = "permeant-qatq-migration"
 version = "0.1.0"
 edition = "2021"
-description = "PermeantOS KV layout normalization and transfer codec planning"
+description = "PermeantOS QATQ exact migration artifact manifest and verification helpers"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
@@ -10,8 +10,7 @@ readme.workspace = true
 publish = false
 
 [dependencies]
-serde.workspace = true
-anyhow.workspace = true
-thiserror.workspace = true
 qatq.workspace = true
-usxf-core = { version = "0.1.0", path = "../usxf-core" }
+serde.workspace = true
+sha2.workspace = true
+thiserror.workspace = true

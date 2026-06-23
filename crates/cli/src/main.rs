@@ -12,8 +12,9 @@ use permeant_injector::KVConnectorBase_V1;
 use permeant_orchestrator::{MigrationOrchestrator, ResourcePolicy};
 use permeant_transpiler::{
     canonical_to_vllm_block_key, canonical_to_vllm_block_value, compute_optimal_scale,
-    decode_qatq_phase2_transfer, dequantize_e4m3_scaled, encode_qatq_phase2_transfer,
-    quantize_e4m3_scaled, Tensor, QATQ_PHASE2_STORAGE, RAW_F32LE_PASS_THROUGH_STORAGE,
+    decode_qatq_phase2_transfer, dequantize_e4m3_scaled, encode_qatq_exact_f32le_transfer,
+    quantize_e4m3_scaled, Tensor, QATQ_EXACT_F32LE_STORAGE, QATQ_PHASE2_STORAGE,
+    RAW_F32LE_PASS_THROUGH_STORAGE,
 };
 use permeant_transport::{
     compute_crc32, recv_message, send_message, verify_chunk_crc32, AgentGraphBinding,
@@ -290,13 +291,13 @@ async fn handle_migration_connection(
                         );
                     }
                     match codec.storage.as_str() {
-                        QATQ_PHASE2_STORAGE | RAW_F32LE_PASS_THROUGH_STORAGE => {
-                            decode_qatq_phase2_transfer(
-                                &codec.storage,
-                                &data,
-                                expected_float_count,
-                            )?
-                        }
+                        QATQ_EXACT_F32LE_STORAGE
+                        | QATQ_PHASE2_STORAGE
+                        | RAW_F32LE_PASS_THROUGH_STORAGE => decode_qatq_phase2_transfer(
+                            &codec.storage,
+                            &data,
+                            expected_float_count,
+                        )?,
                         other => bail!("Unsupported QATQ payload storage: {other}"),
                     }
                 }
@@ -497,6 +498,11 @@ struct MigrationManifest {
     uncompressed_bytes: u64,
     transferred_bytes: u64,
     compression_ratio: f64,
+    raw_f32le_baseline_bytes: u64,
+    zstd_raw_f32le_bytes: u64,
+    zstd_raw_f32le_ratio: f64,
+    lz4_raw_f32le_bytes: u64,
+    lz4_raw_f32le_ratio: f64,
     qatq_compressed_chunks: u64,
     qatq_pass_through_chunks: u64,
     qatq_compressed_bytes: u64,
@@ -619,6 +625,44 @@ struct AgentGraphPackageArtifact {
     path: String,
     sha256: String,
     size_bytes: Option<u64>,
+}
+
+#[derive(Default)]
+struct TransferCompressionBaselineStats {
+    raw_f32le_bytes: u64,
+    zstd_raw_f32le_bytes: u64,
+    lz4_raw_f32le_bytes: u64,
+}
+
+impl TransferCompressionBaselineStats {
+    fn record_f32_chunk(&mut self, values: &[f32]) -> Result<()> {
+        let mut raw = Vec::with_capacity(values.len() * 4);
+        for value in values {
+            raw.extend_from_slice(&value.to_le_bytes());
+        }
+        self.raw_f32le_bytes += raw.len() as u64;
+        self.zstd_raw_f32le_bytes += zstd::bulk::compress(&raw, 3)
+            .context("failed to zstd-compress raw f32 transfer chunk")?
+            .len() as u64;
+        self.lz4_raw_f32le_bytes += lz4_flex::compress_prepend_size(&raw).len() as u64;
+        Ok(())
+    }
+
+    fn zstd_ratio(&self) -> f64 {
+        ratio(self.zstd_raw_f32le_bytes, self.raw_f32le_bytes)
+    }
+
+    fn lz4_ratio(&self) -> f64 {
+        ratio(self.lz4_raw_f32le_bytes, self.raw_f32le_bytes)
+    }
+}
+
+fn ratio(numerator: u64, denominator: u64) -> f64 {
+    if denominator > 0 {
+        numerator as f64 / denominator as f64
+    } else {
+        0.0
+    }
 }
 
 fn collect_environment_snapshot() -> EnvironmentSnapshot {
@@ -1231,7 +1275,7 @@ impl QatqDecisionStats {
             return;
         };
         match codec.storage.as_str() {
-            QATQ_PHASE2_STORAGE => {
+            QATQ_EXACT_F32LE_STORAGE | QATQ_PHASE2_STORAGE => {
                 self.compressed_chunks += 1;
                 self.compressed_bytes += payload.data.len() as u64;
                 if let Some(strategy) = &codec.strategy {
@@ -1267,7 +1311,7 @@ fn encode_payload(data: &[f32], transfer_codec: TransferCodec) -> Result<Encoded
             })
         }
         TransferCodec::Qatq => {
-            let transfer = encode_qatq_phase2_transfer(data)?;
+            let transfer = encode_qatq_exact_f32le_transfer(data)?;
             let codec = PayloadCodecMetadata {
                 transfer_codec: "qatq".to_string(),
                 storage: transfer.storage_name().to_string(),
@@ -1449,6 +1493,7 @@ async fn run_sim_migrate(
     let mut total_transferred_bytes = 0u64;
     let mut chunks_sent = 0u64;
     let mut qatq_decision_stats = QatqDecisionStats::default();
+    let mut baseline_compression_stats = TransferCompressionBaselineStats::default();
     let transfer_start = std::time::Instant::now();
 
     for layer_idx in 0..n_layers {
@@ -1476,6 +1521,9 @@ async fn run_sim_migrate(
 
             let v_start = block_idx * v_block_size;
             let v_data = &vllm_value.data[v_start..(v_start + v_block_size)];
+
+            baseline_compression_stats.record_f32_chunk(k_data)?;
+            baseline_compression_stats.record_f32_chunk(v_data)?;
 
             // Format data payload (with optional quantization)
             let k_payload = encode_payload(k_data, transfer_codec)?;
@@ -1524,11 +1572,7 @@ async fn run_sim_migrate(
     let transfer_time = transfer_start.elapsed().as_secs_f64() * 1000.0;
 
     let uncompressed_bytes = (n_layers * 2 * n_kv_heads * head_dim * seq_len * 4) as u64; // float32 = 4 bytes
-    let compression_ratio = if uncompressed_bytes > 0 {
-        total_transferred_bytes as f64 / uncompressed_bytes as f64
-    } else {
-        0.0
-    };
+    let compression_ratio = ratio(total_transferred_bytes, uncompressed_bytes);
     let average_chunk_bytes = if chunks_sent > 0 {
         total_transferred_bytes as f64 / chunks_sent as f64
     } else {
@@ -1586,6 +1630,11 @@ async fn run_sim_migrate(
                     uncompressed_bytes,
                     transferred_bytes: total_transferred_bytes,
                     compression_ratio,
+                    raw_f32le_baseline_bytes: baseline_compression_stats.raw_f32le_bytes,
+                    zstd_raw_f32le_bytes: baseline_compression_stats.zstd_raw_f32le_bytes,
+                    zstd_raw_f32le_ratio: baseline_compression_stats.zstd_ratio(),
+                    lz4_raw_f32le_bytes: baseline_compression_stats.lz4_raw_f32le_bytes,
+                    lz4_raw_f32le_ratio: baseline_compression_stats.lz4_ratio(),
                     qatq_compressed_chunks: qatq_decision_stats.compressed_chunks,
                     qatq_pass_through_chunks: qatq_decision_stats.pass_through_chunks,
                     qatq_compressed_bytes: qatq_decision_stats.compressed_bytes,
@@ -1660,6 +1709,11 @@ async fn run_sim_migrate(
                 uncompressed_bytes,
                 transferred_bytes: total_transferred_bytes,
                 compression_ratio,
+                raw_f32le_baseline_bytes: baseline_compression_stats.raw_f32le_bytes,
+                zstd_raw_f32le_bytes: baseline_compression_stats.zstd_raw_f32le_bytes,
+                zstd_raw_f32le_ratio: baseline_compression_stats.zstd_ratio(),
+                lz4_raw_f32le_bytes: baseline_compression_stats.lz4_raw_f32le_bytes,
+                lz4_raw_f32le_ratio: baseline_compression_stats.lz4_ratio(),
                 qatq_compressed_chunks: qatq_decision_stats.compressed_chunks,
                 qatq_pass_through_chunks: qatq_decision_stats.pass_through_chunks,
                 qatq_compressed_bytes: qatq_decision_stats.compressed_bytes,
@@ -1710,6 +1764,11 @@ async fn run_sim_migrate(
                 uncompressed_bytes,
                 transferred_bytes: total_transferred_bytes,
                 compression_ratio,
+                raw_f32le_baseline_bytes: baseline_compression_stats.raw_f32le_bytes,
+                zstd_raw_f32le_bytes: baseline_compression_stats.zstd_raw_f32le_bytes,
+                zstd_raw_f32le_ratio: baseline_compression_stats.zstd_ratio(),
+                lz4_raw_f32le_bytes: baseline_compression_stats.lz4_raw_f32le_bytes,
+                lz4_raw_f32le_ratio: baseline_compression_stats.lz4_ratio(),
                 qatq_compressed_chunks: qatq_decision_stats.compressed_chunks,
                 qatq_pass_through_chunks: qatq_decision_stats.pass_through_chunks,
                 qatq_compressed_bytes: qatq_decision_stats.compressed_bytes,

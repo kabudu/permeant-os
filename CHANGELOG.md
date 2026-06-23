@@ -31,6 +31,10 @@ and this project uses release tags compatible with semantic versioning.
   `permeantos-release-validation-v0` report that verifies changelog promotion,
   release artifact checksums, archive contents, and package-readiness evidence
   without publishing GitHub Releases or package registry artifacts.
+- Added a repository-level `release.toml` manifest and
+  `permeantos-release-version-consistency-v0` gate that checks Rust crate,
+  Python SDK, binary artifact, milestone tag, and future product tag version
+  alignment before any real publishing is enabled.
 - Added `permeant-cli starter-demo`, a one-command loopback migration demo for
   installed binaries that validates the committed manifest, emits
   `permeantos-starter-demo-v0`, and runs in PR CI.
@@ -40,6 +44,38 @@ and this project uses release tags compatible with semantic versioning.
 - Corrected stale roadmap and Agent Memory Graph checklist state for the
   validated llama.cpp independent target path and graph-attached live-runtime
   span validation.
+- Added the first QATQ exact migration artifact integration slice with
+  `permeant-qatq-migration`, typed-byte manifest validation, fail-closed
+  checksum/dtype/shape checks, and API-freeze feedback for the sibling QATQ
+  project.
+- Added AWS QATQ exact complex validation report for run `20260622-150451`,
+  proving a 1,920-token MLX-to-AWS-vLLM production WSS migration with 384
+  `qatq-exact` chunks, zero QATQ pass-through chunks, exact 128-token
+  continuation fidelity, complex Agent Memory Graph activity, vLLM reverse
+  export, MLX reverse import, origin return-home continuation, direct cleanup
+  verification, and an explicit caveat that the current exact QATQ container is
+  lossless but not yet size-reducing.
+- Clarified QATQ integration instructions to distinguish the in-tree
+  compatibility path from the standalone QATQ crate path, requiring the
+  standalone crate and raw/`zstd`/`lz4` comparison before any QATQ compression
+  claim.
+- Added a standalone QATQ compression gate report for a real 47,185,920-byte
+  PermeantOS Qwen2.5 full-KV bundle, showing QATQ exact container output of
+  14,522,992 bytes, byte-for-byte decode restoration, and a passing competitive
+  compression gate against raw, `zstd`, and `lz4`.
+- Wired the live migration path to the standalone sibling QATQ crate, added
+  live raw/`zstd`/`lz4` compression baseline counters and
+  `permeantos-qatq-live-compression-gate-v0`, and validated AWS run
+  `20260622-194940` with 14,004,990 QATQ transferred bytes versus 50,331,648
+  raw block-baseline bytes, 20,405,381 zstd bytes, and 28,739,217 lz4 bytes,
+  while preserving exact 128-token continuation, reverse import, target graph
+  activity, origin return-home continuation, and cleanup proof.
+- Switched PermeantOS to the published `qatq` `0.1.1` crate and removed the
+  AWS E2E runner's sibling-checkout copy path for QATQ migrations.
+- Added Rust crate packaging dry-run validation for production release
+  readiness, including versioned internal path dependencies, CI/release
+  validation wiring, and removal of the obsolete in-tree `qatq` compatibility
+  shim.
 - Added model-family/runtime validation profiles and a matrix planner for
   broadening AWS real-runtime E2E evidence beyond the first Qwen MLX-to-vLLM
   path.
@@ -93,6 +129,9 @@ and this project uses release tags compatible with semantic versioning.
 - Adjusted the Qwen2.5 1.5B validation profile to use a 1984-token migrated
   prefix after local probing showed the 2016-token prefix left no source
   continuation headroom.
+- AWS real-runtime source continuation validation now checks the actual
+  refreshed prompt length plus continuation tokens against the target model
+  context window before cloud provisioning continues.
 
 ## [0.1.29-production-transport] - 2026-06-21
 

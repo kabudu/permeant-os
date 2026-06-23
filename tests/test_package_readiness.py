@@ -14,10 +14,10 @@ EXPECTED_PACKAGES = {
     "permeant-extractor",
     "permeant-injector",
     "permeant-orchestrator",
+    "permeant-qatq-migration",
     "permeant-transpiler",
     "permeant-transport",
     "permeantos",
-    "qatq",
     "usxf-core",
 }
 

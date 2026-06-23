@@ -92,8 +92,8 @@ What is still experimental:
   runtime-pair claims and source-exact cross-runtime parity.
 - Adaptive transfer codec planning exists for raw, FP8, TurboQuant-style, and
   Quaternion-Augmented TurboQuant candidate modes. Raw and FP8 remain in-tree
-  PermeantOS paths; QATQ is represented by a minimal compatibility crate until
-  the sibling QATQ project is mature enough to fold back in as a real crate.
+  PermeantOS paths; QATQ uses the published `qatq` crate for current exact
+  transfer-compression validation.
 
 ## Repository layout
 
@@ -112,7 +112,8 @@ What is still experimental:
 - `ROADMAP.md`: full roadmap, including Agent Memory Graph migration phases.
 - `docs/agent-memory-graph.md`: Agent Memory Graph v0 schema specification.
 - `docs/versioning-policy.md`: USXF, Agent Memory Graph, report schema, and
-  lightweight release versioning policy.
+  lightweight release versioning policy, with `release.toml` as the
+  repository-level product/package version manifest.
 - `docs/release-artifacts.md`: checksummed binary bundle, release manifest, and
   GitHub Actions artifact workflow for pre-publication release packaging.
 - `docs/crate-and-sdk-publication-plan.md`: Rust crate and Python SDK

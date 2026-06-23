@@ -2,6 +2,7 @@
 use anyhow::{bail, Result};
 
 pub const QATQ_PHASE2_STORAGE: &str = "qatq-phase2";
+pub const QATQ_EXACT_F32LE_STORAGE: &str = "qatq-exact-f32le";
 pub const RAW_F32LE_PASS_THROUGH_STORAGE: &str = "raw-f32le-pass-through";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -24,6 +25,7 @@ impl QatqPhase2Transfer {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum QatqTransferStorage {
     QatqPhase2 { strategy: &'static str },
+    QatqExactF32Le,
     RawF32LePassThrough,
 }
 
@@ -31,6 +33,7 @@ impl QatqTransferStorage {
     pub fn name(&self) -> &'static str {
         match self {
             Self::QatqPhase2 { .. } => QATQ_PHASE2_STORAGE,
+            Self::QatqExactF32Le => QATQ_EXACT_F32LE_STORAGE,
             Self::RawF32LePassThrough => RAW_F32LE_PASS_THROUGH_STORAGE,
         }
     }
@@ -38,6 +41,7 @@ impl QatqTransferStorage {
     pub fn strategy_name(&self) -> Option<&'static str> {
         match self {
             Self::QatqPhase2 { strategy } => Some(strategy),
+            Self::QatqExactF32Le => Some("qatq-exact"),
             Self::RawF32LePassThrough => None,
         }
     }
@@ -218,28 +222,23 @@ pub fn dequantize_e5m2_scaled(data: &[u8], scale: f32) -> Vec<f32> {
 }
 
 pub fn encode_qatq_phase2_transfer(data: &[f32]) -> Result<QatqPhase2Transfer> {
-    let decision =
-        qatq::try_encode_phase2_lossless_decision_with_config(data, qatq::Phase1Config::default())
-            .map_err(|err| anyhow::anyhow!("QATQ phase2 decision failed: {err}"))?;
+    encode_qatq_exact_f32le_transfer(data)
+}
 
-    match decision {
-        qatq::Phase2EncodeDecision::Compressed {
-            payload,
-            strategy,
-            raw_f32le_len,
-        } => Ok(QatqPhase2Transfer {
-            storage: QatqTransferStorage::QatqPhase2 {
-                strategy: strategy.as_str(),
-            },
-            payload,
-            raw_f32le_len,
-        }),
-        qatq::Phase2EncodeDecision::PassThroughRaw { bytes } => Ok(QatqPhase2Transfer {
-            raw_f32le_len: bytes.len(),
-            storage: QatqTransferStorage::RawF32LePassThrough,
-            payload: bytes,
-        }),
+pub fn encode_qatq_exact_f32le_transfer(data: &[f32]) -> Result<QatqPhase2Transfer> {
+    let raw_f32le_len = data.len() * 4;
+    let mut bytes = Vec::with_capacity(raw_f32le_len);
+    for value in data {
+        bytes.extend_from_slice(&value.to_le_bytes());
     }
+    let payload = qatq::try_encode_qatq_exact_tensor_le(&bytes, qatq::TensorDType::F32)
+        .map_err(|err| anyhow::anyhow!("QATQ exact f32le encode failed: {err}"))?;
+
+    Ok(QatqPhase2Transfer {
+        storage: QatqTransferStorage::QatqExactF32Le,
+        payload,
+        raw_f32le_len,
+    })
 }
 
 pub fn decode_qatq_phase2_transfer(
@@ -248,6 +247,26 @@ pub fn decode_qatq_phase2_transfer(
     expected_len: usize,
 ) -> Result<Vec<f32>> {
     match storage {
+        QATQ_EXACT_F32LE_STORAGE => {
+            let decoded = qatq::decode_qatq_exact_tensor_le(payload)
+                .map_err(|err| anyhow::anyhow!("QATQ exact f32le decode failed: {err}"))?;
+            if decoded.dtype != qatq::TensorDType::F32 {
+                bail!("QATQ exact payload dtype mismatch: expected f32");
+            }
+            if decoded.bytes_le.len() != expected_len * 4 {
+                bail!(
+                    "QATQ exact f32le payload length mismatch: expected {} bytes, got {}",
+                    expected_len * 4,
+                    decoded.bytes_le.len()
+                );
+            }
+            let mut values = Vec::with_capacity(expected_len);
+            for chunk in decoded.bytes_le.chunks_exact(4) {
+                let bytes: [u8; 4] = chunk.try_into()?;
+                values.push(f32::from_le_bytes(bytes));
+            }
+            Ok(values)
+        }
         QATQ_PHASE2_STORAGE => {
             let values = qatq::decode(payload)
                 .map_err(|err| anyhow::anyhow!("QATQ phase2 decode failed: {err}"))?;
