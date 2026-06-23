@@ -115,7 +115,9 @@ What is still experimental:
   lightweight release versioning policy, with `release.toml` as the
   repository-level product/package version manifest.
 - `docs/release-artifacts.md`: checksummed binary bundle, release manifest, and
-  GitHub Actions artifact workflow for pre-publication release packaging.
+  GitHub Actions artifact workflow for pre-publication release packaging, plus
+  the fail-closed manual real-release workflow for future signed/notarized
+  macOS binaries and GitHub Releases.
 - `docs/crate-and-sdk-publication-plan.md`: Rust crate and Python SDK
   publication-readiness gate, publish-disabled boundary, and future registry
   release checklist.

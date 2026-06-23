@@ -8,6 +8,7 @@ import hashlib
 import json
 import re
 import tarfile
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -77,8 +78,14 @@ def read_checksums(path: Path) -> dict[str, str]:
 
 
 def validate_archive_members(archive: Path) -> tuple[bool, str]:
-    with tarfile.open(archive, "r:gz") as tar:
-        names = tar.getnames()
+    if archive.name.endswith(".tar.gz"):
+        with tarfile.open(archive, "r:gz") as tar:
+            names = tar.getnames()
+    elif archive.suffix == ".zip":
+        with zipfile.ZipFile(archive) as zip_file:
+            names = zip_file.namelist()
+    else:
+        return False, f"unsupported archive format for {archive.name}"
     unsafe = [name for name in names if name.startswith("/") or ".." in Path(name).parts]
     if unsafe:
         return False, f"archive contains unsafe member paths: {unsafe}"

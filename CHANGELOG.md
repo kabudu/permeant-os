@@ -7,6 +7,14 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Added a fail-closed real-release workflow scaffold for future product
+  publishing, including guarded GitHub Release creation, explicit Rust crate
+  publish order, signed/notarized macOS ZIP artifacts, and a
+  `permeantos-real-release-config-v0` gate that keeps the workflow inert while
+  `release.toml` remains in `pre-publication` mode.
+
 ## [0.1.30-production-release-readiness] - 2026-06-23
 
 ### Added

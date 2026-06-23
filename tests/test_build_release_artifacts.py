@@ -6,6 +6,7 @@ import pathlib
 import subprocess
 import tarfile
 import tempfile
+import zipfile
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -95,6 +96,42 @@ def test_release_artifact_builder_rejects_unsafe_version_components():
         assert "version must match" in result.stderr
 
 
+def test_release_artifact_builder_can_emit_zip_archive():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        temp = pathlib.Path(tmpdir)
+        binary = temp / "permeant-cli"
+        binary.write_text("#!/bin/sh\necho permeant\n", encoding="utf-8")
+        binary.chmod(0o755)
+        out_dir = temp / "out"
+
+        result = run_builder(
+            "--version",
+            "v0.1.99-test",
+            "--target",
+            "aarch64-apple-darwin",
+            "--archive-format",
+            "zip",
+            "--out-dir",
+            str(out_dir),
+            "--skip-build",
+            "--binary-path",
+            str(binary),
+        )
+
+        assert result.returncode == 0, result.stderr
+        manifest = json.loads((out_dir / "release-manifest.json").read_text())
+        artifact = manifest["artifacts"][0]
+        archive = out_dir / artifact["archive"]
+        assert archive.suffix == ".zip"
+        assert artifact["archive_format"] == "zip"
+        assert artifact["signed"] is False
+        with zipfile.ZipFile(archive) as zip_file:
+            names = set(zip_file.namelist())
+            install_text = zip_file.read("permeantos-v0.1.99-test-aarch64-apple-darwin/INSTALL.md").decode("utf-8")
+        assert "permeantos-v0.1.99-test-aarch64-apple-darwin/bin/permeant-cli" in names
+        assert "permeant-cli starter-demo --seq-len 128 --out-dir .permeant-demo" in install_text
+
+
 def test_release_validation_workflow_builds_validates_and_uploads_reports():
     workflow = (ROOT / ".github" / "workflows" / "release-validation.yml").read_text()
 
@@ -121,3 +158,21 @@ def test_pr_ci_runs_starter_migration_demo():
     assert "Run starter migration demo" in workflow
     assert "cargo run --locked --bin permeant-cli -- starter-demo" in workflow
     assert "--out-dir /tmp/permeantos-starter-demo" in workflow
+
+
+def test_real_release_workflow_is_manual_guarded_and_notarizes_macos():
+    workflow = (ROOT / ".github" / "workflows" / "real-release.yml").read_text()
+
+    assert "workflow_dispatch:" in workflow
+    assert "scripts/check-real-release-config.py" in workflow
+    assert "--release-kind product" in workflow
+    assert "environment: apple-notarization" in workflow
+    assert "APPLE_CERTIFICATE" in workflow
+    assert "security import" in workflow
+    assert "--archive-format zip" in workflow
+    assert "--codesign-identity" in workflow
+    assert "xcrun notarytool submit" in workflow
+    assert "environment: github-release" in workflow
+    assert "gh release create" in workflow
+    assert "environment: crates-io" in workflow
+    assert "cargo publish --locked -p" in workflow

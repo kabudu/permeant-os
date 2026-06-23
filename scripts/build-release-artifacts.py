@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import tarfile
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,6 +38,8 @@ class Artifact:
     archive_sha256: str
     archive_bytes: int
     binary_name: str
+    archive_format: str
+    signed: bool
 
     def to_json(self, out_dir: Path) -> dict[str, Any]:
         return {
@@ -45,6 +48,8 @@ class Artifact:
             "archive_sha256": self.archive_sha256,
             "archive_bytes": self.archive_bytes,
             "binary": self.binary_name,
+            "archive_format": self.archive_format,
+            "signed": self.signed,
         }
 
 
@@ -91,6 +96,24 @@ def build_target(target: str, *, skip_build: bool, explicit_binary: Path | None)
     if not binary.is_file():
         raise SystemExit(f"built binary not found for {target}: {binary}")
     return binary
+
+
+def codesign_binary(binary: Path, *, identity: str | None, options: str) -> bool:
+    if identity is None:
+        return False
+    command = [
+        "codesign",
+        "--force",
+        "--timestamp",
+        "--options",
+        options,
+        "--sign",
+        identity,
+        str(binary),
+    ]
+    run(command)
+    run(["codesign", "--verify", "--strict", "--verbose=2", str(binary)])
+    return True
 
 
 def sha256_file(path: Path) -> str:
@@ -142,7 +165,7 @@ def stage_artifact(version: str, target: str, binary: Path, out_dir: Path) -> Pa
     return stage
 
 
-def create_archive(stage: Path, out_dir: Path) -> Path:
+def create_tar_archive(stage: Path, out_dir: Path) -> Path:
     archive = out_dir / f"{stage.name}.tar.gz"
     if archive.exists():
         archive.unlink()
@@ -150,6 +173,24 @@ def create_archive(stage: Path, out_dir: Path) -> Path:
         for path in sorted(stage.rglob("*")):
             tar.add(path, arcname=Path(stage.name) / path.relative_to(stage), recursive=False)
     return archive
+
+
+def create_zip_archive(stage: Path, out_dir: Path) -> Path:
+    archive = out_dir / f"{stage.name}.zip"
+    if archive.exists():
+        archive.unlink()
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zip_file:
+        for path in sorted(stage.rglob("*")):
+            zip_file.write(path, arcname=str(Path(stage.name) / path.relative_to(stage)))
+    return archive
+
+
+def create_archive(stage: Path, out_dir: Path, *, archive_format: str) -> Path:
+    if archive_format == "tar.gz":
+        return create_tar_archive(stage, out_dir)
+    if archive_format == "zip":
+        return create_zip_archive(stage, out_dir)
+    raise SystemExit(f"unsupported archive format: {archive_format}")
 
 
 def write_outputs(version: str, artifacts: list[Artifact], out_dir: Path) -> dict[str, Any]:
@@ -172,14 +213,25 @@ def write_outputs(version: str, artifacts: list[Artifact], out_dir: Path) -> dic
     return manifest
 
 
-def build_artifacts(version: str, targets: list[str], out_dir: Path, *, skip_build: bool, explicit_binary: Path | None) -> dict[str, Any]:
+def build_artifacts(
+    version: str,
+    targets: list[str],
+    out_dir: Path,
+    *,
+    skip_build: bool,
+    explicit_binary: Path | None,
+    archive_format: str,
+    codesign_identity: str | None,
+    codesign_options: str,
+) -> dict[str, Any]:
     out_dir.mkdir(parents=True, exist_ok=True)
     artifacts = []
     for target in targets:
         safe_target = safe_component(target, label="target")
         binary = build_target(safe_target, skip_build=skip_build, explicit_binary=explicit_binary)
+        signed = codesign_binary(binary, identity=codesign_identity, options=codesign_options)
         stage = stage_artifact(version, safe_target, binary, out_dir)
-        archive = create_archive(stage, out_dir)
+        archive = create_archive(stage, out_dir, archive_format=archive_format)
         artifacts.append(
             Artifact(
                 target=safe_target,
@@ -187,6 +239,8 @@ def build_artifacts(version: str, targets: list[str], out_dir: Path, *, skip_bui
                 archive_sha256=sha256_file(archive),
                 archive_bytes=archive.stat().st_size,
                 binary_name=BIN_NAME,
+                archive_format=archive_format,
+                signed=signed,
             )
         )
     return write_outputs(version, artifacts, out_dir)
@@ -210,6 +264,9 @@ def main() -> int:
     parser.add_argument("--out-dir", type=Path, default=ROOT / "dist" / "release", help="Directory for archives, checksums, and manifest.")
     parser.add_argument("--skip-build", action="store_true", help="Skip cargo build and package an existing binary. Intended for tests.")
     parser.add_argument("--binary-path", type=Path, help="Existing binary to package when --skip-build is set.")
+    parser.add_argument("--archive-format", choices=("tar.gz", "zip"), default="tar.gz", help="Archive format to create.")
+    parser.add_argument("--codesign-identity", help="Apple Developer ID Application identity for signing macOS binaries.")
+    parser.add_argument("--codesign-options", default="runtime", help="Options passed to codesign --options.")
     args = parser.parse_args()
 
     version = safe_component(args.version, label="version")
@@ -222,6 +279,9 @@ def main() -> int:
         args.out_dir,
         skip_build=args.skip_build,
         explicit_binary=args.binary_path,
+        archive_format=args.archive_format,
+        codesign_identity=args.codesign_identity,
+        codesign_options=args.codesign_options,
     )
     print(json.dumps(manifest, indent=2, sort_keys=True))
     return 0
