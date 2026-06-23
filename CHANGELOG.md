@@ -7,6 +7,8 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.31-signed-release-workflow] - 2026-06-23
+
 ### Added
 
 - Added a fail-closed real-release workflow scaffold for future product
@@ -603,7 +605,8 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.30-production-release-readiness...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.31-signed-release-workflow...HEAD
+[0.1.31-signed-release-workflow]: https://github.com/kabudu/permeant-os/compare/v0.1.30-production-release-readiness...v0.1.31-signed-release-workflow
 [0.1.30-production-release-readiness]: https://github.com/kabudu/permeant-os/compare/v0.1.29-production-transport...v0.1.30-production-release-readiness
 [0.1.29-production-transport]: https://github.com/kabudu/permeant-os/compare/v0.1.28-qatq-reverse-runtime-e2e...v0.1.29-production-transport
 [0.1.28-qatq-reverse-runtime-e2e]: https://github.com/kabudu/permeant-os/compare/v0.1.27-complex-agent-e2e...v0.1.28-qatq-reverse-runtime-e2e
