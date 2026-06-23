@@ -12,6 +12,7 @@ Current validation schema: `permeantos-release-validation-v0`.
 Current release version consistency schema:
 `permeantos-release-version-consistency-v0`.
 Current real release config schema: `permeantos-real-release-config-v0`.
+Current real release plan schema: `permeantos-real-release-plan-v0`.
 
 ## Build Locally
 
@@ -71,9 +72,13 @@ request for that release mode.
 
 The `Real Release` workflow is present but fail-closed while `release.toml`
 uses `release_mode = "pre-publication"`. It is manual-only and requires
+`scripts/plan-real-release.py`, `scripts/check-release-version.py`, and
 `scripts/check-real-release-config.py` to pass before any publishing job can
-run. Once a future real-release PR switches the manifest to production and
-enables the intended publish flags, the workflow can:
+run. `scripts/plan-real-release.py` emits `real-release-plan.json`, the
+reviewable release plan for artifact targets, protected environments, required
+secrets, and Rust crate publish order. Once a future real-release PR switches
+the manifest to production and enables the intended publish flags, the workflow
+can:
 
 - build Linux release archives;
 - build macOS ZIP archives after signing `permeant-cli` with a Developer ID
@@ -131,6 +136,14 @@ scripts/build-release-artifacts.py \
   --archive-format zip \
   --codesign-identity "Developer ID Application: Example" \
   --out-dir dist/release/macos
+```
+
+Preview the real-release plan without publishing:
+
+```bash
+scripts/plan-real-release.py \
+  --release-version v0.1.0 \
+  --json-out dist/real-release/real-release-plan.json
 ```
 
 ## Install

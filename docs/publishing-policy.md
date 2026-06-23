@@ -6,6 +6,7 @@ rollback readiness.
 
 Current policy schema: `permeantos-publishing-policy-v0`.
 Current real release config schema: `permeantos-real-release-config-v0`.
+Current real release plan schema: `permeantos-real-release-plan-v0`.
 
 ## Current Mode
 
@@ -20,6 +21,7 @@ Allowed actions:
 - run Rust crate package dry-runs with publishing disabled;
 - run release version consistency checks against `release.toml`;
 - run the manual `Real Release` workflow only far enough for
+  `scripts/plan-real-release.py` to emit the intended target/publish plan and
   `scripts/check-real-release-config.py` to fail closed while the manifest
   remains in pre-publication mode;
 - create lightweight roadmap tags after changelog promotion.
@@ -119,9 +121,20 @@ Before enabling PyPI:
 
 `.github/workflows/real-release.yml` is manual-only and must be run from
 `master`. It is intentionally fail-closed in the current repository state:
+`scripts/plan-real-release.py` emits the plan from `release.toml`, then
 `scripts/check-real-release-config.py` requires `release_mode = "production"`,
 the requested tag to match `release.toml`, and explicit publish flags for the
 requested targets.
+
+Release approvers must review `real-release-plan.json` before approving
+protected environments. The report records:
+
+- product tag and release mode;
+- Linux and macOS artifact targets and archive formats;
+- whether macOS artifacts are expected to be signed and notarized;
+- protected environments required for the run;
+- required secret names;
+- Rust crate publish order.
 
 Publishing jobs are protected by GitHub environments:
 
@@ -152,6 +165,7 @@ The current policy is enforced by:
 - `scripts/check-package-readiness.py`;
 - `scripts/check-crate-packaging.py`;
 - `scripts/check-release-version.py`;
+- `scripts/plan-real-release.py`;
 - `scripts/check-real-release-config.py`;
 - `scripts/validate-release.py`;
 - `release.toml` with publishing flags set to `false`;

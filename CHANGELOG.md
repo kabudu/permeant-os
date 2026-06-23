@@ -11,6 +11,10 @@ and this project uses release tags compatible with semantic versioning.
 
 ### Added
 
+- Added `permeantos-real-release-plan-v0`, a machine-readable product release
+  plan generated from `release.toml` that records artifact targets, protected
+  environments, Apple signing requirements, and Rust crate publish order before
+  any guarded real-release job can publish.
 - Added a fail-closed real-release workflow scaffold for future product
   publishing, including guarded GitHub Release creation, explicit Rust crate
   publish order, signed/notarized macOS ZIP artifacts, and a
