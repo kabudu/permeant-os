@@ -5,6 +5,7 @@ gated until the project has explicit ownership, credentials, signing, and
 rollback readiness.
 
 Current policy schema: `permeantos-publishing-policy-v0`.
+Current real release config schema: `permeantos-real-release-config-v0`.
 
 ## Current Mode
 
@@ -18,6 +19,9 @@ Allowed actions:
 - run package-readiness checks with publishing disabled;
 - run Rust crate package dry-runs with publishing disabled;
 - run release version consistency checks against `release.toml`;
+- run the manual `Real Release` workflow only far enough for
+  `scripts/check-real-release-config.py` to fail closed while the manifest
+  remains in pre-publication mode;
 - create lightweight roadmap tags after changelog promotion.
 
 Forbidden actions until the real-release gate is opened:
@@ -65,6 +69,24 @@ Signed GitHub Release assets require:
 Until then, release artifacts include checksums but are not signed GitHub
 Release assets.
 
+The future macOS product-release path is modelled on the sibling QATQ release
+workflow. It requires:
+
+- `APPLE_CERTIFICATE`: base64-encoded Developer ID Application `.p12`
+  certificate;
+- `APPLE_CERTIFICATE_PASSWORD`: password for that certificate;
+- `APPLE_SIGNING_IDENTITY`: Developer ID Application signing identity, either
+  as a secret or repository/environment variable;
+- `APPLE_ID`: Apple ID for notarization;
+- `APPLE_PASSWORD`: app-specific password for notarization;
+- `APPLE_TEAM_ID`: Apple Developer Team ID, either as a secret or
+  repository/environment variable;
+- a protected `apple-notarization` GitHub environment.
+
+The workflow imports the certificate into a temporary keychain, signs
+`permeant-cli` with `codesign --options runtime`, packages a macOS ZIP archive,
+and submits it with `xcrun notarytool submit --wait` before release upload.
+
 ## Registry Publishing
 
 Rust crates and the Python SDK stay publish-disabled in source control until
@@ -78,10 +100,12 @@ Before enabling crates.io:
    package report.
 4. Run `scripts/check-release-version.py --release-kind product` for the
    intended product tag and confirm it matches `release.toml`.
-5. Run full `cargo package --locked` verification in publish order once each
+5. Run `scripts/check-real-release-config.py` for the intended publish targets
+   and confirm the real-release PR has intentionally enabled them.
+6. Run full `cargo package --locked` verification in publish order once each
    upstream internal crate is available to downstream package verification.
-6. Document publish order, rollback, and yank procedure.
-7. Remove `publish = false` only for crates included in the real release.
+7. Document publish order, rollback, and yank procedure.
+8. Remove `publish = false` only for crates included in the real release.
 
 Before enabling PyPI:
 
@@ -90,6 +114,24 @@ Before enabling PyPI:
 3. Run `python -m build` and `twine check`.
 4. Document Python version and optional dependency support.
 5. Enable publication only in the real-release PR.
+
+## Real Release Workflow
+
+`.github/workflows/real-release.yml` is manual-only and must be run from
+`master`. It is intentionally fail-closed in the current repository state:
+`scripts/check-real-release-config.py` requires `release_mode = "production"`,
+the requested tag to match `release.toml`, and explicit publish flags for the
+requested targets.
+
+Publishing jobs are protected by GitHub environments:
+
+- `apple-notarization` for Apple signing and notarization;
+- `github-release` for GitHub Release creation;
+- `crates-io` for Rust crate publication.
+
+The publishing-policy checker permits `gh release create` and `cargo publish`
+only inside that guarded workflow. The commands remain forbidden in normal CI,
+release-validation, evidence, and pre-publication workflows.
 
 ## Rollback
 
@@ -110,6 +152,7 @@ The current policy is enforced by:
 - `scripts/check-package-readiness.py`;
 - `scripts/check-crate-packaging.py`;
 - `scripts/check-release-version.py`;
+- `scripts/check-real-release-config.py`;
 - `scripts/validate-release.py`;
 - `release.toml` with publishing flags set to `false`;
 - `publish = false` in Rust crate manifests;

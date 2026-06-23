@@ -11,6 +11,7 @@ Current artifact schema: `permeantos-release-artifacts-v0`.
 Current validation schema: `permeantos-release-validation-v0`.
 Current release version consistency schema:
 `permeantos-release-version-consistency-v0`.
+Current real release config schema: `permeantos-real-release-config-v0`.
 
 ## Build Locally
 
@@ -68,6 +69,26 @@ requires documented ownership, credentials through the intended secure path,
 release validation, signing policy, rollback ownership, and an explicit user
 request for that release mode.
 
+The `Real Release` workflow is present but fail-closed while `release.toml`
+uses `release_mode = "pre-publication"`. It is manual-only and requires
+`scripts/check-real-release-config.py` to pass before any publishing job can
+run. Once a future real-release PR switches the manifest to production and
+enables the intended publish flags, the workflow can:
+
+- build Linux release archives;
+- build macOS ZIP archives after signing `permeant-cli` with a Developer ID
+  Application certificate;
+- submit macOS ZIP archives to Apple notarization with
+  `xcrun notarytool submit --wait`;
+- create a GitHub Release from staged artifacts behind the `github-release`
+  environment;
+- publish Rust crates in dependency order behind the `crates-io` environment.
+
+The macOS path follows the sibling QATQ release model: Apple credentials are
+provided through GitHub secrets/variables, the certificate is imported into a
+temporary keychain, binaries are signed with the hardened runtime option, and
+the ZIP archive is notarized before upload.
+
 ## Verify An Archive
 
 After downloading workflow artifacts:
@@ -99,6 +120,17 @@ scripts/validate-release.py \
   --crate-packaging dist/release/crate-packaging.json \
   --release-version-consistency dist/release/release-version.json \
   --json-out dist/release/release-validation.json
+```
+
+Build a macOS ZIP artifact for signing/notarization workflows:
+
+```bash
+scripts/build-release-artifacts.py \
+  --version v0.1.0 \
+  --target aarch64-apple-darwin \
+  --archive-format zip \
+  --codesign-identity "Developer ID Application: Example" \
+  --out-dir dist/release/macos
 ```
 
 ## Install

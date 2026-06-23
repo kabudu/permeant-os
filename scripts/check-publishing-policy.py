@@ -17,6 +17,7 @@ SCHEMA_VERSION = "permeantos-publishing-policy-v0"
 ROOT = Path(__file__).resolve().parents[1]
 POLICY_PATH = ROOT / "docs" / "publishing-policy.md"
 WORKFLOW_DIR = ROOT / ".github" / "workflows"
+REAL_RELEASE_WORKFLOW = WORKFLOW_DIR / "real-release.yml"
 FORBIDDEN_WORKFLOW_SNIPPETS = (
     "gh release create",
     "gh release upload",
@@ -24,6 +25,12 @@ FORBIDDEN_WORKFLOW_SNIPPETS = (
     "twine upload",
     "npm publish",
     "docker push",
+)
+REAL_RELEASE_GUARD_SNIPPETS = (
+    "scripts/check-real-release-config.py",
+    "environment: github-release",
+    "environment: crates-io",
+    "environment: apple-notarization",
 )
 REQUIRED_POLICY_HEADINGS = (
     "## Current Mode",
@@ -82,15 +89,32 @@ def check_policy_doc() -> list[Check]:
 
 def check_workflows() -> list[Check]:
     workflow_paths = sorted([*WORKFLOW_DIR.glob("*.yml"), *WORKFLOW_DIR.glob("*.yaml")])
-    workflow_text = "\n".join(path.read_text(encoding="utf-8") for path in workflow_paths)
-    return [
-        Check(
-            f"workflow-forbids:{snippet}",
-            snippet not in workflow_text,
-            f"{snippet!r} is absent from current workflows",
+    checks: list[Check] = []
+    real_release_text = REAL_RELEASE_WORKFLOW.read_text(encoding="utf-8") if REAL_RELEASE_WORKFLOW.is_file() else ""
+    real_release_guarded = all(snippet in real_release_text for snippet in REAL_RELEASE_GUARD_SNIPPETS)
+    for snippet in FORBIDDEN_WORKFLOW_SNIPPETS:
+        offenders = []
+        for path in workflow_paths:
+            text = path.read_text(encoding="utf-8")
+            if snippet not in text:
+                continue
+            if path == REAL_RELEASE_WORKFLOW and real_release_guarded:
+                continue
+            offenders.append(str(path.relative_to(ROOT)))
+        detail = (
+            f"{snippet!r} is absent from normal workflows; guarded real-release workflow exception is present"
+            if not offenders
+            else f"{snippet!r} appears in {offenders}"
         )
-        for snippet in FORBIDDEN_WORKFLOW_SNIPPETS
-    ]
+        checks.append(Check(f"workflow-forbids:{snippet}", not offenders, detail))
+    checks.append(
+        Check(
+            "real-release-workflow-guarded",
+            not real_release_text or real_release_guarded,
+            "real-release workflow uses config gate and protected publishing environments",
+        )
+    )
+    return checks
 
 
 def check_cargo_publish_disabled() -> list[Check]:

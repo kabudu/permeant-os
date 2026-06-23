@@ -101,8 +101,9 @@ reading the whole history.
 
 - PermeantOS is pre-1.0; supported claims are bounded to validated paths.
 - GitHub Release publishing, crate publishing, signed assets, and Python
-  package publishing are not enabled yet; `release.toml` and
-  `docs/publishing-policy.md` record the gate that must be opened in a future
-  real-release PR.
+  package publishing are not enabled yet; `release.toml`,
+  `scripts/check-real-release-config.py`, and `docs/publishing-policy.md`
+  record the gate that must be opened in a future real-release PR. The manual
+  `Real Release` workflow is present but fail-closed in pre-publication mode.
 - QATQ is being matured separately before it is folded back into PermeantOS as
   a production codec.

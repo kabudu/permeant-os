@@ -32,6 +32,7 @@ def test_publishing_policy_report_keeps_real_publishing_disabled():
         assert checks["workflow-forbids:cargo publish"]["ok"] is True
         assert checks["workflow-forbids:twine upload"]["ok"] is True
         assert checks["workflow-forbids:gh release create"]["ok"] is True
+        assert checks["real-release-workflow-guarded"]["ok"] is True
         assert checks["python-publish-disabled:permeantos"]["ok"] is True
         crate_checks = [name for name in checks if name.startswith("crate-publish-disabled:")]
         assert crate_checks

@@ -1,0 +1,244 @@
+name: Real Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Product tag to publish, for example v0.1.0
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  validate-real-release:
+    name: Validate real release gate
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Require master
+        run: test "${GITHUB_REF_NAME}" = "master"
+
+      - name: Check product version consistency
+        env:
+          RELEASE_VERSION: ${{ github.event.inputs.version }}
+        run: scripts/check-release-version.py --release-version "$RELEASE_VERSION" --release-kind product --json-out dist/real-release/release-version.json
+
+      - name: Check real release configuration
+        id: release
+        env:
+          RELEASE_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          scripts/check-real-release-config.py \
+            --release-version "$RELEASE_VERSION" \
+            --require github-release \
+            --require binaries \
+            --require rust \
+            --json-out dist/real-release/real-release-config.json
+          echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Upload real release gate reports
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: permeantos-real-release-gates-${{ github.event.inputs.version }}
+          path: dist/real-release
+          if-no-files-found: error
+
+  build-linux-artifacts:
+    name: Build Linux artifacts
+    needs: validate-real-release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.0
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Build release artifact bundle
+        env:
+          RELEASE_VERSION: ${{ needs.validate-real-release.outputs.version }}
+        run: |
+          scripts/build-release-artifacts.py \
+            --version "$RELEASE_VERSION" \
+            --target x86_64-unknown-linux-gnu \
+            --out-dir dist/release/linux
+
+      - name: Upload Linux release artifacts
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: permeantos-real-release-linux-${{ needs.validate-real-release.outputs.version }}
+          path: dist/release/linux
+          if-no-files-found: error
+
+  build-signed-macos-artifacts:
+    name: Build signed and notarized macOS artifacts
+    needs: validate-real-release
+    runs-on: macos-15
+    environment: apple-notarization
+    env:
+      CODESIGN_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      CODESIGN_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      CODESIGN_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY || secrets.APPLE_SIGNING_IDENTITY }}
+      CODESIGN_OPTIONS: runtime
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID || secrets.APPLE_TEAM_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.0
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Validate Apple signing configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${CODESIGN_CERTIFICATE:?APPLE_CERTIFICATE must be configured}"
+          : "${CODESIGN_CERTIFICATE_PASSWORD:?APPLE_CERTIFICATE_PASSWORD must be configured}"
+          : "${CODESIGN_IDENTITY:?APPLE_SIGNING_IDENTITY must be configured}"
+          : "${APPLE_ID:?APPLE_ID must be configured}"
+          : "${APPLE_PASSWORD:?APPLE_PASSWORD must be configured}"
+          : "${APPLE_TEAM_ID:?APPLE_TEAM_ID must be configured}"
+
+      - name: Import Apple signing certificate
+        shell: bash
+        env:
+          KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          CERTIFICATE_PATH="$RUNNER_TEMP/permeantos-apple-certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/permeantos-signing.keychain-db"
+          echo "$CODESIGN_CERTIFICATE" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$CODESIGN_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+      - name: Build signed macOS zip artifact
+        env:
+          RELEASE_VERSION: ${{ needs.validate-real-release.outputs.version }}
+        run: |
+          scripts/build-release-artifacts.py \
+            --version "$RELEASE_VERSION" \
+            --target aarch64-apple-darwin \
+            --archive-format zip \
+            --codesign-identity "$CODESIGN_IDENTITY" \
+            --codesign-options "$CODESIGN_OPTIONS" \
+            --out-dir dist/release/macos
+
+      - name: Notarize macOS zip artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$(jq -r '.artifacts[] | select(.target == "aarch64-apple-darwin") | .archive' dist/release/macos/release-manifest.json)"
+          test -n "$archive"
+          xcrun notarytool submit "dist/release/macos/$archive" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+      - name: Upload macOS release artifacts
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: permeantos-real-release-macos-${{ needs.validate-real-release.outputs.version }}
+          path: dist/release/macos
+          if-no-files-found: error
+
+  publish-github-release:
+    name: Publish GitHub Release
+    needs:
+      - validate-real-release
+      - build-linux-artifacts
+      - build-signed-macos-artifacts
+    runs-on: ubuntu-latest
+    environment: github-release
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: permeantos-real-release-*
+          path: artifacts
+          merge-multiple: false
+
+      - name: Create GitHub Release
+        env:
+          RELEASE_VERSION: ${{ needs.validate-real-release.outputs.version }}
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec cp {} release-assets/ \;
+          linux_dir="$(find artifacts -type d -name 'permeantos-real-release-linux-*' | head -n 1)"
+          macos_dir="$(find artifacts -type d -name 'permeantos-real-release-macos-*' | head -n 1)"
+          cp "$linux_dir/checksums.txt" release-assets/checksums-linux.txt
+          cp "$linux_dir/release-manifest.json" release-assets/release-manifest-linux.json
+          cp "$macos_dir/checksums.txt" release-assets/checksums-macos.txt
+          cp "$macos_dir/release-manifest.json" release-assets/release-manifest-macos.json
+          gh release create "$RELEASE_VERSION" \
+            --verify-tag \
+            --title "PermeantOS $RELEASE_VERSION" \
+            --notes "PermeantOS product release $RELEASE_VERSION." \
+            release-assets/*
+
+  publish-rust-crates:
+    name: Publish Rust crates
+    needs:
+      - validate-real-release
+      - publish-github-release
+    runs-on: ubuntu-latest
+    environment: crates-io
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.0
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Cargo publish dry run
+        run: cargo publish --locked --dry-run -p usxf-core
+
+      - name: Publish crates to crates.io
+        shell: bash
+        run: |
+          set -euo pipefail
+          for crate in \
+            usxf-core \
+            permeant-transport \
+            permeant-transpiler \
+            permeant-extractor \
+            permeant-injector \
+            permeant-orchestrator \
+            permeant-qatq-migration \
+            permeant-cli
+          do
+            cargo publish --locked -p "$crate"
+            sleep 30
+          done
