@@ -67,7 +67,7 @@ EVIDENCE: tuple[EvidenceRecord, ...] = (
             "docs/qatq-permeantos-feedback-2026-06-22.md",
         ),
         commands=(
-            "PERMEANT_TRANSFER_QUANTIZATION=qatq PERMEANT_QATQ_STANDALONE_PATH=/Users/kabudu/projex/qatq PERMEANT_SEQ_LEN=1920 PERMEANT_CONTINUATION_MAX_TOKENS=128 scripts/aws-real-runtime-e2e.sh run",
+            "PERMEANT_TRANSFER_QUANTIZATION=qatq PERMEANT_SEQ_LEN=1920 PERMEANT_CONTINUATION_MAX_TOKENS=128 scripts/aws-real-runtime-e2e.sh run",
         ),
         ci_jobs=(
             "PR CI / Python tests / Run AWS E2E preflight smoke test",
@@ -75,7 +75,7 @@ EVIDENCE: tuple[EvidenceRecord, ...] = (
         ),
         limitations=(
             "This validates the recorded Qwen2.5 MLX-to-vLLM AWS path; additional models and runtime adapters still need standalone-QATQ live validation.",
-            "PermeantOS currently consumes the sibling QATQ checkout by path for local/AWS validation until the QATQ API freeze and package decision are complete.",
+            "The recorded AWS run used a sibling QATQ checkout before crates.io publication; current PermeantOS builds consume the published qatq 0.1.1 crate.",
             "The vLLM adapter relies on runtime internals that may change between vLLM versions.",
         ),
     ),
@@ -110,7 +110,7 @@ EVIDENCE: tuple[EvidenceRecord, ...] = (
         ),
         limitations=(
             "The current exact QATQ compatibility path is lossless but not size-reducing; the recorded run transferred about 6.7% more bytes than raw due to container overhead.",
-            "PermeantOS still needs to switch from the in-tree compatibility shim to the standalone QATQ crate once the QATQ API and lossless compression path are ready.",
+            "This is historical compatibility evidence; release-facing compression evidence should use the published qatq crate path.",
             "The vLLM adapter relies on runtime internals that may change between vLLM versions.",
         ),
     ),
@@ -143,8 +143,8 @@ EVIDENCE: tuple[EvidenceRecord, ...] = (
         ),
         ci_jobs=(),
         limitations=(
-            "This is a local standalone compression proof, not yet a live AWS migration proof using the standalone QATQ crate.",
-            "The live PermeantOS migration path still needs to replace the in-tree compatibility container with the pinned standalone QATQ crate.",
+            "This is a local standalone compression proof; the live AWS proof is tracked separately.",
+            "The recorded local proof used a sibling QATQ checkout before crates.io publication; current PermeantOS builds consume the published qatq 0.1.1 crate.",
             "The timing numbers were captured from a local debug build and should not be treated as final release-performance figures.",
         ),
     ),

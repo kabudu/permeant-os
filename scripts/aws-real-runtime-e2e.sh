@@ -22,7 +22,6 @@ Environment overrides:
   PERMEANT_SEQ_LEN                   default: 2016
   PERMEANT_VLLM_MAX_MODEL_LEN        default: 2048
   PERMEANT_TRANSFER_QUANTIZATION     default: none (none, fp8, qatq)
-  PERMEANT_QATQ_STANDALONE_PATH      default: ../qatq when qatq transfer is used
   PERMEANT_CONTINUATION_MAX_TOKENS   default: 16
   PERMEANT_FIDELITY_HORIZONS         default: 16,32,64,128
   PERMEANT_SOURCE_URL                default: http://127.0.0.1:29101
@@ -60,7 +59,6 @@ PERMEANT_TARGET_RUNTIME="${PERMEANT_TARGET_RUNTIME:-vllm}"
 PERMEANT_SEQ_LEN="${PERMEANT_SEQ_LEN:-2016}"
 PERMEANT_VLLM_MAX_MODEL_LEN="${PERMEANT_VLLM_MAX_MODEL_LEN:-2048}"
 PERMEANT_TRANSFER_QUANTIZATION="${PERMEANT_TRANSFER_QUANTIZATION:-none}"
-PERMEANT_QATQ_STANDALONE_PATH="${PERMEANT_QATQ_STANDALONE_PATH:-$ROOT_DIR/../qatq}"
 PERMEANT_CONTINUATION_MAX_TOKENS="${PERMEANT_CONTINUATION_MAX_TOKENS:-16}"
 PERMEANT_FIDELITY_HORIZONS="${PERMEANT_FIDELITY_HORIZONS:-16,32,64,128}"
 PERMEANT_SOURCE_URL="${PERMEANT_SOURCE_URL:-http://127.0.0.1:29101}"
@@ -355,7 +353,6 @@ data = {
   "seq_len": "$PERMEANT_SEQ_LEN",
   "vllm_max_model_len": "$PERMEANT_VLLM_MAX_MODEL_LEN",
   "transfer_quantization": "$PERMEANT_TRANSFER_QUANTIZATION",
-  "qatq_standalone_path": "$PERMEANT_QATQ_STANDALONE_PATH",
   "model_layer_count": "${PERMEANT_MODEL_LAYER_COUNT:-}",
   "model_q_heads": "${PERMEANT_MODEL_Q_HEADS:-}",
   "model_kv_heads": "${PERMEANT_MODEL_KV_HEADS:-}",
@@ -576,14 +573,6 @@ preflight_cmd() {
   else
     check_status fail "configuration:transfer_quantization" "unsupported PERMEANT_TRANSFER_QUANTIZATION: $PERMEANT_TRANSFER_QUANTIZATION" >> "$checks_file"
   fi
-  if [[ "$PERMEANT_TRANSFER_QUANTIZATION" == "qatq" ]]; then
-    if [[ -f "$PERMEANT_QATQ_STANDALONE_PATH/Cargo.toml" ]]; then
-      check_status pass "local:qatq_standalone" "standalone QATQ crate found at $PERMEANT_QATQ_STANDALONE_PATH" >> "$checks_file"
-    else
-      check_status fail "local:qatq_standalone" "standalone QATQ crate missing at $PERMEANT_QATQ_STANDALONE_PATH" >> "$checks_file"
-    fi
-  fi
-
   if [[ "$PERMEANT_AGENT_ACTIVITY_RESUME" == "0" || "$PERMEANT_AGENT_ACTIVITY_RESUME" == "1" ]]; then
     check_status pass "configuration:agent_activity_resume" "$PERMEANT_AGENT_ACTIVITY_RESUME" >> "$checks_file"
   else
@@ -979,14 +968,8 @@ REMOTE_START
 
 copy_repo_and_setup() {
   log "copying committed repository snapshot to target"
-  ssh_target 'rm -rf /home/ubuntu/permeant-os /home/ubuntu/qatq && mkdir -p /home/ubuntu/permeant-os'
+  ssh_target 'rm -rf /home/ubuntu/permeant-os && mkdir -p /home/ubuntu/permeant-os'
   git -C "$ROOT_DIR" archive --format=tar HEAD | ssh_target 'tar -xf - -C /home/ubuntu/permeant-os'
-  if [[ "$PERMEANT_TRANSFER_QUANTIZATION" == "qatq" ]]; then
-    [[ -f "$PERMEANT_QATQ_STANDALONE_PATH/Cargo.toml" ]] || die "standalone QATQ crate missing at $PERMEANT_QATQ_STANDALONE_PATH"
-    log "copying standalone QATQ crate snapshot to target"
-    ssh_target 'mkdir -p /home/ubuntu/qatq'
-    git -C "$PERMEANT_QATQ_STANDALONE_PATH" archive --format=tar HEAD | ssh_target 'tar -xf - -C /home/ubuntu/qatq'
-  fi
   scp_to_target "$REMOTE_SETUP_SCRIPT" /home/ubuntu/permeant-remote-setup.sh
   log "running target setup"
   ssh_target 'bash /home/ubuntu/permeant-remote-setup.sh'

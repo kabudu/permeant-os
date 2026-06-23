@@ -1,8 +1,7 @@
 # PermeantOS AWS Migration Integration
 
-This guide defines how PermeantOS should integrate QATQ into a real end-to-end
-AWS live migration trial before QATQ freezes its public API or publishes to
-crates.io.
+This guide defines how PermeantOS integrates QATQ into a real end-to-end AWS
+live migration trial using the published QATQ crate.
 
 The goal is to validate the latest QATQ product surface under a real migration
 flow: export runtime tensor state, compress it exactly, transfer it through AWS,
@@ -11,9 +10,17 @@ byte-identical tensor state and acceptable latency.
 
 ## Integration Status
 
-PermeantOS is a Rust project, so the primary integration should use QATQ as a
-Rust crate dependency. Use a pinned source dependency for this trial; do not
-depend on a crates.io package yet.
+PermeantOS is a Rust project, so the primary integration uses QATQ as a normal
+Rust crate dependency from crates.io:
+
+```toml
+[dependencies]
+qatq = "0.1.1"
+```
+
+Path or git dependencies are now development overrides only. They must not be
+used for release-facing PermeantOS compression evidence unless the report says
+so explicitly.
 
 Current PermeantOS feedback from the first Rust integration slice and AWS trial
 is recorded
@@ -41,43 +48,21 @@ release claims.
 | Path | Components | Purpose | Expected result | Claim boundary |
 | --- | --- | --- | --- | --- |
 | Compatibility path | In-tree `qatq-compat` plus `permeant-qatq-migration` | Prove exact migration semantics, manifest checks, dtype/shape validation, and fail-closed restore behaviour. | May be larger than raw because it is an exact compatibility container. | Record as an exact compatibility proof only. Do not use for QATQ compression or transfer-size reduction claims. |
-| Standalone QATQ crate path | Pinned external `qatq` crate from the QATQ repository | Validate actual exact typed tensor compression in the live migration path. | Must be lossless and must transfer no more bytes than raw for the accepted migration bundle. | Required before any claim that QATQ reduces transfer size. |
+| Standalone QATQ crate path | Published `qatq` crate from crates.io | Validate actual exact typed tensor compression in the live migration path. | Must be lossless and must transfer no more bytes than raw for the accepted migration bundle. | Required before any claim that QATQ reduces transfer size. |
 
-The next AWS rerun for QATQ compression validation must use the pinned
-standalone `qatq` crate, not the in-tree compatibility container. It must export
-one canonical migration bundle, run QATQ, raw, `zstd`, and `lz4` against that
-same packed KV artifact set, and publish a single comparison table covering
-bytes transferred, encode time, decode time, and continuation fidelity.
+QATQ compression validation must use the published standalone `qatq` crate, not
+the in-tree compatibility container. It must export one canonical migration
+bundle, run QATQ, raw, `zstd`, and `lz4` against that same packed KV artifact
+set, and publish a single comparison table covering bytes transferred, encode
+time, decode time, and continuation fidelity.
 
 Warning: if `qatq-compat` is used, record the run as an exact compatibility
 proof only, not a QATQ compression proof.
 
-Recommended pin for the first PermeantOS integration pass:
-
-```toml
-[dependencies]
-qatq = { git = "https://github.com/kabudu/qatq", rev = "369d3ee" }
-```
-
-For local joint development in a PermeantOS workspace, use a path dependency
-instead:
-
-```toml
-[dependencies]
-qatq = { path = "../qatq" }
-```
-
-PermeantOS feedback from this integration should be captured before QATQ accepts
-the API/CLI freeze in `docs/API_CLI_FREEZE.md`.
-
-Once the API freeze is accepted and crates.io publishing is approved,
-PermeantOS should be able to switch this to the published crate without changing
-the migration adapter shape:
-
-```toml
-[dependencies]
-qatq = "0.1"
-```
+Historical reports from 2026-06-22 used a sibling checkout before the crate was
+published. They remain valid evidence for that exact source snapshot, but new
+PermeantOS runs should exercise the crates.io dependency unless they are
+explicitly marked as QATQ development runs.
 
 ## Product Surface To Use
 
@@ -167,16 +152,16 @@ tensor object and layout.
 ## CLI Verification Path
 
 Use the CLI for release audits, local fixture generation, and independent
-source/target verification. Build QATQ from the pinned source:
+source/target verification. Install or build QATQ from the published crate:
 
 ```sh
-cargo build --release --bin qatq --bin qatq-kv-bench
+cargo install qatq --version 0.1.1 --locked
 ```
 
 Encode a native f16 KV bundle:
 
 ```sh
-target/release/qatq encode-chunked \
+qatq encode-chunked \
   --max-values-per-chunk 65536 \
   --dtype f16 \
   cache_all.f16le \
@@ -186,7 +171,7 @@ target/release/qatq encode-chunked \
 Decode and verify before sending or after receiving:
 
 ```sh
-target/release/qatq decode cache_all.qatc cache_all.restored.f16le
+qatq decode cache_all.qatc cache_all.restored.f16le
 cmp cache_all.f16le cache_all.restored.f16le
 ```
 

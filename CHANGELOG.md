@@ -66,6 +66,8 @@ and this project uses release tags compatible with semantic versioning.
   raw block-baseline bytes, 20,405,381 zstd bytes, and 28,739,217 lz4 bytes,
   while preserving exact 128-token continuation, reverse import, target graph
   activity, origin return-home continuation, and cleanup proof.
+- Switched PermeantOS to the published `qatq` `0.1.1` crate and removed the
+  AWS E2E runner's sibling-checkout copy path for QATQ migrations.
 - Added model-family/runtime validation profiles and a matrix planner for
   broadening AWS real-runtime E2E evidence beyond the first Qwen MLX-to-vLLM
   path.

@@ -11,9 +11,9 @@ PermeantOS now has a Rust integration crate:
 - manifest schema: `permeantos.qatq-migration.v1`
 - codec path: `qatq-exact`
 - container label: `QATC-v2`
-- current dependency in public CI: in-tree `qatq` compatibility shim
-- intended source dependency for joint local validation: sibling `qatq` at
-  commit `369d3ee`
+- current dependency in public CI: published `qatq` crate `0.1.1`
+- development override path: sibling `qatq` checkouts only for explicit QATQ
+  development runs
 
 The crate keeps PermeantOS-specific migration metadata outside the codec:
 
@@ -75,12 +75,12 @@ than raw. The standalone QATQ project still needs the production lossless
 compression implementation before PermeantOS can claim QATQ reduces migration
 size.
 
-The next AWS rerun for compression validation must use the pinned standalone
-`qatq` crate from the QATQ repository, not the in-tree `qatq-compat`
-compatibility container. Acceptance requires QATQ exact transferred bytes to be
-less than or equal to raw bytes, with QATQ, raw, `zstd`, and `lz4` reported for
-the same packed KV artifacts. Any run that still uses `qatq-compat` should be
-recorded as an exact compatibility proof only.
+Compression validation must use the published standalone `qatq` crate from
+crates.io, not the in-tree `qatq-compat` compatibility container. Acceptance
+requires QATQ exact transferred bytes to be less than or equal to raw bytes,
+with QATQ, raw, `zstd`, and `lz4` reported for the same packed KV artifacts.
+Any run that still uses `qatq-compat` should be recorded as an exact
+compatibility proof only.
 
 ## What Passed With Standalone QATQ
 
@@ -167,6 +167,4 @@ Still required before QATQ API freeze acceptance:
 - exercise rollback by corrupting or deleting a QATQ artifact and proving target
   activation aborts with the source remaining authoritative;
 - broaden standalone-QATQ live validation to additional models and runtime
-  adapters;
-- decide how PermeantOS should consume QATQ after the API freeze: pinned git
-  revision, submodule, vendored source, or crates.io package.
+  adapters.

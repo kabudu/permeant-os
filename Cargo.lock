@@ -757,7 +757,9 @@ dependencies = [
 
 [[package]]
 name = "qatq"
-version = "0.1.0"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d38a13032f7db9664d699c8325c3fc0399d6a556480cbc965b68269f62a6cc3"
 dependencies = [
  "lz4_flex",
  "zstd",
