@@ -142,15 +142,15 @@ Current strengths:
   repeatable commands, CI jobs, and known limitations.
 - Documentation hub on `www.permeantos.org` covering installation, evidence,
   adapter authoring, release artifacts, and roadmap status.
-- Checksummed release artifact builder and GitHub Actions artifact workflow for
-  pre-publication binary bundles.
+- Checksummed release artifact builder, GitHub Actions artifact workflow, and
+  guarded real-release workflow for signed/notarized binary bundles.
 - Installed-binary `permeant-cli starter-demo` loopback migration proof with a
   `permeantos-starter-demo-v0` report and PR/evidence-job coverage.
 - Package and SDK publication-readiness gate covering Rust crate metadata,
-  Python SDK metadata, README coverage, and packaging policy before any real
-  registry publication.
+  Python SDK metadata, README coverage, guarded Rust crate publication, and
+  deferred Python registry publication.
 - Machine-checked publishing policy covering GitHub Release ownership, signing,
-  credentials, registry publishing, rollback, and current no-publishing
+  credentials, registry publishing, rollback, and guarded production-release
   enforcement.
 - Scheduled/manual evidence jobs with a non-provisioning default lane and a
   hard-confirmed AWS real-runtime lane for future self-hosted evidence runners.

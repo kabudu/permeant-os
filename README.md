@@ -114,13 +114,12 @@ What is still experimental:
 - `docs/versioning-policy.md`: USXF, Agent Memory Graph, report schema, and
   lightweight release versioning policy, with `release.toml` as the
   repository-level product/package version manifest.
-- `docs/release-artifacts.md`: checksummed binary bundle, release manifest, and
-  GitHub Actions artifact workflow for pre-publication release packaging, plus
-  the fail-closed manual real-release workflow for future signed/notarized
-  macOS binaries and GitHub Releases.
+- `docs/release-artifacts.md`: checksummed binary bundle, release manifest,
+  GitHub Actions artifact workflow, and the guarded manual real-release
+  workflow for signed/notarized macOS binaries and GitHub Releases.
 - `docs/crate-and-sdk-publication-plan.md`: Rust crate and Python SDK
-  publication-readiness gate, publish-disabled boundary, and future registry
-  release checklist.
+  publication-readiness gate, guarded Rust crate publishing, and deferred
+  Python registry release checklist.
 - `docs/agent-memory-graph-threat-model.md`: local graph import threat model and Phase 8 security controls.
 - `docs/production-transport.md`: production transport foundation, security
   invariants, binary framing, and deployment cutover plan.

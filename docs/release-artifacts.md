@@ -70,15 +70,12 @@ requires documented ownership, credentials through the intended secure path,
 release validation, signing policy, rollback ownership, and an explicit user
 request for that release mode.
 
-The `Real Release` workflow is present but fail-closed while `release.toml`
-uses `release_mode = "pre-publication"`. It is manual-only and requires
+The `Real Release` workflow is manual-only and requires
 `scripts/plan-real-release.py`, `scripts/check-release-version.py`, and
 `scripts/check-real-release-config.py` to pass before any publishing job can
 run. `scripts/plan-real-release.py` emits `real-release-plan.json`, the
 reviewable release plan for artifact targets, protected environments, required
-secrets, and Rust crate publish order. Once a future real-release PR switches
-the manifest to production and enables the intended publish flags, the workflow
-can:
+secrets, and Rust crate publish order. In production mode, the workflow can:
 
 - build Linux release archives;
 - build macOS ZIP archives after signing `permeant-cli` with a Developer ID

@@ -11,7 +11,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 CHECKER = ROOT / "scripts" / "check-publishing-policy.py"
 
 
-def test_publishing_policy_report_keeps_real_publishing_disabled():
+def test_publishing_policy_report_matches_guarded_production_mode():
     with tempfile.TemporaryDirectory() as tmpdir:
         report_path = pathlib.Path(tmpdir) / "publishing-policy.json"
         result = subprocess.run(
@@ -26,15 +26,15 @@ def test_publishing_policy_report_keeps_real_publishing_disabled():
         report = json.loads(report_path.read_text())
         assert report["schema_version"] == "permeantos-publishing-policy-v0"
         assert report["ok"] is True
-        assert report["mode"] == "pre-publication"
-        assert report["publishing_enabled"] is False
+        assert report["mode"] == "production"
+        assert report["publishing_enabled"] is True
         checks = {check["name"]: check for check in report["checks"]}
         assert checks["workflow-forbids:cargo publish"]["ok"] is True
         assert checks["workflow-forbids:twine upload"]["ok"] is True
         assert checks["workflow-forbids:gh release create"]["ok"] is True
         assert checks["real-release-workflow-guarded"]["ok"] is True
         assert checks["python-publish-disabled:permeantos"]["ok"] is True
-        crate_checks = [name for name in checks if name.startswith("crate-publish-disabled:")]
+        crate_checks = [name for name in checks if name.startswith("crate-publish-enabled:")]
         assert crate_checks
         assert all(checks[name]["ok"] for name in crate_checks)
 

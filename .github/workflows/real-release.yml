@@ -171,48 +171,12 @@ jobs:
           path: dist/release/macos
           if-no-files-found: error
 
-  publish-github-release:
-    name: Publish GitHub Release
-    needs:
-      - validate-real-release
-      - build-linux-artifacts
-      - build-signed-macos-artifacts
-    runs-on: ubuntu-latest
-    environment: github-release
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    steps:
-      - name: Download release artifacts
-        uses: actions/download-artifact@v8.0.1
-        with:
-          pattern: permeantos-real-release-*
-          path: artifacts
-          merge-multiple: false
-
-      - name: Create GitHub Release
-        env:
-          RELEASE_VERSION: ${{ needs.validate-real-release.outputs.version }}
-        run: |
-          mkdir -p release-assets
-          find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec cp {} release-assets/ \;
-          linux_dir="$(find artifacts -type d -name 'permeantos-real-release-linux-*' | head -n 1)"
-          macos_dir="$(find artifacts -type d -name 'permeantos-real-release-macos-*' | head -n 1)"
-          cp "$linux_dir/checksums.txt" release-assets/checksums-linux.txt
-          cp "$linux_dir/release-manifest.json" release-assets/release-manifest-linux.json
-          cp "$macos_dir/checksums.txt" release-assets/checksums-macos.txt
-          cp "$macos_dir/release-manifest.json" release-assets/release-manifest-macos.json
-          gh release create "$RELEASE_VERSION" \
-            --verify-tag \
-            --title "PermeantOS $RELEASE_VERSION" \
-            --notes "PermeantOS product release $RELEASE_VERSION." \
-            release-assets/*
-
   publish-rust-crates:
     name: Publish Rust crates
     needs:
       - validate-real-release
-      - publish-github-release
+      - build-linux-artifacts
+      - build-signed-macos-artifacts
     runs-on: ubuntu-latest
     environment: crates-io
     env:
@@ -243,3 +207,41 @@ jobs:
             cargo publish --locked -p "$crate"
             sleep 30
           done < <(jq -r '.rust.publish_order[]' dist/real-release/real-release-plan.json)
+
+  publish-github-release:
+    name: Publish GitHub Release
+    needs:
+      - validate-real-release
+      - build-linux-artifacts
+      - build-signed-macos-artifacts
+      - publish-rust-crates
+    runs-on: ubuntu-latest
+    environment: github-release
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: permeantos-real-release-*
+          path: artifacts
+          merge-multiple: false
+
+      - name: Create GitHub Release
+        env:
+          RELEASE_VERSION: ${{ needs.validate-real-release.outputs.version }}
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec cp {} release-assets/ \;
+          linux_dir="$(find artifacts -type d -name 'permeantos-real-release-linux-*' | head -n 1)"
+          macos_dir="$(find artifacts -type d -name 'permeantos-real-release-macos-*' | head -n 1)"
+          cp "$linux_dir/checksums.txt" release-assets/checksums-linux.txt
+          cp "$linux_dir/release-manifest.json" release-assets/release-manifest-linux.json
+          cp "$macos_dir/checksums.txt" release-assets/checksums-macos.txt
+          cp "$macos_dir/release-manifest.json" release-assets/release-manifest-macos.json
+          gh release create "$RELEASE_VERSION" \
+            --verify-tag \
+            --title "PermeantOS $RELEASE_VERSION" \
+            --notes "PermeantOS product release $RELEASE_VERSION." \
+            release-assets/*

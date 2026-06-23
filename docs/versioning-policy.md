@@ -9,9 +9,8 @@ The repository-level release manifest is `release.toml`. It records the current
 product name, product SemVer, product tag, package sets, binary package, and
 publishing mode. `scripts/check-release-version.py` treats that manifest as the
 source of truth and verifies Rust crate versions, internal path dependency
-versions, Python SDK version, binary artifact identity, and publishing-disable
-flags. In future real-publishing mode, product release tags must match the
-manifest exactly.
+versions, Python SDK version, binary artifact identity, and release-mode
+publishing flags. Product release tags must match the manifest exactly.
 
 Current default releases are lightweight platform milestone releases. A
 lightweight release consists of:
@@ -27,10 +26,9 @@ v<major>.<minor>.<patch>-<roadmap-slug>
 ```
 
 These tags are project milestones, not package publication events. Crates,
-Python packages, binaries, GitHub Releases, and signed artifacts are not
-published until the repository has explicit release infrastructure for them.
-The roadmap now treats that release infrastructure as platform-maturity work
-rather than research-only housekeeping.
+binaries, GitHub Releases, and signed artifacts are published only through the
+guarded real-release workflow. Python packages remain disabled until the
+repository has wheel/sdist validation and PyPI ownership.
 
 Milestone tags are validated with `--release-kind milestone`: they may use the
 roadmap suffix while package versions remain pinned by `release.toml`. Future
@@ -38,7 +36,7 @@ package/product releases are validated with `--release-kind product`: the tag
 must equal `product_tag` in `release.toml`, currently `v0.1.0`.
 
 The repository now has release-artifact and release-validation paths for
-pre-publication validation. `scripts/build-release-artifacts.py` creates
+release validation. `scripts/build-release-artifacts.py` creates
 checksummed binary archives and a manifest, and `scripts/validate-release.py`
 checks tag format, changelog promotion, archive checksums, archive contents,
 package-readiness evidence, crate packaging evidence, and release version
@@ -46,10 +44,9 @@ consistency evidence. The `Release Artifacts` and `Release Validation`
 workflows upload those reports as GitHub Actions artifacts for tags or manual
 dispatch. The release validation path also checks Rust crate package dry-runs
 through `scripts/check-crate-packaging.py` and version alignment through
-`scripts/check-release-version.py`. This is packaging readiness, not GitHub
-Release publishing. Creating GitHub Releases, signing assets, publishing
-crates, or publishing Python packages still requires the real-release gate
-described in Lazarus mode and `docs/publishing-policy.md`.
+`scripts/check-release-version.py`. Creating GitHub Releases, signing assets,
+or publishing crates requires the real-release gate described in Lazarus mode
+and `docs/publishing-policy.md`. Publishing Python packages remains deferred.
 
 ## USXF
 

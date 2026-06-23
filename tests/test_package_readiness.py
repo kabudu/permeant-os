@@ -36,19 +36,25 @@ def test_package_readiness_report_is_complete_and_gated():
         assert result.returncode == 0, result.stderr
         report = json.loads(report_path.read_text())
         assert report["schema_version"] == "permeantos-package-readiness-v0"
-        assert report["status"] == "ready-gated"
+        assert report["status"] == "ready-to-publish"
+        assert report["release_mode"] == "production"
         assert report["publishing"] == {
             "crates_published": False,
             "python_packages_published": False,
             "real_release_gate_required": True,
+            "crate_publish_requested": True,
         }
 
         packages = {package["name"]: package for package in report["packages"]}
         assert set(packages) == EXPECTED_PACKAGES
 
-        for package in packages.values():
-            assert package["status"] == "ready-gated"
-            assert package["publish_enabled"] is False
+        for name, package in packages.items():
+            if name == "permeantos":
+                assert package["status"] == "ready-gated"
+                assert package["publish_enabled"] is False
+            else:
+                assert package["status"] == "ready-to-publish"
+                assert package["publish_enabled"] is True
             assert package["errors"] == []
 
 

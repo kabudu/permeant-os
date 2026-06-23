@@ -1,8 +1,8 @@
 # Publishing Policy
 
-PermeantOS supports pre-publication release artifacts today. Real publishing is
-gated until the project has explicit ownership, credentials, signing, and
-rollback readiness.
+PermeantOS is configured for its first guarded production release. Real
+publishing is available only through the manual `Real Release` workflow and the
+protected release environments.
 
 Current policy schema: `permeantos-publishing-policy-v0`.
 Current real release config schema: `permeantos-real-release-config-v0`.
@@ -10,23 +10,23 @@ Current real release plan schema: `permeantos-real-release-plan-v0`.
 
 ## Current Mode
 
-The current mode is `pre-publication`.
+The current mode is `production`.
 
 Allowed actions:
 
 - build checksummed binary archives with `scripts/build-release-artifacts.py`;
 - validate artifacts with `scripts/validate-release.py`;
 - upload workflow artifacts from GitHub Actions;
-- run package-readiness checks with publishing disabled;
-- run Rust crate package dry-runs with publishing disabled;
+- run package-readiness checks that confirm the Rust crates are publishable and
+  the Python SDK remains publish-disabled;
+- run Rust crate package dry-runs before registry publication;
 - run release version consistency checks against `release.toml`;
-- run the manual `Real Release` workflow only far enough for
-  `scripts/plan-real-release.py` to emit the intended target/publish plan and
-  `scripts/check-real-release-config.py` to fail closed while the manifest
-  remains in pre-publication mode;
-- create lightweight roadmap tags after changelog promotion.
+- run the manual `Real Release` workflow for the product tag recorded in
+  `release.toml`;
+- create lightweight roadmap tags only when they are not confused with product
+  publishing events.
 
-Forbidden actions until the real-release gate is opened:
+Forbidden actions outside the guarded real-release workflow:
 
 - create GitHub Releases;
 - upload signed release assets;
@@ -37,13 +37,18 @@ Forbidden actions until the real-release gate is opened:
 
 ## Ownership
 
-Before real publishing is enabled, the release PR must document:
+The real-release path is owned by:
 
-- GitHub Release owner and approval path;
-- crate ownership for every publishable crate;
-- PyPI ownership for the Python adapter SDK;
-- signing-key owner and rotation plan;
-- rollback owner for failed or yanked packages.
+- GitHub Release owner and approval path: `kabudu`, through the protected
+  `github-release` environment;
+- crate ownership for every publishable crate: `kabudu`, through the protected
+  `crates-io` environment;
+- PyPI ownership for the Python adapter SDK: deferred because Python publishing
+  remains disabled;
+- signing-key owner and rotation plan: `kabudu`, through Apple Developer ID
+  credentials held as repository secrets and the protected
+  `apple-notarization` environment;
+- rollback owner for failed or yanked packages: `kabudu`.
 
 ## Credentials
 
@@ -51,11 +56,12 @@ Publishing credentials must be configured only through GitHub environments or
 the chosen secret store. Credentials must never be committed, written into
 generated reports, or printed in CI logs.
 
-Required future secret classes:
+Required secret classes:
 
 - GitHub Release publishing token or GitHub App permission;
 - `CARGO_REGISTRY_TOKEN`: crates.io token scoped to the intended crates;
-- PyPI trusted-publishing configuration or scoped token;
+- PyPI trusted-publishing configuration or scoped token, when Python publishing
+  is enabled in a future release;
 - release signing key material or signing-service identity.
 
 ## Signing
@@ -68,10 +74,7 @@ Signed GitHub Release assets require:
 - key identity, rotation, and revocation procedure;
 - CI validation that refuses unsigned release assets in real-publishing mode.
 
-Until then, release artifacts include checksums but are not signed GitHub
-Release assets.
-
-The future macOS product-release path is modelled on the sibling QATQ release
+The macOS product-release path is modelled on the sibling QATQ release
 workflow. It requires:
 
 - `APPLE_CERTIFICATE`: base64-encoded Developer ID Application `.p12`
@@ -85,7 +88,7 @@ workflow. It requires:
   repository/environment variable;
 - a protected `apple-notarization` GitHub environment.
 
-The future Rust crate publishing path requires:
+The Rust crate publishing path requires:
 
 - `CARGO_REGISTRY_TOKEN`: crates.io API token scoped to the PermeantOS crates;
 - a protected `crates-io` GitHub environment.
@@ -96,10 +99,11 @@ and submits it with `xcrun notarytool submit --wait` before release upload.
 
 ## Registry Publishing
 
-Rust crates and the Python SDK stay publish-disabled in source control until
-the release PR that performs the real publish.
+Rust crates are publishable only in production mode and only through the
+guarded release workflow. The Python SDK stays publish-disabled until a future
+release adds wheel/sdist validation and PyPI ownership.
 
-Before enabling crates.io:
+Before running crates.io publication:
 
 1. Reserve or confirm crate ownership.
 2. Replace path-only dependency edges with publishable version constraints.
@@ -112,7 +116,8 @@ Before enabling crates.io:
 6. Run full `cargo package --locked` verification in publish order once each
    upstream internal crate is available to downstream package verification.
 7. Document publish order, rollback, and yank procedure.
-8. Remove `publish = false` only for crates included in the real release.
+8. Confirm `publish = false` has been removed only for crates included in the
+   real release.
 
 Before enabling PyPI:
 
@@ -125,11 +130,10 @@ Before enabling PyPI:
 ## Real Release Workflow
 
 `.github/workflows/real-release.yml` is manual-only and must be run from
-`master`. It is intentionally fail-closed in the current repository state:
-`scripts/plan-real-release.py` emits the plan from `release.toml`, then
-`scripts/check-real-release-config.py` requires `release_mode = "production"`,
-the requested tag to match `release.toml`, and explicit publish flags for the
-requested targets.
+`master`. `scripts/plan-real-release.py` emits the plan from `release.toml`,
+then `scripts/check-real-release-config.py` requires
+`release_mode = "production"`, the requested tag to match `release.toml`, and
+explicit publish flags for the requested targets.
 
 Release approvers must review `real-release-plan.json` before approving
 protected environments. The report records:
@@ -149,7 +153,7 @@ Publishing jobs are protected by GitHub environments:
 
 The publishing-policy checker permits `gh release create` and `cargo publish`
 only inside that guarded workflow. The commands remain forbidden in normal CI,
-release-validation, evidence, and pre-publication workflows.
+release-validation and evidence workflows.
 
 ## Rollback
 
@@ -173,7 +177,9 @@ The current policy is enforced by:
 - `scripts/plan-real-release.py`;
 - `scripts/check-real-release-config.py`;
 - `scripts/validate-release.py`;
-- `release.toml` with publishing flags set to `false`;
-- `publish = false` in Rust crate manifests;
+- `release.toml` with production publishing flags set only for supported
+  targets;
+- Rust crate manifests that are publishable only for crates included in the
+  product release;
 - `tool.permeantos.release.publish = false` in the Python SDK manifest;
 - GitHub Actions workflows that do not run real publishing commands.

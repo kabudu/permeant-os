@@ -2,10 +2,10 @@ schema_version = "permeantos-release-manifest-v0"
 product_name = "permeantos"
 product_version = "0.1.0"
 product_tag = "v0.1.0"
-release_mode = "pre-publication"
+release_mode = "production"
 
 [rust]
-publish = false
+publish = true
 environment = "crates-io"
 binary_crate = "permeant-cli"
 crates = [
@@ -24,7 +24,7 @@ publish = false
 package = "permeantos"
 
 [binaries]
-publish = false
+publish = true
 package = "permeant-cli"
 archive_prefix = "permeantos"
 targets = [
@@ -37,5 +37,5 @@ macos_notarize = true
 macos_environment = "apple-notarization"
 
 [github_release]
-publish = false
+publish = true
 environment = "github-release"

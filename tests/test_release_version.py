@@ -33,9 +33,10 @@ def test_release_manifest_versions_are_consistent():
         assert report["ok"] is True
         assert report["product_version"] == "0.1.0"
         assert report["product_tag"] == "v0.1.0"
-        assert report["publishing_enabled"] is False
+        assert report["publishing_enabled"] is True
         checks = {check["name"]: check for check in report["checks"]}
         assert checks["release-manifest-schema"]["ok"] is True
+        assert checks["release-publishing-mode-valid"]["ok"] is True
         assert checks["rust-crate-set"]["ok"] is True
         assert checks["python-package-version"]["ok"] is True
         assert checks["binary-package-matches-rust"]["ok"] is True
@@ -60,14 +61,14 @@ def test_product_release_tag_rejects_mismatched_version():
     assert checks["product-release-tag"]["ok"] is False
 
 
-def test_milestone_release_tag_keeps_pre_publication_mode():
+def test_milestone_release_tag_accepts_roadmap_suffix_in_current_mode():
     result = run_checker("--release-version", "v0.1.99-test", "--release-kind", "milestone")
 
     assert result.returncode == 0, result.stderr + result.stdout
     report = json.loads(result.stdout)
     checks = {check["name"]: check for check in report["checks"]}
     assert checks["milestone-release-tag"]["ok"] is True
-    assert report["publishing_enabled"] is False
+    assert report["publishing_enabled"] is True
 
 
 def test_release_version_gate_is_wired_into_ci_and_release_validation():

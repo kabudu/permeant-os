@@ -76,12 +76,18 @@ def package_value(package: dict[str, Any], workspace_defaults: dict[str, Any], f
 
 
 def check_policy_doc() -> list[Check]:
+    manifest = load_toml(ROOT / "release.toml")
+    release_mode = manifest.get("release_mode")
     if not POLICY_PATH.is_file():
         return [Check("publishing-policy-doc", False, f"missing {POLICY_PATH}")]
     text = POLICY_PATH.read_text(encoding="utf-8")
     checks = [
         Check("publishing-policy-schema", SCHEMA_VERSION in text, f"{SCHEMA_VERSION} documented"),
-        Check("publishing-mode-pre-publication", "The current mode is `pre-publication`." in text, "current mode is pre-publication"),
+        Check(
+            "publishing-mode-documented",
+            f"The current mode is `{release_mode}`." in text,
+            f"current mode is {release_mode}",
+        ),
     ]
     for heading in REQUIRED_POLICY_HEADINGS:
         checks.append(Check(f"publishing-policy-heading:{heading.removeprefix('## ')}", heading in text, f"{heading} present"))
@@ -118,18 +124,38 @@ def check_workflows() -> list[Check]:
     return checks
 
 
-def check_cargo_publish_disabled() -> list[Check]:
+def check_cargo_publish_status() -> list[Check]:
+    manifest = load_toml(ROOT / "release.toml")
+    release_mode = manifest.get("release_mode")
+    rust_publish_enabled = manifest.get("rust", {}).get("publish") is True
+    release_crates = set(manifest.get("rust", {}).get("crates", []))
     defaults = workspace_package_defaults()
     checks: list[Check] = []
     for path in sorted((ROOT / "crates").glob("*/Cargo.toml")):
         package = load_toml(path).get("package", {})
         name = package.get("name", path.parent.name)
         publish = package_value(package, defaults, "publish")
+        publishable = publish is not False
+        if release_mode == "pre-publication":
+            check_name = f"crate-publish-disabled:{name}"
+            ok = publish is False
+            detail = f"{path.relative_to(ROOT)} publish={publish!r}"
+        elif release_mode == "production" and rust_publish_enabled and name in release_crates:
+            check_name = f"crate-publish-enabled:{name}"
+            ok = publishable
+            detail = f"{path.relative_to(ROOT)} is publishable for production release"
+        else:
+            check_name = f"crate-publish-mode:{name}"
+            ok = False
+            detail = (
+                f"unsupported release mode for {name}: release_mode={release_mode!r}, "
+                f"rust.publish={manifest.get('rust', {}).get('publish')!r}"
+            )
         checks.append(
             Check(
-                f"crate-publish-disabled:{name}",
-                publish is False,
-                f"{path.relative_to(ROOT)} publish={publish!r}",
+                check_name,
+                ok,
+                detail,
             )
         )
     return checks
@@ -148,17 +174,26 @@ def check_python_publish_disabled() -> list[Check]:
 
 
 def build_report() -> dict[str, Any]:
+    manifest = load_toml(ROOT / "release.toml")
+    release_mode = manifest.get("release_mode")
+    publishing_enabled = (
+        release_mode == "production"
+        and manifest.get("rust", {}).get("publish") is True
+        and manifest.get("binaries", {}).get("publish") is True
+        and manifest.get("github_release", {}).get("publish") is True
+        and manifest.get("python", {}).get("publish") is False
+    )
     checks = [
         *check_policy_doc(),
         *check_workflows(),
-        *check_cargo_publish_disabled(),
+        *check_cargo_publish_status(),
         *check_python_publish_disabled(),
     ]
     report = {
         "schema_version": SCHEMA_VERSION,
         "generated_at": utc_now(),
-        "mode": "pre-publication",
-        "publishing_enabled": False,
+        "mode": release_mode,
+        "publishing_enabled": publishing_enabled,
         "checks": [check.to_json() for check in checks],
     }
     report["ok"] = all(check["ok"] for check in report["checks"])
