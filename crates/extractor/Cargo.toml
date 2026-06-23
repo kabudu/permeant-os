@@ -13,4 +13,4 @@ publish = false
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-permeant-transpiler = { path = "../transpiler" }
+permeant-transpiler = { version = "0.1.0", path = "../transpiler" }

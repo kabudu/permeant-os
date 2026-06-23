@@ -92,8 +92,8 @@ What is still experimental:
   runtime-pair claims and source-exact cross-runtime parity.
 - Adaptive transfer codec planning exists for raw, FP8, TurboQuant-style, and
   Quaternion-Augmented TurboQuant candidate modes. Raw and FP8 remain in-tree
-  PermeantOS paths; QATQ is represented by a minimal compatibility crate until
-  the sibling QATQ project is mature enough to fold back in as a real crate.
+  PermeantOS paths; QATQ uses the published `qatq` crate for current exact
+  transfer-compression validation.
 
 ## Repository layout
 

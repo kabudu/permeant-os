@@ -16,6 +16,7 @@ Allowed actions:
 - validate artifacts with `scripts/validate-release.py`;
 - upload workflow artifacts from GitHub Actions;
 - run package-readiness checks with publishing disabled;
+- run Rust crate package dry-runs with publishing disabled;
 - create lightweight roadmap tags after changelog promotion.
 
 Forbidden actions until the real-release gate is opened:
@@ -72,9 +73,12 @@ Before enabling crates.io:
 
 1. Reserve or confirm crate ownership.
 2. Replace path-only dependency edges with publishable version constraints.
-3. Run `cargo package --locked` for every publishable crate.
-4. Document publish order, rollback, and yank procedure.
-5. Remove `publish = false` only for crates included in the real release.
+3. Run `scripts/check-crate-packaging.py` and review the generated dry-run
+   package report.
+4. Run full `cargo package --locked` verification in publish order once each
+   upstream internal crate is available to downstream package verification.
+5. Document publish order, rollback, and yank procedure.
+6. Remove `publish = false` only for crates included in the real release.
 
 Before enabling PyPI:
 
@@ -101,6 +105,7 @@ The current policy is enforced by:
 - `scripts/check-publishing-policy.py`;
 - `tests/test_publishing_policy.py`;
 - `scripts/check-package-readiness.py`;
+- `scripts/check-crate-packaging.py`;
 - `scripts/validate-release.py`;
 - `publish = false` in Rust crate manifests;
 - `tool.permeantos.release.publish = false` in the Python SDK manifest;

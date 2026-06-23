@@ -54,6 +54,22 @@ def make_package_readiness(temp: pathlib.Path) -> pathlib.Path:
     return report
 
 
+def make_crate_packaging(temp: pathlib.Path) -> pathlib.Path:
+    report = temp / "crate-packaging.json"
+    report.write_text(
+        json.dumps(
+            {
+                "schema_version": "permeantos-crate-packaging-v0",
+                "ok": True,
+                "publishing_enabled": False,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return report
+
+
 def run_validator(*args: str):
     return subprocess.run(
         [sys.executable, str(VALIDATOR), *args],
@@ -70,6 +86,7 @@ def test_release_validator_accepts_candidate_artifacts_with_unreleased_changelog
         version = "v0.1.99-test"
         artifact_dir = make_artifacts(version, temp)
         package_readiness = make_package_readiness(temp)
+        crate_packaging = make_crate_packaging(temp)
         report_path = temp / "release-validation.json"
 
         result = run_validator(
@@ -79,6 +96,8 @@ def test_release_validator_accepts_candidate_artifacts_with_unreleased_changelog
             str(artifact_dir),
             "--package-readiness",
             str(package_readiness),
+            "--crate-packaging",
+            str(crate_packaging),
             "--allow-unreleased-changelog",
             "--json-out",
             str(report_path),
@@ -92,6 +111,8 @@ def test_release_validator_accepts_candidate_artifacts_with_unreleased_changelog
         assert checks["changelog-promoted"]["ok"] is True
         assert checks["release-manifest-schema"]["ok"] is True
         assert checks["package-publishing-disabled"]["ok"] is True
+        assert checks["crate-packaging-ok"]["ok"] is True
+        assert checks["crate-packaging-publishing-disabled"]["ok"] is True
 
 
 def test_release_validator_requires_changelog_promotion_for_strict_tag_mode():

@@ -100,8 +100,10 @@ def test_release_validation_workflow_builds_validates_and_uploads_reports():
 
     assert "scripts/build-release-artifacts.py" in workflow
     assert "scripts/check-package-readiness.py --json-out dist/release/package-readiness.json" in workflow
+    assert "scripts/check-crate-packaging.py --json-out dist/release/crate-packaging.json" in workflow
     assert "scripts/validate-release.py" in workflow
     assert "--package-readiness dist/release/package-readiness.json" in workflow
+    assert "--crate-packaging dist/release/crate-packaging.json" in workflow
     assert "dist/release/release-validation.json" in workflow
     assert "actions/upload-artifact@v7.0.1" in workflow
     assert "contents: read" in workflow

@@ -68,6 +68,10 @@ and this project uses release tags compatible with semantic versioning.
   activity, origin return-home continuation, and cleanup proof.
 - Switched PermeantOS to the published `qatq` `0.1.1` crate and removed the
   AWS E2E runner's sibling-checkout copy path for QATQ migrations.
+- Added Rust crate packaging dry-run validation for production release
+  readiness, including versioned internal path dependencies, CI/release
+  validation wiring, and removal of the obsolete in-tree `qatq` compatibility
+  shim.
 - Added model-family/runtime validation profiles and a matrix planner for
   broadening AWS real-runtime E2E evidence beyond the first Qwen MLX-to-vLLM
   path.

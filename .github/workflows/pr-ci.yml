@@ -52,6 +52,9 @@ jobs:
       - name: Run starter migration demo
         run: cargo run --locked --bin permeant-cli -- starter-demo --seq-len 128 --out-dir /tmp/permeantos-starter-demo --timeout-seconds 30
 
+      - name: Verify crate package dry run
+        run: scripts/check-crate-packaging.py --json-out /tmp/permeantos-crate-packaging.json
+
   python:
     name: Python tests
     runs-on: ubuntu-latest

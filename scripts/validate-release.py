@@ -152,12 +152,37 @@ def validate_package_readiness(package_readiness: Path | None) -> list[Check]:
     ]
 
 
-def validate(version: str, artifact_dir: Path, *, allow_unreleased_changelog: bool, package_readiness: Path | None) -> dict[str, Any]:
+def validate_crate_packaging(crate_packaging: Path | None) -> list[Check]:
+    if crate_packaging is None:
+        return []
+    if not crate_packaging.is_file():
+        return [Check("crate-packaging-report", False, f"missing {crate_packaging}")]
+    report = json.loads(crate_packaging.read_text(encoding="utf-8"))
+    return [
+        Check("crate-packaging-schema", report.get("schema_version") == "permeantos-crate-packaging-v0", f"schema is {report.get('schema_version')!r}"),
+        Check("crate-packaging-ok", report.get("ok") is True, f"ok is {report.get('ok')!r}"),
+        Check(
+            "crate-packaging-publishing-disabled",
+            report.get("publishing_enabled") is False,
+            f"publishing_enabled is {report.get('publishing_enabled')!r}",
+        ),
+    ]
+
+
+def validate(
+    version: str,
+    artifact_dir: Path,
+    *,
+    allow_unreleased_changelog: bool,
+    package_readiness: Path | None,
+    crate_packaging: Path | None,
+) -> dict[str, Any]:
     checks = [
         Check("version-format", VERSION_RE.fullmatch(version) is not None, f"version is {version!r}"),
         validate_changelog(version, allow_unreleased=allow_unreleased_changelog),
         *validate_artifacts(version, artifact_dir),
         *validate_package_readiness(package_readiness),
+        *validate_crate_packaging(crate_packaging),
     ]
     report = {
         "schema_version": SCHEMA_VERSION,
@@ -166,6 +191,7 @@ def validate(version: str, artifact_dir: Path, *, allow_unreleased_changelog: bo
         "mode": "candidate" if allow_unreleased_changelog else "tag",
         "artifact_dir": str(artifact_dir),
         "package_readiness": str(package_readiness) if package_readiness else None,
+        "crate_packaging": str(crate_packaging) if crate_packaging else None,
         "checks": [check.to_json() for check in checks],
     }
     report["ok"] = all(check["ok"] for check in report["checks"])
@@ -177,6 +203,7 @@ def main() -> int:
     parser.add_argument("--version", required=True)
     parser.add_argument("--artifact-dir", type=Path, required=True)
     parser.add_argument("--package-readiness", type=Path)
+    parser.add_argument("--crate-packaging", type=Path)
     parser.add_argument("--json-out", type=Path)
     parser.add_argument(
         "--allow-unreleased-changelog",
@@ -190,6 +217,7 @@ def main() -> int:
         args.artifact_dir,
         allow_unreleased_changelog=args.allow_unreleased_changelog,
         package_readiness=args.package_readiness,
+        crate_packaging=args.crate_packaging,
     )
     if args.json_out:
         args.json_out.parent.mkdir(parents=True, exist_ok=True)

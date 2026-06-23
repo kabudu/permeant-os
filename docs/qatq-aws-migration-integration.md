@@ -47,7 +47,7 @@ release claims.
 
 | Path | Components | Purpose | Expected result | Claim boundary |
 | --- | --- | --- | --- | --- |
-| Compatibility path | In-tree `qatq-compat` plus `permeant-qatq-migration` | Prove exact migration semantics, manifest checks, dtype/shape validation, and fail-closed restore behaviour. | May be larger than raw because it is an exact compatibility container. | Record as an exact compatibility proof only. Do not use for QATQ compression or transfer-size reduction claims. |
+| Historical compatibility path | Former in-tree `qatq-compat` plus `permeant-qatq-migration` | Proved exact migration semantics, manifest checks, dtype/shape validation, and fail-closed restore behaviour before the external crate was available. | May be larger than raw because it was an exact compatibility container. | Historical correctness evidence only. Do not use for current QATQ compression or transfer-size reduction claims. |
 | Standalone QATQ crate path | Published `qatq` crate from crates.io | Validate actual exact typed tensor compression in the live migration path. | Must be lossless and must transfer no more bytes than raw for the accepted migration bundle. | Required before any claim that QATQ reduces transfer size. |
 
 QATQ compression validation must use the published standalone `qatq` crate, not
@@ -56,8 +56,9 @@ bundle, run QATQ, raw, `zstd`, and `lz4` against that same packed KV artifact
 set, and publish a single comparison table covering bytes transferred, encode
 time, decode time, and continuation fidelity.
 
-Warning: if `qatq-compat` is used, record the run as an exact compatibility
-proof only, not a QATQ compression proof.
+Warning: if an old branch or historical run uses `qatq-compat`, record the run
+as an exact compatibility proof only, not a QATQ compression proof. Current
+PermeantOS builds no longer ship the in-tree compatibility crate.
 
 Historical reports from 2026-06-22 used a sibling checkout before the crate was
 published. They remain valid evidence for that exact source snapshot, but new
@@ -318,7 +319,7 @@ checks:
 
 | check | pass condition |
 | --- | --- |
-| Codec provenance | Compression-validation runs use the pinned standalone `qatq` crate from the QATQ repository, not in-tree `qatq-compat`. |
+| Codec provenance | Compression-validation runs use the published standalone `qatq` crate from crates.io, not historical in-tree `qatq-compat`. |
 | Source encode | Every migration tensor/bundle encodes with `qatq-exact` or QATC. |
 | Source local verify | Decode equals source bytes for every artifact before upload. |
 | AWS transfer | S3/EBS artifact checksums match the manifest on target. |
@@ -368,8 +369,8 @@ python3 scripts/llama_cpp_kv_matrix.py \
   finer chunking only where PermeantOS needs random access or streaming restore.
 - Record encode/decode latency in the migration timeline so QATQ can be judged
   against the live migration SLO.
-- Treat any run that uses `qatq-compat` as a correctness-only compatibility
-  proof, even if its manifest storage label is `qatq-exact`.
+- Treat any historical run that used `qatq-compat` as a correctness-only
+  compatibility proof, even if its manifest storage label is `qatq-exact`.
 
 ## Feedback QATQ Needs From PermeantOS
 
