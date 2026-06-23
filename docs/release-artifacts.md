@@ -94,6 +94,9 @@ provided through GitHub secrets/variables, the certificate is imported into a
 temporary keychain, binaries are signed with the hardened runtime option, and
 the ZIP archive is notarized before upload.
 
+The Rust publishing path uses the standard Cargo secret name
+`CARGO_REGISTRY_TOKEN` from the protected `crates-io` environment.
+
 ## Verify An Archive
 
 After downloading workflow artifacts:

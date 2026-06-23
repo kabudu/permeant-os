@@ -54,7 +54,7 @@ generated reports, or printed in CI logs.
 Required future secret classes:
 
 - GitHub Release publishing token or GitHub App permission;
-- crates.io token scoped to the intended crates;
+- `CARGO_REGISTRY_TOKEN`: crates.io token scoped to the intended crates;
 - PyPI trusted-publishing configuration or scoped token;
 - release signing key material or signing-service identity.
 
@@ -84,6 +84,11 @@ workflow. It requires:
 - `APPLE_TEAM_ID`: Apple Developer Team ID, either as a secret or
   repository/environment variable;
 - a protected `apple-notarization` GitHub environment.
+
+The future Rust crate publishing path requires:
+
+- `CARGO_REGISTRY_TOKEN`: crates.io API token scoped to the PermeantOS crates;
+- a protected `crates-io` GitHub environment.
 
 The workflow imports the certificate into a temporary keychain, signs
 `permeant-cli` with `codesign --options runtime`, packages a macOS ZIP archive,
