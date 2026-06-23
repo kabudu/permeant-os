@@ -14,10 +14,10 @@ reading the whole history.
 - [Release artifacts](release-artifacts.md): build and validate checksummed
   binary bundles, verify archives, and install `permeant-cli`.
 - [Crate and SDK publication plan](crate-and-sdk-publication-plan.md): package
-  metadata, release manifest consistency, publish-disabled gating, and future
-  registry release steps.
+  metadata, release manifest consistency, guarded Rust crate publishing, and
+  deferred Python package release steps.
 - [Publishing policy](publishing-policy.md): ownership, credentials, signing,
-  rollback, and current no-publishing enforcement.
+  rollback, and guarded production release enforcement.
 - [Versioning policy](versioning-policy.md): schema, report, artifact, and
   lightweight release versioning rules.
 
@@ -100,11 +100,8 @@ reading the whole history.
 ## Current Limits
 
 - PermeantOS is pre-1.0; supported claims are bounded to validated paths.
-- GitHub Release publishing, crate publishing, signed assets, and Python
-  package publishing are not enabled yet; `release.toml`,
-  `scripts/plan-real-release.py`, `scripts/check-real-release-config.py`, and
-  `docs/publishing-policy.md` record the gate that must be opened in a future
-  real-release PR. The manual `Real Release` workflow is present but
-  fail-closed in pre-publication mode.
+- GitHub Release publishing, Rust crate publishing, and signed macOS assets are
+  enabled only through the guarded manual `Real Release` workflow and protected
+  environments. Python package publishing remains deferred.
 - QATQ is being matured separately before it is folded back into PermeantOS as
   a production codec.

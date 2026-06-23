@@ -21,7 +21,7 @@ def run_checker(*args: str):
     )
 
 
-def test_real_release_config_fails_closed_in_pre_publication_mode():
+def test_real_release_config_passes_for_guarded_production_targets():
     with tempfile.TemporaryDirectory() as tmpdir:
         report_path = pathlib.Path(tmpdir) / "real-release-config.json"
 
@@ -38,14 +38,32 @@ def test_real_release_config_fails_closed_in_pre_publication_mode():
             str(report_path),
         )
 
-        assert result.returncode != 0
+        assert result.returncode == 0, result.stderr + result.stdout
         report = json.loads(report_path.read_text())
         assert report["schema_version"] == "permeantos-real-release-config-v0"
-        assert report["ok"] is False
-        assert report["publishing_enabled"] is False
+        assert report["ok"] is True
+        assert report["publishing_enabled"] is True
         checks = {check["name"]: check for check in report["checks"]}
         assert checks["release-version-matches-manifest"]["ok"] is True
-        assert checks["release-mode-production"]["ok"] is False
-        assert checks["github_release-publish-enabled"]["ok"] is False
-        assert checks["binaries-publish-enabled"]["ok"] is False
-        assert checks["rust-publish-enabled"]["ok"] is False
+        assert checks["release-mode-production"]["ok"] is True
+        assert checks["github_release-publish-enabled"]["ok"] is True
+        assert checks["binaries-publish-enabled"]["ok"] is True
+        assert checks["rust-publish-enabled"]["ok"] is True
+
+
+def test_real_release_config_rejects_mismatched_product_tag():
+    result = run_checker(
+        "--release-version",
+        "v0.1.1",
+        "--require",
+        "github-release",
+        "--require",
+        "binaries",
+        "--require",
+        "rust",
+    )
+
+    assert result.returncode != 0
+    report = json.loads(result.stdout)
+    checks = {check["name"]: check for check in report["checks"]}
+    assert checks["release-version-matches-manifest"]["ok"] is False

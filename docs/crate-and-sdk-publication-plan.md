@@ -1,7 +1,8 @@
 # Crate And SDK Publication Plan
 
 PermeantOS now has package metadata and a CI gate for Rust crates and the
-Python SDK, but it does not publish registry packages yet.
+Python SDK. Rust crate publishing is enabled only through the guarded
+production release workflow; Python package publishing remains disabled.
 
 Current readiness schema: `permeantos-package-readiness-v0`.
 Current release version schema: `permeantos-release-version-consistency-v0`.
@@ -9,8 +10,8 @@ Current real release config schema: `permeantos-real-release-config-v0`.
 Current real release plan schema: `permeantos-real-release-plan-v0`.
 
 The repository-level release manifest is `release.toml`. It is the source of
-truth for the current product SemVer, future product tag, publish-disabled
-package set, binary package identity, and GitHub Release publishing flag.
+truth for the current product SemVer, product tag, publishable package set,
+binary package identity, and GitHub Release publishing flag.
 
 ## Current Gate
 
@@ -23,7 +24,8 @@ scripts/check-package-readiness.py --json-out /tmp/permeantos-package-readiness.
 The verifier checks that:
 
 - every Rust crate has name, version, edition, description, licence,
-  repository, homepage, README, and `publish = false`;
+  repository, homepage, README, and publishability that matches
+  `release.toml`;
 - the Python SDK has package metadata, licence, public URLs, dependencies,
   classifiers, and an existing package README;
 - the Python SDK declares `tool.permeantos.release.publish = false`;
@@ -49,7 +51,7 @@ Run the release version consistency verifier:
 scripts/check-release-version.py --json-out /tmp/permeantos-release-version.json
 ```
 
-For a future real product/package release, use product mode so the requested tag
+For the real product/package release, use product mode so the requested tag
 must match `release.toml`:
 
 ```bash
@@ -59,9 +61,9 @@ scripts/check-release-version.py \
   --json-out /tmp/permeantos-release-version.json
 ```
 
-Then run the real-release config verifier. It must fail until the release PR
-intentionally switches `release.toml` into production mode and enables the
-requested publish targets:
+Then run the real-release config verifier. It must pass only when
+`release.toml` is intentionally in production mode and the requested publish
+targets are enabled:
 
 ```bash
 scripts/check-real-release-config.py \
@@ -85,11 +87,11 @@ names, artifact target matrix, and Rust crate publish order. The
 `Real Release` workflow consumes this plan for crate publication and performs a
 `cargo publish --dry-run` immediately before publishing each crate.
 
-`publish = false` is intentional. Publishing remains behind the real-release
-gate in `docs/versioning-policy.md` and `docs/publishing-policy.md`: package
-ownership, credentials, release validation, semantic versioning, signing,
-rollback ownership, and an explicit release request must exist before registry
-publication is enabled.
+Rust crate publishing remains behind the real-release gate in
+`docs/versioning-policy.md` and `docs/publishing-policy.md`: package ownership,
+credentials, release validation, semantic versioning, signing, rollback
+ownership, protected environments, and an explicit release request must exist
+before registry publication runs.
 
 ## Rust Crate Plan
 
@@ -97,17 +99,17 @@ The first publishable crate set should be split by API stability:
 
 | Crate | Future role | Current status |
 | --- | --- | --- |
-| `usxf-core` | Public exchange-format types and version constants | Metadata complete, publish gated |
-| `permeant-transport` | Migration frame and session negotiation primitives | Metadata complete, publish gated |
-| `permeant-transpiler` | KV layout normalization and transfer codec planning | Metadata complete, publish gated |
-| `permeant-extractor` | Source runtime adapter boundary | Metadata complete, publish gated |
-| `permeant-injector` | Target runtime adapter boundary | Metadata complete, publish gated |
-| `permeant-orchestrator` | Migration orchestration and commit coordination | Metadata complete, publish gated |
-| `permeant-qatq-migration` | Exact typed QATQ migration artifact manifests and restore validation | Metadata complete, publish gated |
-| `permeant-cli` | Binary CLI package | Metadata complete, publish gated |
+| `usxf-core` | Public exchange-format types and version constants | Metadata complete, publishable through real-release workflow |
+| `permeant-transport` | Migration frame and session negotiation primitives | Metadata complete, publishable through real-release workflow |
+| `permeant-transpiler` | KV layout normalization and transfer codec planning | Metadata complete, publishable through real-release workflow |
+| `permeant-extractor` | Source runtime adapter boundary | Metadata complete, publishable through real-release workflow |
+| `permeant-injector` | Target runtime adapter boundary | Metadata complete, publishable through real-release workflow |
+| `permeant-orchestrator` | Migration orchestration and commit coordination | Metadata complete, publishable through real-release workflow |
+| `permeant-qatq-migration` | Exact typed QATQ migration artifact manifests and restore validation | Metadata complete, publishable through real-release workflow |
+| `permeant-cli` | Binary CLI package | Metadata complete, publishable through real-release workflow |
 | external `qatq` | QATQ exact transfer-compression codec | Consumed from crates.io as `qatq = "0.1.1"` |
 
-Before enabling crates.io publication:
+Before running crates.io publication:
 
 1. Decide crate ownership and reserved package names.
 2. Keep internal path dependencies paired with matching version constraints
@@ -116,7 +118,7 @@ Before enabling crates.io publication:
    package report.
 4. Run `scripts/check-release-version.py --release-kind product` and confirm
    the tag, Rust crate versions, Python SDK version, binary package identity,
-   and publish-disabled flags are aligned with `release.toml`.
+   and publishing flags are aligned with `release.toml`.
 5. Run `scripts/check-real-release-config.py` for the intended publish targets
    and confirm the real-release PR has intentionally enabled them.
 6. Review `scripts/plan-real-release.py` output and confirm the Rust publish
@@ -125,8 +127,8 @@ Before enabling crates.io publication:
    upstream internal crate is available to downstream package verification.
 8. Verify README, licence, repository, homepage, keywords, and categories.
 9. Document the crate publish order and rollback procedure.
-10. Enable publishing crate by crate by removing `publish = false` only in the
-   release PR that performs the real publish.
+10. Confirm `publish = false` has been removed only from crates included in the
+   real release.
 
 ## Python SDK Plan
 
@@ -150,9 +152,9 @@ to Cargo and publishes crates in the order emitted by
 
 ## Safety Boundary
 
-The current release artifact workflow creates downloadable binary bundles as
-GitHub Actions artifacts. It does not create GitHub Releases, publish crates,
-publish Python packages, or sign release assets.
+The current production path can create a GitHub Release, publish Rust crates,
+and sign/notarize macOS release assets only through the manual `Real Release`
+workflow. It does not publish Python packages.
 
 That boundary is enforced by:
 
@@ -163,7 +165,8 @@ That boundary is enforced by:
 - `scripts/check-real-release-config.py`;
 - `release.toml`;
 - `tests/test_package_readiness.py`;
-- `publish = false` in Rust crate manifests;
+- Rust crate manifests that are publishable only for crates included in the
+  product release;
 - `tool.permeantos.release.publish = false` in the Python SDK manifest;
 - the real-release exception in Lazarus mode, `docs/versioning-policy.md`, and
   `docs/publishing-policy.md`.

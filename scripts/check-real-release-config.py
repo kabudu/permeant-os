@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Fail-closed gate for real PermeantOS publishing workflows.
 
-The normal repository state is `pre-publication`; in that state this checker
-returns a failing report and publishing workflows must stop before touching any
-registry or GitHub Release API. A future real-release PR can flip only the
-intended `release.toml` flags and this checker will make that intent explicit.
+The checker opens only when `release.toml` is intentionally in production mode,
+the requested product tag matches the manifest, and every requested publish
+target is explicitly enabled. Otherwise publishing workflows must stop before
+touching any registry or GitHub Release API.
 """
 
 from __future__ import annotations

@@ -77,7 +77,7 @@ def make_release_version_consistency(temp: pathlib.Path) -> pathlib.Path:
             {
                 "schema_version": "permeantos-release-version-consistency-v0",
                 "ok": True,
-                "publishing_enabled": False,
+                "publishing_enabled": True,
             }
         )
         + "\n",
@@ -133,7 +133,7 @@ def test_release_validator_accepts_candidate_artifacts_with_unreleased_changelog
         assert checks["crate-packaging-ok"]["ok"] is True
         assert checks["crate-packaging-publishing-disabled"]["ok"] is True
         assert checks["release-version-consistency-ok"]["ok"] is True
-        assert checks["release-version-publishing-disabled"]["ok"] is True
+        assert checks["release-version-publishing-state-recorded"]["ok"] is True
 
 
 def test_release_validator_requires_changelog_promotion_for_strict_tag_mode():

@@ -149,7 +149,11 @@ def validate_package_readiness(package_readiness: Path | None) -> list[Check]:
     report = json.loads(package_readiness.read_text(encoding="utf-8"))
     return [
         Check("package-readiness-schema", report.get("schema_version") == "permeantos-package-readiness-v0", f"schema is {report.get('schema_version')!r}"),
-        Check("package-readiness-ok", report.get("status") == "ready-gated", f"status is {report.get('status')!r}"),
+        Check(
+            "package-readiness-ok",
+            report.get("status") in {"ready-gated", "ready-to-publish"},
+            f"status is {report.get('status')!r}",
+        ),
         Check(
             "package-publishing-disabled",
             report.get("publishing", {}).get("crates_published") is False
@@ -190,8 +194,8 @@ def validate_release_version_consistency(release_version_consistency: Path | Non
         ),
         Check("release-version-consistency-ok", report.get("ok") is True, f"ok is {report.get('ok')!r}"),
         Check(
-            "release-version-publishing-disabled",
-            report.get("publishing_enabled") is False,
+            "release-version-publishing-state-recorded",
+            isinstance(report.get("publishing_enabled"), bool),
             f"publishing_enabled is {report.get('publishing_enabled')!r}",
         ),
     ]

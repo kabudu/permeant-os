@@ -86,9 +86,28 @@ def dependency_sections(document: dict[str, Any]) -> list[tuple[str, dict[str, A
     return sections
 
 
+def publishing_enabled(manifest: dict[str, Any]) -> bool:
+    return (
+        manifest.get("release_mode") == "production"
+        and manifest.get("rust", {}).get("publish") is True
+        and manifest.get("binaries", {}).get("publish") is True
+        and manifest.get("github_release", {}).get("publish") is True
+        and manifest.get("python", {}).get("publish") is False
+    )
+
+
 def check_manifest(manifest: dict[str, Any]) -> list[Check]:
     version = str(manifest.get("product_version", ""))
     tag = str(manifest.get("product_tag", ""))
+    release_mode = manifest.get("release_mode")
+    pre_publication_ok = (
+        release_mode == "pre-publication"
+        and manifest.get("rust", {}).get("publish") is False
+        and manifest.get("python", {}).get("publish") is False
+        and manifest.get("binaries", {}).get("publish") is False
+        and manifest.get("github_release", {}).get("publish") is False
+    )
+    production_ok = publishing_enabled(manifest)
     return [
         Check(
             "release-manifest-schema",
@@ -98,13 +117,14 @@ def check_manifest(manifest: dict[str, Any]) -> list[Check]:
         Check("product-version-semver", SEMVER_RE.fullmatch(version) is not None, f"product_version={version!r}"),
         Check("product-tag-matches-version", tag == f"v{version}", f"product_tag={tag!r}, expected='v{version}'"),
         Check(
-            "real-publishing-disabled",
-            manifest.get("release_mode") == "pre-publication"
-            and manifest.get("rust", {}).get("publish") is False
-            and manifest.get("python", {}).get("publish") is False
-            and manifest.get("binaries", {}).get("publish") is False
-            and manifest.get("github_release", {}).get("publish") is False,
-            "release manifest keeps real publishing disabled",
+            "release-publishing-mode-valid",
+            pre_publication_ok or production_ok,
+            (
+                f"release_mode={release_mode!r}, rust.publish={manifest.get('rust', {}).get('publish')!r}, "
+                f"binaries.publish={manifest.get('binaries', {}).get('publish')!r}, "
+                f"github_release.publish={manifest.get('github_release', {}).get('publish')!r}, "
+                f"python.publish={manifest.get('python', {}).get('publish')!r}"
+            ),
         ),
     ]
 
@@ -209,7 +229,7 @@ def build_report(release_version: str | None, release_kind: str) -> dict[str, An
         "product_tag": manifest.get("product_tag"),
         "release_kind": release_kind,
         "release_version": release_version,
-        "publishing_enabled": False,
+        "publishing_enabled": publishing_enabled(manifest),
         "checks": [check.to_json() for check in checks],
     }
     report["ok"] = all(check["ok"] for check in report["checks"])

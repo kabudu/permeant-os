@@ -7,6 +7,14 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Enabled the guarded production release path for `v0.1.0`, including
+  publishable Rust crate manifests, production release manifest flags, and
+  mode-aware validation gates for package readiness, publishing policy, release
+  version consistency, and release validation. Python package publishing
+  remains disabled.
+
 ## [0.1.32-real-release-plan-gate] - 2026-06-23
 
 ### Added

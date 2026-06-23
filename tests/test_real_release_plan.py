@@ -32,7 +32,10 @@ def test_real_release_plan_reports_targets_environments_and_publish_order():
         assert report["schema_version"] == "permeantos-real-release-plan-v0"
         assert report["ok"] is True
         assert report["product_tag"] == "v0.1.0"
-        assert report["publishing_enabled"] is False
+        assert report["publishing_enabled"] is True
+        assert report["rust"]["publish"] is True
+        assert report["binaries"]["publish"] is True
+        assert report["github_release"]["publish"] is True
         assert report["required_environments"] == ["apple-notarization", "crates-io", "github-release"]
         assert "APPLE_CERTIFICATE" in report["required_secrets"]
         assert "CARGO_REGISTRY_TOKEN" in report["required_secrets"]

@@ -2,8 +2,8 @@
 """Check PermeantOS crate and SDK package publication readiness metadata.
 
 This gate does not publish anything. It verifies that package metadata is
-complete enough for future release work and that every package remains
-explicitly unpublished until the real-release gate is documented.
+complete enough for release work and that package publishability matches the
+current `release.toml` mode.
 """
 
 from __future__ import annotations
@@ -28,7 +28,6 @@ REQUIRED_CARGO_PACKAGE_FIELDS = (
     "repository",
     "homepage",
     "readme",
-    "publish",
 )
 REQUIRED_PYPROJECT_FIELDS = (
     "name",
@@ -75,6 +74,10 @@ def workspace_package_defaults() -> dict[str, Any]:
     return workspace.get("workspace", {}).get("package", {})
 
 
+def release_manifest() -> dict[str, Any]:
+    return load_toml(ROOT / "release.toml")
+
+
 def package_value(package: dict[str, Any], workspace_defaults: dict[str, Any], field: str) -> Any:
     value = package.get(field)
     if isinstance(value, dict) and value.get("workspace") is True:
@@ -82,7 +85,7 @@ def package_value(package: dict[str, Any], workspace_defaults: dict[str, Any], f
     return value
 
 
-def check_cargo_package(path: Path, workspace_defaults: dict[str, Any]) -> PackageStatus:
+def check_cargo_package(path: Path, workspace_defaults: dict[str, Any], manifest: dict[str, Any]) -> PackageStatus:
     document = load_toml(path)
     package = document.get("package", {})
     name = str(package.get("name", path.parent.name))
@@ -109,17 +112,29 @@ def check_cargo_package(path: Path, workspace_defaults: dict[str, Any]) -> Packa
     if homepage != "https://www.permeantos.org":
         errors.append("package.homepage must point at the public website")
 
+    release_mode = manifest.get("release_mode")
+    rust_publish_enabled = manifest.get("rust", {}).get("publish") is True
+    release_crates = set(manifest.get("rust", {}).get("crates", []))
     publish = package.get("publish")
     publish_enabled = publish is not False
-    if publish_enabled:
-        errors.append("package.publish must be false until the real-release gate enables crate publishing")
+    if release_mode == "pre-publication":
+        if publish_enabled:
+            errors.append("package.publish must be false until the real-release gate enables crate publishing")
+        status = "ready-gated"
+    elif release_mode == "production" and rust_publish_enabled and name in release_crates:
+        if not publish_enabled:
+            errors.append("package.publish must be publishable for crates included in the production release")
+        status = "ready-to-publish"
+    else:
+        errors.append(f"unsupported release.toml publish mode for {name}: release_mode={release_mode!r}")
+        status = "failed"
 
     return PackageStatus(
         package_type="cargo",
         name=name,
         path=path,
         publish_enabled=publish_enabled,
-        status="ready-gated" if not errors else "failed",
+        status=status if not errors else "failed",
         errors=tuple(errors),
     )
 
@@ -167,18 +182,23 @@ def check_python_sdk(path: Path) -> PackageStatus:
 
 def build_report() -> dict[str, Any]:
     workspace_defaults = workspace_package_defaults()
+    manifest = release_manifest()
     package_paths = sorted((ROOT / "crates").glob("*/Cargo.toml"))
-    statuses = [check_cargo_package(path, workspace_defaults) for path in package_paths]
+    statuses = [check_cargo_package(path, workspace_defaults, manifest) for path in package_paths]
     statuses.append(check_python_sdk(ROOT / "sdk" / "python" / "pyproject.toml"))
 
-    ok = all(status.status == "ready-gated" for status in statuses)
+    ok = all(status.status in {"ready-gated", "ready-to-publish"} for status in statuses)
+    release_mode = manifest.get("release_mode")
+    crate_publish_requested = release_mode == "production" and manifest.get("rust", {}).get("publish") is True
     return {
         "schema_version": SCHEMA_VERSION,
-        "status": "ready-gated" if ok else "failed",
+        "status": "ready-to-publish" if ok and crate_publish_requested else "ready-gated" if ok else "failed",
+        "release_mode": release_mode,
         "publishing": {
             "crates_published": False,
             "python_packages_published": False,
             "real_release_gate_required": True,
+            "crate_publish_requested": crate_publish_requested,
         },
         "packages": [status.to_json() for status in statuses],
     }
@@ -196,7 +216,7 @@ def main() -> int:
         args.json_out.write_text(output, encoding="utf-8")
     else:
         sys.stdout.write(output)
-    return 0 if report["status"] == "ready-gated" else 1
+    return 0 if report["status"] in {"ready-gated", "ready-to-publish"} else 1
 
 
 if __name__ == "__main__":
