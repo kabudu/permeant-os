@@ -112,7 +112,8 @@ What is still experimental:
 - `ROADMAP.md`: full roadmap, including Agent Memory Graph migration phases.
 - `docs/agent-memory-graph.md`: Agent Memory Graph v0 schema specification.
 - `docs/versioning-policy.md`: USXF, Agent Memory Graph, report schema, and
-  lightweight release versioning policy.
+  lightweight release versioning policy, with `release.toml` as the
+  repository-level product/package version manifest.
 - `docs/release-artifacts.md`: checksummed binary bundle, release manifest, and
   GitHub Actions artifact workflow for pre-publication release packaging.
 - `docs/crate-and-sdk-publication-plan.md`: Rust crate and Python SDK

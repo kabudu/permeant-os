@@ -5,10 +5,12 @@ and validated by `scripts/validate-release.py`. The builder creates a binary
 archive, `checksums.txt`, and a machine-readable `release-manifest.json`
 without publishing anything. The validator checks the tag format, changelog
 promotion, artifact manifest, archive checksums, archive contents, and optional
-package-readiness and crate-packaging reports.
+package-readiness, crate-packaging, and release-version-consistency reports.
 
 Current artifact schema: `permeantos-release-artifacts-v0`.
 Current validation schema: `permeantos-release-validation-v0`.
+Current release version consistency schema:
+`permeantos-release-version-consistency-v0`.
 
 ## Build Locally
 
@@ -50,10 +52,14 @@ checksum file, and manifest as workflow artifacts.
 
 The `Release Validation` workflow runs on the same tag pattern and on manual
 dispatch. It builds the Linux artifact bundle, runs the package-readiness and
-crate-packaging gates, and writes `release-validation.json`. Tag-triggered runs
-are strict: the matching changelog section must already be promoted out of
-`Unreleased`. Manual candidate runs may set `allow_unreleased_changelog=true`
-when validating artifacts before the final changelog promotion.
+crate-packaging gates, checks `release.toml` version consistency, and writes
+`release-validation.json`. Tag-triggered runs are strict: the matching
+changelog section must already be promoted out of `Unreleased`. Manual
+candidate runs may set `allow_unreleased_changelog=true` when validating
+artifacts before the final changelog promotion. Manual dispatch defaults to
+`release_kind=milestone`; future product/package publishing must use
+`release_kind=product`, which requires the requested tag to match
+`release.toml` exactly.
 
 This workflow intentionally does not create GitHub Releases, publish crates, or
 publish package registry artifacts. Those steps remain behind the real-release
@@ -82,11 +88,16 @@ Validate the full local artifact set:
 ```bash
 scripts/check-package-readiness.py --json-out dist/release/package-readiness.json
 scripts/check-crate-packaging.py --json-out dist/release/crate-packaging.json
+scripts/check-release-version.py \
+  --release-version v0.1.30-platform \
+  --release-kind milestone \
+  --json-out dist/release/release-version.json
 scripts/validate-release.py \
   --version v0.1.30-platform \
   --artifact-dir dist/release \
   --package-readiness dist/release/package-readiness.json \
   --crate-packaging dist/release/crate-packaging.json \
+  --release-version-consistency dist/release/release-version.json \
   --json-out dist/release/release-validation.json
 ```
 

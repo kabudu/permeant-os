@@ -14,6 +14,14 @@ on:
         options:
           - "false"
           - "true"
+      release_kind:
+        description: Treat the version as a current milestone tag or a future product tag
+        required: true
+        default: "milestone"
+        type: choice
+        options:
+          - "milestone"
+          - "product"
   push:
     tags:
       - "v*"
@@ -65,6 +73,12 @@ jobs:
       - name: Check Rust crate packaging dry run
         run: scripts/check-crate-packaging.py --json-out dist/release/crate-packaging.json
 
+      - name: Check release version consistency
+        env:
+          RELEASE_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+          RELEASE_KIND: ${{ github.event.inputs.release_kind || 'milestone' }}
+        run: scripts/check-release-version.py --release-version "$RELEASE_VERSION" --release-kind "$RELEASE_KIND" --json-out dist/release/release-version.json
+
       - name: Validate release
         env:
           RELEASE_VERSION: ${{ github.event.inputs.version || github.ref_name }}
@@ -79,6 +93,7 @@ jobs:
             --artifact-dir dist/release \
             --package-readiness dist/release/package-readiness.json \
             --crate-packaging dist/release/crate-packaging.json \
+            --release-version-consistency dist/release/release-version.json \
             --json-out dist/release/release-validation.json \
             "${extra_args[@]}"
 
@@ -92,5 +107,6 @@ jobs:
             dist/release/release-manifest.json
             dist/release/package-readiness.json
             dist/release/crate-packaging.json
+            dist/release/release-version.json
             dist/release/release-validation.json
           if-no-files-found: error

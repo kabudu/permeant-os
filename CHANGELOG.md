@@ -31,6 +31,10 @@ and this project uses release tags compatible with semantic versioning.
   `permeantos-release-validation-v0` report that verifies changelog promotion,
   release artifact checksums, archive contents, and package-readiness evidence
   without publishing GitHub Releases or package registry artifacts.
+- Added a repository-level `release.toml` manifest and
+  `permeantos-release-version-consistency-v0` gate that checks Rust crate,
+  Python SDK, binary artifact, milestone tag, and future product tag version
+  alignment before any real publishing is enabled.
 - Added `permeant-cli starter-demo`, a one-command loopback migration demo for
   installed binaries that validates the committed manifest, emits
   `permeantos-starter-demo-v0`, and runs in PR CI.

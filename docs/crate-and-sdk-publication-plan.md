@@ -4,6 +4,11 @@ PermeantOS now has package metadata and a CI gate for Rust crates and the
 Python SDK, but it does not publish registry packages yet.
 
 Current readiness schema: `permeantos-package-readiness-v0`.
+Current release version schema: `permeantos-release-version-consistency-v0`.
+
+The repository-level release manifest is `release.toml`. It is the source of
+truth for the current product SemVer, future product tag, publish-disabled
+package set, binary package identity, and GitHub Release publishing flag.
 
 ## Current Gate
 
@@ -36,6 +41,22 @@ published in order; Cargo resolves versioned path dependencies against
 crates.io during packaging, so those archives cannot be produced honestly before
 the upstream packages exist.
 
+Run the release version consistency verifier:
+
+```bash
+scripts/check-release-version.py --json-out /tmp/permeantos-release-version.json
+```
+
+For a future real product/package release, use product mode so the requested tag
+must match `release.toml`:
+
+```bash
+scripts/check-release-version.py \
+  --release-version v0.1.0 \
+  --release-kind product \
+  --json-out /tmp/permeantos-release-version.json
+```
+
 `publish = false` is intentional. Publishing remains behind the real-release
 gate in `docs/versioning-policy.md` and `docs/publishing-policy.md`: package
 ownership, credentials, release validation, semantic versioning, signing,
@@ -65,11 +86,14 @@ Before enabling crates.io publication:
    suitable for crates.io packaging.
 3. Run `scripts/check-crate-packaging.py` and review the dry-run/deferred
    package report.
-4. Run full `cargo package --locked` verification in publish order once each
+4. Run `scripts/check-release-version.py --release-kind product` and confirm
+   the tag, Rust crate versions, Python SDK version, binary package identity,
+   and publish-disabled flags are aligned with `release.toml`.
+5. Run full `cargo package --locked` verification in publish order once each
    upstream internal crate is available to downstream package verification.
-5. Verify README, licence, repository, homepage, keywords, and categories.
-6. Document the crate publish order and rollback procedure.
-7. Enable publishing crate by crate by removing `publish = false` only in the
+6. Verify README, licence, repository, homepage, keywords, and categories.
+7. Document the crate publish order and rollback procedure.
+8. Enable publishing crate by crate by removing `publish = false` only in the
    release PR that performs the real publish.
 
 ## Python SDK Plan
@@ -97,6 +121,8 @@ That boundary is enforced by:
 
 - `scripts/check-package-readiness.py`;
 - `scripts/check-crate-packaging.py`;
+- `scripts/check-release-version.py`;
+- `release.toml`;
 - `tests/test_package_readiness.py`;
 - `publish = false` in Rust crate manifests;
 - `tool.permeantos.release.publish = false` in the Python SDK manifest;
