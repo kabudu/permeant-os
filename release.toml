@@ -6,6 +6,7 @@ release_mode = "pre-publication"
 
 [rust]
 publish = false
+environment = "crates-io"
 binary_crate = "permeant-cli"
 crates = [
   "usxf-core",
@@ -26,6 +27,15 @@ package = "permeantos"
 publish = false
 package = "permeant-cli"
 archive_prefix = "permeantos"
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-apple-darwin",
+]
+linux_archive_format = "tar.gz"
+macos_archive_format = "zip"
+macos_notarize = true
+macos_environment = "apple-notarization"
 
 [github_release]
 publish = false
+environment = "github-release"

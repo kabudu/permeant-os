@@ -6,6 +6,7 @@ Python SDK, but it does not publish registry packages yet.
 Current readiness schema: `permeantos-package-readiness-v0`.
 Current release version schema: `permeantos-release-version-consistency-v0`.
 Current real release config schema: `permeantos-real-release-config-v0`.
+Current real release plan schema: `permeantos-real-release-plan-v0`.
 
 The repository-level release manifest is `release.toml`. It is the source of
 truth for the current product SemVer, future product tag, publish-disabled
@@ -71,6 +72,19 @@ scripts/check-real-release-config.py \
   --json-out /tmp/permeantos-real-release-config.json
 ```
 
+Also generate and review the release plan:
+
+```bash
+scripts/plan-real-release.py \
+  --release-version v0.1.0 \
+  --json-out /tmp/permeantos-real-release-plan.json
+```
+
+The plan records the protected environments, Apple signing/notarization secret
+names, artifact target matrix, and Rust crate publish order. The
+`Real Release` workflow consumes this plan for crate publication and performs a
+`cargo publish --dry-run` immediately before publishing each crate.
+
 `publish = false` is intentional. Publishing remains behind the real-release
 gate in `docs/versioning-policy.md` and `docs/publishing-policy.md`: package
 ownership, credentials, release validation, semantic versioning, signing,
@@ -105,11 +119,13 @@ Before enabling crates.io publication:
    and publish-disabled flags are aligned with `release.toml`.
 5. Run `scripts/check-real-release-config.py` for the intended publish targets
    and confirm the real-release PR has intentionally enabled them.
-6. Run full `cargo package --locked` verification in publish order once each
+6. Review `scripts/plan-real-release.py` output and confirm the Rust publish
+   order, protected environments, and artifact targets are correct.
+7. Run full `cargo package --locked` verification in publish order once each
    upstream internal crate is available to downstream package verification.
-7. Verify README, licence, repository, homepage, keywords, and categories.
-8. Document the crate publish order and rollback procedure.
-9. Enable publishing crate by crate by removing `publish = false` only in the
+8. Verify README, licence, repository, homepage, keywords, and categories.
+9. Document the crate publish order and rollback procedure.
+10. Enable publishing crate by crate by removing `publish = false` only in the
    release PR that performs the real publish.
 
 ## Python SDK Plan
@@ -138,6 +154,7 @@ That boundary is enforced by:
 - `scripts/check-package-readiness.py`;
 - `scripts/check-crate-packaging.py`;
 - `scripts/check-release-version.py`;
+- `scripts/plan-real-release.py`;
 - `scripts/check-real-release-config.py`;
 - `release.toml`;
 - `tests/test_package_readiness.py`;

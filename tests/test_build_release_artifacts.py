@@ -164,6 +164,8 @@ def test_real_release_workflow_is_manual_guarded_and_notarizes_macos():
     workflow = (ROOT / ".github" / "workflows" / "real-release.yml").read_text()
 
     assert "workflow_dispatch:" in workflow
+    assert "scripts/plan-real-release.py" in workflow
+    assert "real-release-plan.json" in workflow
     assert "scripts/check-real-release-config.py" in workflow
     assert "--release-kind product" in workflow
     assert "environment: apple-notarization" in workflow
@@ -175,4 +177,6 @@ def test_real_release_workflow_is_manual_guarded_and_notarizes_macos():
     assert "environment: github-release" in workflow
     assert "gh release create" in workflow
     assert "environment: crates-io" in workflow
-    assert "cargo publish --locked -p" in workflow
+    assert "jq -r '.rust.publish_order[]'" in workflow
+    assert "cargo publish --locked --dry-run -p \"$crate\"" in workflow
+    assert "cargo publish --locked -p \"$crate\"" in workflow

@@ -27,6 +27,7 @@ EXPECTED_TOOL_SCHEMAS = {
     "scripts/check-publishing-policy.py": "permeantos-publishing-policy-v0",
     "scripts/check-release-version.py": "permeantos-release-version-consistency-v0",
     "scripts/check-real-release-config.py": "permeantos-real-release-config-v0",
+    "scripts/plan-real-release.py": "permeantos-real-release-plan-v0",
     "scripts/run-evidence-job.py": "permeantos-evidence-job-v0",
     "scripts/run-adapter-conformance.py": "permeantos-adapter-conformance-v0",
     "crates/cli/src/main.rs": "permeantos-starter-demo-v0",

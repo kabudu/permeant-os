@@ -27,6 +27,7 @@ FORBIDDEN_WORKFLOW_SNIPPETS = (
     "docker push",
 )
 REAL_RELEASE_GUARD_SNIPPETS = (
+    "scripts/plan-real-release.py",
     "scripts/check-real-release-config.py",
     "environment: github-release",
     "environment: crates-io",
