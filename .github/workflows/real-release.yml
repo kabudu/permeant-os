@@ -201,11 +201,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          publish_with_retry() {
+            local crate="$1"
+            local attempt
+            for attempt in 1 2 3 4 5; do
+              if cargo publish --locked --dry-run -p "$crate"; then
+                break
+              fi
+              if [ "$attempt" = "5" ]; then
+                echo "cargo publish dry-run failed for $crate after $attempt attempts" >&2
+                return 1
+              fi
+              echo "cargo publish dry-run failed for $crate; waiting for registry index propagation before retry $((attempt + 1))" >&2
+              sleep 30
+            done
+            cargo publish --locked -p "$crate"
+            sleep 90
+          }
           while IFS= read -r crate; do
             test -n "$crate"
-            cargo publish --locked --dry-run -p "$crate"
-            cargo publish --locked -p "$crate"
-            sleep 30
+            publish_with_retry "$crate"
           done < <(jq -r '.rust.publish_order[]' dist/real-release/real-release-plan.json)
 
   publish-github-release:
@@ -221,6 +236,9 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.0
+
       - name: Download release artifacts
         uses: actions/download-artifact@v8.0.1
         with:
@@ -240,8 +258,33 @@ jobs:
           cp "$linux_dir/release-manifest.json" release-assets/release-manifest-linux.json
           cp "$macos_dir/checksums.txt" release-assets/checksums-macos.txt
           cp "$macos_dir/release-manifest.json" release-assets/release-manifest-macos.json
+          python3 - "$RELEASE_VERSION" > release-assets/release-notes.md <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          version = sys.argv[1].removeprefix("v")
+          changelog = Path("CHANGELOG.md").read_text(encoding="utf-8").splitlines()
+          heading = re.compile(rf"^## \[{re.escape(version)}\] - \d{{4}}-\d{{2}}-\d{{2}}$")
+          start = None
+          for index, line in enumerate(changelog):
+              if heading.match(line):
+                  start = index + 1
+                  break
+          if start is None:
+              raise SystemExit(f"CHANGELOG.md does not contain a release section for {version}")
+          end = len(changelog)
+          for index in range(start, len(changelog)):
+              if changelog[index].startswith("## ["):
+                  end = index
+                  break
+          notes = "\n".join(changelog[start:end]).strip()
+          if not notes:
+              raise SystemExit(f"CHANGELOG.md release section for {version} is empty")
+          print(notes)
+          PY
           gh release create "$RELEASE_VERSION" \
             --verify-tag \
             --title "PermeantOS $RELEASE_VERSION" \
-            --notes "PermeantOS product release $RELEASE_VERSION." \
+            --notes-file release-assets/release-notes.md \
             release-assets/*
