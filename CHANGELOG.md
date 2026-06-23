@@ -7,6 +7,8 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-06-24
+
 ### Added
 
 - Enabled the guarded production release path for `v0.1.0`, including
@@ -622,7 +624,8 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.32-real-release-plan-gate...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/kabudu/permeant-os/compare/v0.1.32-real-release-plan-gate...v0.1.0
 [0.1.32-real-release-plan-gate]: https://github.com/kabudu/permeant-os/compare/v0.1.31-signed-release-workflow...v0.1.32-real-release-plan-gate
 [0.1.31-signed-release-workflow]: https://github.com/kabudu/permeant-os/compare/v0.1.30-production-release-readiness...v0.1.31-signed-release-workflow
 [0.1.30-production-release-readiness]: https://github.com/kabudu/permeant-os/compare/v0.1.29-production-transport...v0.1.30-production-release-readiness
