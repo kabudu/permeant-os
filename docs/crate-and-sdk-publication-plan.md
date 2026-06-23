@@ -143,6 +143,11 @@ Before enabling Python package publication:
 6. Enable publication by setting `tool.permeantos.release.publish = true` only
    in the release PR that performs the real publish.
 
+Rust crate publication uses the `CARGO_REGISTRY_TOKEN` GitHub secret from the
+protected `crates-io` environment. The real-release workflow passes that secret
+to Cargo and publishes crates in the order emitted by
+`scripts/plan-real-release.py`.
+
 ## Safety Boundary
 
 The current release artifact workflow creates downloadable binary bundles as
