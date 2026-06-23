@@ -7,6 +7,12 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Made the guarded real-release crates.io publication step resumable by
+  skipping crate versions that are already live on crates.io and retrying the
+  actual publish operation when the registry temporarily rate-limits a release.
+
 ## [0.1.0] - 2026-06-24
 
 ### Added
