@@ -17,11 +17,44 @@ and this project uses release tags compatible with semantic versioning.
 
 ### Added
 
+- Published the first official PermeantOS product release: an installable,
+  evidence-backed agent-state migration platform whose validated paths prove
+  agents can move between evaluated runtime and hardware profiles.
+- Published the v0.1.0 Rust workspace crates on crates.io:
+  `usxf-core`, `permeant-transport`, `permeant-transpiler`,
+  `permeant-extractor`, `permeant-injector`, `permeant-orchestrator`,
+  `permeant-qatq-migration`, and `permeant-cli`.
+- Shipped signed/notarised macOS `aarch64-apple-darwin` and Linux
+  `x86_64-unknown-linux-gnu` binary release artifacts with checksums and
+  machine-readable release manifests.
+- Included Agent Memory Graph schema and harness support for binding graph
+  activity to migration evidence.
+- Included production transport foundations, runtime adapter boundaries,
+  migration orchestration, normalisation, extraction, injection, and starter
+  installed-binary demo tooling.
+- Included validated real-runtime evidence for MLX-to-vLLM migrations,
+  including AWS-backed continuation fidelity, reverse export/import,
+  origin return-home continuation, graph activity, and cleanup verification.
+- Included llama.cpp target-state and raw KV tensor write proof work for
+  independent runtime migration evidence.
+- Included QATQ-backed live migration integration using the published `qatq`
+  crate, with exact restoration and compression-gate evidence against raw,
+  `zstd`, and `lz4` baselines.
+- Added `docs/releases/v0.1.0.md` as the release-note source for the official
+  first product release.
 - Enabled the guarded production release path for `v0.1.0`, including
   publishable Rust crate manifests, production release manifest flags, and
   mode-aware validation gates for package readiness, publishing policy, release
   version consistency, and release validation. Python package publishing
   remains disabled.
+
+### Notes
+
+- PermeantOS v0.1.0 does not claim universal runtime portability. The release
+  claim is scoped to the evaluated runtime/model profiles and the evidence
+  reports committed with the project.
+- Python SDK publication remains intentionally disabled while the crate and
+  binary release path is hardened first.
 
 ## [0.1.32-real-release-plan-gate] - 2026-06-23
 
@@ -631,7 +664,7 @@ and this project uses release tags compatible with semantic versioning.
 - GitHub issue and pull request templates.
 
 [Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/kabudu/permeant-os/compare/v0.1.32-real-release-plan-gate...v0.1.0
+[0.1.0]: https://github.com/kabudu/permeant-os/compare/v0.1.0-research-preview...v0.1.0
 [0.1.32-real-release-plan-gate]: https://github.com/kabudu/permeant-os/compare/v0.1.31-signed-release-workflow...v0.1.32-real-release-plan-gate
 [0.1.31-signed-release-workflow]: https://github.com/kabudu/permeant-os/compare/v0.1.30-production-release-readiness...v0.1.31-signed-release-workflow
 [0.1.30-production-release-readiness]: https://github.com/kabudu/permeant-os/compare/v0.1.29-production-transport...v0.1.30-production-release-readiness
