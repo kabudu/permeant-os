@@ -201,9 +201,55 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          crate_version="$(jq -r '.product_version' dist/real-release/real-release-plan.json)"
+          registry_url="https://crates.io/api/v1/crates"
+          registry_user_agent="permeant-os-real-release/${crate_version} (https://github.com/kabudu/permeant-os)"
+
+          crate_already_published() {
+            local crate="$1"
+            local status
+            status="$(curl \
+              --silent \
+              --location \
+              --output /dev/null \
+              --write-out "%{http_code}" \
+              --user-agent "$registry_user_agent" \
+              "${registry_url}/${crate}/${crate_version}" || true)"
+            case "$status" in
+              200)
+                return 0
+                ;;
+              404)
+                return 1
+                ;;
+              *)
+                echo "Unable to confirm crates.io state for $crate $crate_version; registry returned HTTP $status" >&2
+                return 1
+                ;;
+            esac
+          }
+
+          publish_attempt() {
+            local crate="$1"
+            local attempt="$2"
+            local log_path="${RUNNER_TEMP:-/tmp}/permeantos-cargo-publish-${crate}-${attempt}.log"
+            if cargo publish --locked -p "$crate" 2>&1 | tee "$log_path"; then
+              return 0
+            fi
+            if grep -Eiq "already (uploaded|exists|published)|previously uploaded" "$log_path"; then
+              echo "$crate $crate_version was already accepted by crates.io; treating publish as complete"
+              return 0
+            fi
+            return 1
+          }
+
           publish_with_retry() {
             local crate="$1"
             local attempt
+            if crate_already_published "$crate"; then
+              echo "$crate $crate_version is already published on crates.io; skipping"
+              return 0
+            fi
             for attempt in 1 2 3 4 5; do
               if cargo publish --locked --dry-run -p "$crate"; then
                 break
@@ -215,8 +261,23 @@ jobs:
               echo "cargo publish dry-run failed for $crate; waiting for registry index propagation before retry $((attempt + 1))" >&2
               sleep 30
             done
-            cargo publish --locked -p "$crate"
-            sleep 90
+
+            for attempt in 1 2 3 4 5 6; do
+              if crate_already_published "$crate"; then
+                echo "$crate $crate_version became visible on crates.io; skipping publish retry"
+                return 0
+              fi
+              if publish_attempt "$crate" "$attempt"; then
+                sleep 90
+                return 0
+              fi
+              if [ "$attempt" = "6" ]; then
+                echo "cargo publish failed for $crate after $attempt attempts" >&2
+                return 1
+              fi
+              echo "cargo publish failed for $crate; waiting before retry $((attempt + 1))" >&2
+              sleep 120
+            done
           }
           while IFS= read -r crate; do
             test -n "$crate"
