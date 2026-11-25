@@ -39,14 +39,13 @@ Forbidden actions outside the guarded real-release workflow:
 
 The real-release path is owned by:
 
-- GitHub Release owner and approval path: `kabudu`, through the protected
-  `github-release` environment;
-- crate ownership for every publishable crate: `kabudu`, through the protected
+- GitHub Release owner: `kabudu`, through the `github-release` environment;
+- crate ownership for every publishable crate: `kabudu`, through the
   `crates-io` environment;
 - PyPI ownership for the Python adapter SDK: deferred because Python publishing
   remains disabled;
 - signing-key owner and rotation plan: `kabudu`, through Apple Developer ID
-  credentials held as repository secrets and the protected
+  credentials held as repository secrets and the
   `apple-notarization` environment;
 - rollback owner for failed or yanked packages: `kabudu`.
 
@@ -135,8 +134,8 @@ then `scripts/check-real-release-config.py` requires
 `release_mode = "production"`, the requested tag to match `release.toml`, and
 explicit publish flags for the requested targets.
 
-Review `real-release-plan.json` before dispatching the workflow. Approvers must
-also review it before approving GitHub Release publication. The report records:
+Review `real-release-plan.json` before dispatching the workflow. After dispatch,
+the jobs advance automatically when their prerequisites pass. The report records:
 
 - product tag and release mode;
 - Linux and macOS artifact targets and archive formats;
@@ -152,7 +151,9 @@ Release jobs use separate GitHub environments:
   this job; Apple still evaluates the submitted bundle.
 - `crates-io` publishes Rust crates automatically after release validation,
   the Linux build, and Apple signing and notarization succeed.
-- `github-release` requires approval before creating the public GitHub Release.
+- `github-release` creates the public release and attaches the artifacts
+  automatically after validation, both platform builds, and crates.io
+  publication succeed.
 
 The publishing-policy checker permits `gh release create` and `cargo publish`
 only inside that guarded workflow. The commands remain forbidden in normal CI,

@@ -82,10 +82,10 @@ secrets, and Rust crate publish order. In production mode, the workflow can:
   Application certificate;
 - submit macOS ZIP archives to Apple notarization with
   `xcrun notarytool submit --wait`, without an additional GitHub approval;
-- create a GitHub Release from staged artifacts behind the `github-release`
-  environment;
 - publish Rust crates in dependency order through the `crates-io` environment,
-  without an additional GitHub approval once both platform builds pass.
+  without an additional GitHub approval once both platform builds pass;
+- create a GitHub Release from staged artifacts through the `github-release`
+  environment automatically after crates.io publication succeeds.
 
 The macOS path follows the sibling QATQ release model: Apple credentials are
 provided through GitHub secrets/variables, the certificate is imported into a
