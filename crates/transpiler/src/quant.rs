@@ -287,12 +287,14 @@ pub fn decode_qatq_phase2_transfer(
                     decoded.bytes_le.len()
                 );
             }
-            let mut values = Vec::with_capacity(expected_len);
-            for chunk in decoded.bytes_le.chunks_exact(4) {
-                let bytes: [u8; 4] = chunk.try_into()?;
-                values.push(f32::from_le_bytes(bytes));
-            }
-            Ok(values)
+            Ok(decoded
+                .bytes_le
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .copied()
+                .map(f32::from_le_bytes)
+                .collect())
         }
         QATQ_PHASE2_STORAGE => {
             let values = qatq::decode(payload)
@@ -307,12 +309,13 @@ pub fn decode_qatq_phase2_transfer(
                     payload.len()
                 );
             }
-            let mut values = Vec::with_capacity(expected_len);
-            for chunk in payload.chunks_exact(4) {
-                let bytes: [u8; 4] = chunk.try_into()?;
-                values.push(f32::from_le_bytes(bytes));
-            }
-            Ok(values)
+            Ok(payload
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .copied()
+                .map(f32::from_le_bytes)
+                .collect())
         }
         other => bail!("Unsupported QATQ transfer storage: {other}"),
     }

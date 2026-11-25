@@ -380,14 +380,13 @@ async fn handle_migration_connection(
                     }
                 }
                 Some(other) => bail!("Unsupported transfer quantization scheme: {other}"),
-                None => {
-                    let mut floats = vec![0.0f32; data.len() / 4];
-                    for (i, chunk) in data.chunks_exact(4).enumerate() {
-                        let bytes: [u8; 4] = chunk.try_into()?;
-                        floats[i] = f32::from_be_bytes(bytes);
-                    }
-                    floats
-                }
+                None => data
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .copied()
+                    .map(f32::from_be_bytes)
+                    .collect::<Vec<_>>(),
             };
 
             if decrypted_data.len() != expected_float_count {
