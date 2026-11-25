@@ -86,7 +86,7 @@ workflow. It requires:
 - `APPLE_PASSWORD`: app-specific password for notarization;
 - `APPLE_TEAM_ID`: Apple Developer Team ID, either as a secret or
   repository/environment variable;
-- a protected `apple-notarization` GitHub environment.
+- an `apple-notarization` GitHub environment for the signing job.
 
 The Rust crate publishing path requires:
 
@@ -136,20 +136,22 @@ then `scripts/check-real-release-config.py` requires
 explicit publish flags for the requested targets.
 
 Release approvers must review `real-release-plan.json` before approving
-protected environments. The report records:
+publication. The report records:
 
 - product tag and release mode;
 - Linux and macOS artifact targets and archive formats;
 - whether macOS artifacts are expected to be signed and notarized;
-- protected environments required for the run;
+- GitHub environments required for the run;
 - required secret names;
 - Rust crate publish order.
 
-Publishing jobs are protected by GitHub environments:
+Release jobs use separate GitHub environments:
 
-- `apple-notarization` for Apple signing and notarization;
-- `github-release` for GitHub Release creation;
-- `crates-io` for Rust crate publication.
+- `apple-notarization` signs and submits the macOS bundle to Apple automatically
+  after release validation. GitHub does not require a deployment reviewer for
+  this job; Apple still evaluates the submitted bundle.
+- `crates-io` requires approval before publishing Rust crates.
+- `github-release` requires approval before creating the public GitHub Release.
 
 The publishing-policy checker permits `gh release create` and `cargo publish`
 only inside that guarded workflow. The commands remain forbidden in normal CI,

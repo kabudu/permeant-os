@@ -74,14 +74,14 @@ The `Real Release` workflow is manual-only and requires
 `scripts/plan-real-release.py`, `scripts/check-release-version.py`, and
 `scripts/check-real-release-config.py` to pass before any publishing job can
 run. `scripts/plan-real-release.py` emits `real-release-plan.json`, the
-reviewable release plan for artifact targets, protected environments, required
+reviewable release plan for artifact targets, GitHub environments, required
 secrets, and Rust crate publish order. In production mode, the workflow can:
 
 - build Linux release archives;
 - build macOS ZIP archives after signing `permeant-cli` with a Developer ID
   Application certificate;
 - submit macOS ZIP archives to Apple notarization with
-  `xcrun notarytool submit --wait`;
+  `xcrun notarytool submit --wait`, without an additional GitHub approval;
 - create a GitHub Release from staged artifacts behind the `github-release`
   environment;
 - publish Rust crates in dependency order behind the `crates-io` environment.
