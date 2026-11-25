@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import hashlib
+import time
 from pathlib import Path
 from typing import Any
 
@@ -31,11 +32,32 @@ class RealVllmRuntime:
         self.baseline_continuation: dict[str, Any] | None = None
         self.last_decode_attachment_snapshot: dict[str, Any] | None = None
         self.last_migrated_decode_attachment_attempt: dict[str, Any] | None = None
+        # This drill owns one fresh worker and one recovery transaction.
+        self.full_restore = bool(os.getenv("PERMEANT_RECOVERY_CHECKPOINT_SHA"))
+        self.baseline_cache_reset = False
+        self.recovery_slots: dict[str, tuple[int, list[int]]] = {}
 
     def register_permeant_block(self, payload: dict[str, Any], request: dict[str, Any] | None = None) -> dict[str, Any]:
         from vllm_live_runtime_registry import _direct_register_into_kv_caches
 
+        block_hash = payload.get("hash")
+        if self.full_restore and (
+            not self.baseline_cache_reset or not isinstance(block_hash, str)
+            or block_hash in self.recovery_slots
+        ):
+            raise RuntimeError("full KV restore needs an isolated baseline and unique registrations")
         result = dict(_direct_register_into_kv_caches(self, payload))
+        if self.full_restore:
+            summaries = result["written_layer_summaries"]
+            if (
+                {layer["layer_index"] for layer in summaries} != set(self.permeant_layer_map)
+                or len(summaries) != len(self.permeant_layer_map)
+                or not all(layer["full_tensor_verified"] and layer["slot_probe"]["all_samples_match"]
+                           for layer in summaries)
+            ):
+                raise RuntimeError("full KV restore did not verify every vLLM layer")
+            allocation = result["target_block_allocation"]["target_block_ids"]
+            self.recovery_slots[block_hash] = (payload["block_size"], allocation)
         layer_shapes: list[dict[str, Any]] = []
         for summary in result.get("written_layer_summaries", []):
             if not isinstance(summary, dict):
@@ -67,6 +89,8 @@ class RealVllmRuntime:
                 "layer_count": len(payload.get("layers", [])),
                 "written_layers": result.get("written_layers", []),
                 "written_layer_summaries": result.get("written_layer_summaries", []),
+                "registration_profile": result.get("registration_profile"),
+                "target_block_allocation": result.get("target_block_allocation"),
             }
         )
         return result
@@ -79,6 +103,8 @@ class RealVllmRuntime:
             self.last_verify_result = result
             _append_probe_event({"event": "verify_permeant_hashes", **result})
             return result
+        if self.full_restore and (not block_hashes or list(self.recovery_slots) != block_hashes):
+            return {"success": False, "error": "recovery registrations do not match the ordered logical blocks"}
 
         result: dict[str, Any] = {"success": True, "verified_hashes": list(block_hashes)}
         source_reference = _source_continuation_reference()
@@ -98,7 +124,22 @@ class RealVllmRuntime:
                 result["baseline_comparison"] = _compare_continuations(
                     self.baseline_continuation, continuation
                 )
-            _maybe_write_reverse_runtime_export(self, result)
+            if self.full_restore:
+                seed = continuation["decode_attachment"]["attachment_attempt"]["prefix_cache_seed"]
+                if not (
+                    seed["success"]
+                    and continuation["num_cached_tokens"] == seed["reusable_prefix_tokens"]
+                    and continuation["prompt_token_ids"] == (source_reference or {}).get("prompt_token_ids")
+                    and len(continuation["token_ids"]) == continuation["max_tokens"]
+                    and result.get("source_comparison", {}).get("token_ids_match") is True
+                    and result.get("baseline_comparison", {}).get("token_ids_match") is True
+                    and continuation["first_token_unix_ns"] is not None
+                ):
+                    result.update(success=False, error="recovery decode failed imported-cache, fidelity or timing verification")
+            if result["success"]:
+                _maybe_write_reverse_runtime_export(self, result)
+        elif self.full_restore:
+            result.update(success=False, error="recovery continuation prompt missing")
 
         self.last_verify_result = result
         _append_probe_event(
@@ -153,12 +194,15 @@ class RealVllmRuntime:
         attachment_attempt = None
         if event_name == "generate_continuation":
             attachment_attempt = _migrated_decode_attachment_attempt(self, prompt)
+            if self.full_restore and not attachment_attempt["supported"]:
+                raise RuntimeError(attachment_attempt["reason"])
         before_snapshot = _decode_attachment_snapshot(
             runtime=self,
             prompt=prompt,
             stage=f"{event_name}:before_generate",
         )
         outputs = self.llm.generate([prompt], sampling)
+        generation_finished = time.time()
         after_snapshot = _decode_attachment_snapshot(
             runtime=self,
             prompt=prompt,
@@ -178,11 +222,21 @@ class RealVllmRuntime:
                 if isinstance(maybe_token_ids, list):
                     token_ids = [int(item) for item in maybe_token_ids]
 
+        metrics = getattr(outputs[0], "metrics", None) if outputs else None
+        first_token_at = None
+        if metrics is not None and token_ids and not getattr(metrics, "is_corrupted", False):
+            arrival = getattr(metrics, "arrival_time", 0)
+            latency = getattr(metrics, "first_token_latency", 0)
+            if arrival > 0 and latency > 0 and arrival + latency <= generation_finished:
+                first_token_at = round((arrival + latency) * 1_000_000_000)
         continuation = {
             "prompt": prompt,
             "max_tokens": max_tokens,
             "text": text,
             "token_ids": token_ids,
+            "first_token_unix_ns": first_token_at,
+            "num_cached_tokens": getattr(outputs[0], "num_cached_tokens", None) if outputs else None,
+            "prompt_token_ids": getattr(outputs[0], "prompt_token_ids", None) if outputs else None,
             "decode_attachment": {
                 "attachment_attempt": attachment_attempt,
                 "before": before_snapshot,
@@ -651,6 +705,8 @@ def _seed_vllm_prefix_cache(runtime: RealVllmRuntime, prompt: str) -> dict[str, 
     allocation = payload.get("target_block_allocation")
     allocation = allocation if isinstance(allocation, dict) else {}
     target_block_ids = allocation.get("target_block_ids")
+    if runtime.full_restore:
+        target_block_ids = [block_id for _, ids in runtime.recovery_slots.values() for block_id in ids]
     if not isinstance(target_block_ids, list) or not target_block_ids:
         return {
             "success": False,
@@ -676,6 +732,22 @@ def _seed_vllm_prefix_cache(runtime: RealVllmRuntime, prompt: str) -> dict[str, 
         target_block_size = int(getattr(scheduler, "block_size", 0) or getattr(block_pool, "hash_block_size", 0))
         if target_block_size <= 0:
             return {"success": False, "reason": "Could not determine vLLM target block size for prefix-cache seeding."}
+
+        if runtime.full_restore:
+            source = _source_continuation_reference() or {}
+            source_block_sizes = {size for size, _ in runtime.recovery_slots.values()}
+            source_block_size = next(iter(source_block_sizes)) if len(source_block_sizes) == 1 else 0
+            if (
+                source.get("prompt_token_ids") != prompt_token_ids
+                or not source_block_size or source_block_size % target_block_size
+                or not (len(runtime.recovery_slots) - 1) * source_block_size
+                < len(prompt_token_ids) <= len(runtime.recovery_slots) * source_block_size
+                or any(len(ids) != source_block_size // target_block_size
+                       for _, ids in runtime.recovery_slots.values())
+                or len(set(target_block_ids)) != len(target_block_ids)
+                or len(kv_cache_manager.kv_cache_config.kv_cache_groups) != 1
+            ):
+                return {"success": False, "reason": "Recovery prompt or pooled KV block geometry does not match the checkpoint"}
 
         request = Request(
             request_id="permeant-prefix-cache-seed",
@@ -704,6 +776,27 @@ def _seed_vllm_prefix_cache(runtime: RealVllmRuntime, prompt: str) -> dict[str, 
             block_size=target_block_size,
             kv_cache_group_id=0,
         )
+        proof = {}
+        if runtime.full_restore:
+            # V1 recomputes the terminal prompt block to get logits. Ask the
+            # scheduler which physical IDs it would reuse, not just how many.
+            reusable_count = (len(prompt_token_ids) - 1) // target_block_size
+            computed, cached_tokens = kv_cache_manager.get_computed_blocks(request)
+            expected_ids = target_block_ids[:reusable_count]
+            if (
+                seed_block_count != len(prompt_token_ids) // target_block_size
+                or reusable_count <= 0
+                or computed.get_block_ids() != (expected_ids,)
+                or cached_tokens != reusable_count * target_block_size
+            ):
+                return {"success": False, "reason": "vLLM cache lookup did not resolve to the imported slots in order"}
+            proof = {
+                "baseline_cache_reset": runtime.baseline_cache_reset,
+                "logical_block_hashes": list(runtime.recovery_slots),
+                "allocated_slot_count": len(target_block_ids),
+                "verified_reusable_block_ids": expected_ids,
+                "reusable_prefix_tokens": cached_tokens,
+            }
         return {
             "success": True,
             "method": "block_pool.cache_full_blocks",
@@ -712,6 +805,7 @@ def _seed_vllm_prefix_cache(runtime: RealVllmRuntime, prompt: str) -> dict[str, 
             "request_block_hash_count": full_prompt_block_count,
             "seeded_block_count": seed_block_count,
             "seeded_block_ids_sample": [int(item) for item in target_block_ids[:16]],
+            **proof,
         }
     except Exception as exc:
         return {
@@ -916,10 +1010,13 @@ def _create_llm() -> Any:
 
     llm = LLM(
         model=model_path,
+        revision=os.getenv("PERMEANT_VLLM_MODEL_REVISION") or None,
+        tokenizer_revision=os.getenv("PERMEANT_VLLM_MODEL_REVISION") or None,
         enforce_eager=True,
         gpu_memory_utilization=gpu_memory_utilization,
         max_model_len=max_model_len,
         trust_remote_code=False,
+        disable_log_stats=os.getenv("PERMEANT_VLLM_RECOVERY_METRICS", "0") != "1",
     )
     llm.generate(["hello"], SamplingParams(max_tokens=1, temperature=0.0))
     return llm
@@ -951,4 +1048,9 @@ def get_runtime(payload: dict[str, Any] | None = None, request: dict[str, Any] |
                 max_tokens=int(os.getenv("PERMEANT_VLLM_CONTINUATION_MAX_TOKENS", "16")),
                 event_name="baseline_continuation",
             )
+        if _RUNTIME_SINGLETON.full_restore:
+            if _RUNTIME_SINGLETON.baseline_continuation is None or llm.reset_prefix_cache() is not True:
+                raise RuntimeError("could not isolate the vLLM baseline from recovery")
+            _RUNTIME_SINGLETON.baseline_cache_reset = True
+            _append_probe_event({"event": "baseline_prefix_cache_reset", "success": True})
     return _RUNTIME_SINGLETON

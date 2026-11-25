@@ -13,6 +13,7 @@ serde.workspace = true
 serde_json.workspace = true
 lz4_flex.workspace = true
 zstd.workspace = true
+qatq.workspace = true
 tokio.workspace = true
 clap.workspace = true
 anyhow.workspace = true

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import sys
+from time import perf_counter
 from pathlib import Path
 
 from runtime_adapter_utils import (
@@ -53,7 +54,22 @@ def handle_fixture_state(request: dict, state_path: Path) -> dict:
 
 def main() -> int:
     try:
+        started = perf_counter()
+        if os.getenv("PERMEANT_VLLM_INJECTOR_BINARY_REQUEST") == "1":
+            from vllm_binary_blocks import MAX_BINARY_BLOCK
+            from vllm_http_runtime_hook import post_binary_block
+
+            body = sys.stdin.buffer.read(MAX_BINARY_BLOCK + 1)
+            if not 8 <= len(body) <= MAX_BINARY_BLOCK:
+                raise AdapterError("invalid binary injector stdin length")
+            if os.getenv("PERMEANT_INJECTOR_PROFILE") == "1":
+                print(f"[Injector Python] stdin_and_decode_ms={(perf_counter() - started) * 1000:.3f}", file=sys.stderr)
+            dump_json_stdout(post_binary_block(body))
+            return 0
         request = load_json_stdin()
+        decoded = perf_counter()
+        if os.getenv("PERMEANT_INJECTOR_PROFILE") == "1":
+            print(f"[Injector Python] stdin_and_decode_ms={(decoded - started) * 1000:.3f}", file=sys.stderr)
 
         fixture_state = os.environ.get("PERMEANT_INJECTOR_FIXTURE_STATE")
         if fixture_state:

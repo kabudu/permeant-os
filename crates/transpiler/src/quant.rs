@@ -1,5 +1,6 @@
 //! FP8 (E4M3 and E5M2) quantization & dequantization utilities.
 use anyhow::{bail, Result};
+use std::time::{Duration, Instant};
 
 pub const QATQ_PHASE2_STORAGE: &str = "qatq-phase2";
 pub const QATQ_EXACT_F32LE_STORAGE: &str = "qatq-exact-f32le";
@@ -226,18 +227,44 @@ pub fn encode_qatq_phase2_transfer(data: &[f32]) -> Result<QatqPhase2Transfer> {
 }
 
 pub fn encode_qatq_exact_f32le_transfer(data: &[f32]) -> Result<QatqPhase2Transfer> {
-    let raw_f32le_len = data.len() * 4;
-    let mut bytes = Vec::with_capacity(raw_f32le_len);
+    encode_exact_f32le_bytes(&pack_f32le(data))
+}
+
+/// Wall-clock time spent preparing the input and inside the pinned QATQ encoder.
+pub struct QatqExactEncodeProfile {
+    pub pack: Duration,
+    pub library: Duration,
+}
+
+/// Encodes the same exact payload as the unprofiled helper.
+pub fn encode_qatq_exact_f32le_transfer_profiled(
+    data: &[f32],
+) -> Result<(QatqPhase2Transfer, QatqExactEncodeProfile)> {
+    let start = Instant::now();
+    let bytes = pack_f32le(data);
+    let pack = start.elapsed();
+    let start = Instant::now();
+    let transfer = encode_exact_f32le_bytes(&bytes)?;
+    let library = start.elapsed();
+    Ok((transfer, QatqExactEncodeProfile { pack, library }))
+}
+
+fn pack_f32le(data: &[f32]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(std::mem::size_of_val(data));
     for value in data {
         bytes.extend_from_slice(&value.to_le_bytes());
     }
-    let payload = qatq::try_encode_qatq_exact_tensor_le(&bytes, qatq::TensorDType::F32)
+    bytes
+}
+
+fn encode_exact_f32le_bytes(bytes: &[u8]) -> Result<QatqPhase2Transfer> {
+    let payload = qatq::try_encode_qatq_exact_tensor_le(bytes, qatq::TensorDType::F32)
         .map_err(|err| anyhow::anyhow!("QATQ exact f32le encode failed: {err}"))?;
 
     Ok(QatqPhase2Transfer {
         storage: QatqTransferStorage::QatqExactF32Le,
         payload,
-        raw_f32le_len,
+        raw_f32le_len: bytes.len(),
     })
 }
 
