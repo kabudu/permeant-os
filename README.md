@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/permeant-logo-transparent.png" alt="PermeantOS logo" width="440" />
+  <img src="docs/assets/permeantos-phaseweave.svg" alt="PermeantOS Phaseweave logomark" width="160" height="160" />
 </p>
 
 # PermeantOS
