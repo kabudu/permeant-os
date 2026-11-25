@@ -25,13 +25,13 @@ def test_real_release_plan_reports_targets_environments_and_publish_order():
     with tempfile.TemporaryDirectory() as tmpdir:
         report_path = pathlib.Path(tmpdir) / "real-release-plan.json"
 
-        result = run_planner("--release-version", "v0.1.0", "--json-out", str(report_path))
+        result = run_planner("--release-version", "v0.2.0", "--json-out", str(report_path))
 
         assert result.returncode == 0, result.stderr + result.stdout
         report = json.loads(report_path.read_text())
         assert report["schema_version"] == "permeantos-real-release-plan-v0"
         assert report["ok"] is True
-        assert report["product_tag"] == "v0.1.0"
+        assert report["product_tag"] == "v0.2.0"
         assert report["publishing_enabled"] is True
         assert report["rust"]["publish"] is True
         assert report["binaries"]["publish"] is True

@@ -1,7 +1,7 @@
 schema_version = "permeantos-release-manifest-v0"
 product_name = "permeantos"
-product_version = "0.1.0"
-product_tag = "v0.1.0"
+product_version = "0.2.0"
+product_tag = "v0.2.0"
 release_mode = "production"
 
 [rust]

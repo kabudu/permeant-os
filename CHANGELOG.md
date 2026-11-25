@@ -7,40 +7,25 @@ and this project uses release tags compatible with semantic versioning.
 
 ## [Unreleased]
 
-### Changed
+## [0.2.0] - 2026-11-25
 
-- Updated the QATQ dependency to v0.4.5 and pinned dependency resolution for
-  the AWS target build.
+PermeantOS adds an opt-in integrity-recovery preview. On a pinned MLX-to-vLLM setup, a controlled integrity alert fences the source, restores a verified off-host checkpoint, and resumes with exact continuation before enabling target writes.
 
-### Added
+### Highlights
 
-- Added per-stage migration profiling and an opt-in AWS recovery fast path
-  with windowed acknowledgements and batched vLLM cache writes.
+- **Verified recovery:** The AWS drill rejects missing or corrupt checkpoints, fences both leases during receiver failure, and verifies that retry returns the original task receipt without executing another write.
+- **Exact QATQ v0.4.5 migration:** The recorded drill transferred 13,320,355 bytes and matched all 128 continuation token IDs; the compression comparison uses identical tensor data.
+- **Local recovery drill:** `permeant-cli integrity-drill` compares exact codecs, checks signed checkpoint generations and rollback selection, and can exercise durable fencing with `--gateway-state-dir`.
+- **Opt-in fast path:** Windowed acknowledgements and batched vLLM cache writes reduce transfer and commit overhead, with timings reported per stage.
+- **Release reliability:** The guarded crates.io workflow now skips already-published crate versions and retries rate-limited publication attempts.
 
-- Added an off-host checkpoint and a target-side write-fencing fixture to the
-  opt-in AWS integrity drill, with first-token and durable task timing.
+### Install and upgrade
 
-- Added an opt-in AWS integrity recovery run with receiver prewarming, shadow
-  checkpoint fault detection, exact transfer and target continuation evidence.
+Use the Linux x86-64 or signed and notarised macOS Apple Silicon bundle, or install the CLI with `cargo install permeant-cli --version 0.2.0 --locked`. Use `permeant-cli starter-demo --seq-len 128` for an installed-binary smoke test. Python SDK publishing remains disabled.
 
-- Added the local `integrity-drill` CLI command to exercise checkpoint
-  verification and simulated write fencing while comparing exact recovery
-  with raw, zstd, LZ4 and QATQ payloads.
-- The integrity drill verifies distinct checkpoint generations, falls back
-  to the newest verified prior generation, and reports rollback depth and
-  selection latency in its v1 JSON output.
-- Added `integrity-drill --gateway-state-dir` to exercise persistence and reload
-  of simulated fencing and operation records.
+### Preview scope
 
-### Fixed
-
-- Kept source and target writes fenced until the AWS recovery drill verifies
-  the restored checkpoint and target continuation, and added opt-in failure
-  probes for checkpoint rejection, receiver restart, and durable task retry.
-
-- Made the guarded real-release crates.io publication step resumable by
-  skipping crate versions that are already live on crates.io and retrying the
-  actual publish operation when the registry temporarily rate-limits a release.
+The live result uses Qwen2.5-0.5B-Instruct, vLLM 0.23.0 and a Tesla T4. It tests a controlled fault and a fixture gateway, not autonomous compromise detection, general-purpose tool fencing, or arbitrary runtime combinations. See the [recovery runbook](https://github.com/kabudu/permeant-os/blob/v0.2.0/docs/integrity-recovery-plan.md) for configuration and evidence.
 
 ## [0.1.0] - 2026-06-24
 
@@ -692,7 +677,8 @@ and this project uses release tags compatible with semantic versioning.
 - Initial research preview tag for the live KV-cache migration prototype.
 - GitHub issue and pull request templates.
 
-[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/kabudu/permeant-os/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/kabudu/permeant-os/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kabudu/permeant-os/compare/v0.1.0-research-preview...v0.1.0
 [0.1.32-real-release-plan-gate]: https://github.com/kabudu/permeant-os/compare/v0.1.31-signed-release-workflow...v0.1.32-real-release-plan-gate
 [0.1.31-signed-release-workflow]: https://github.com/kabudu/permeant-os/compare/v0.1.30-production-release-readiness...v0.1.31-signed-release-workflow

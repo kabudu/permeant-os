@@ -27,7 +27,7 @@ def test_real_release_config_passes_for_guarded_production_targets():
 
         result = run_checker(
             "--release-version",
-            "v0.1.0",
+            "v0.2.0",
             "--require",
             "github-release",
             "--require",
