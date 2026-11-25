@@ -184,6 +184,25 @@ def test_run_refreshes_source_continuation_before_aws_provisioning():
     assert run_body.index("refresh_source_continuation") < run_body.index("start_target")
 
 
+@pytest.mark.parametrize("flag", ["PERMEANT_AGENT_ACTIVITY_RESUME", "PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH"])
+def test_integrity_recovery_refuses_unfenced_activity_before_provisioning(flag):
+    # Stop the shell body immediately after input validation. No AWS or binary needed.
+    script = RUNNER.read_text()
+    setup = script[script.index("PERMEANT_AGENT_ACTIVITY_RESUME=") : script.index('PERMEANT_STATE_DIR="${')]
+    body = script[script.index("run_cmd() {") : script.index("  create_state\n", script.index("run_cmd() {"))]
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", '\n'.join((
+            'need() { :; }', 'die() { echo "$*" >&2; exit 1; }', setup,
+            body.replace('[[ -x "$ROOT_DIR/target/$PERMEANT_BUILD_PROFILE/permeant-cli" ]]', 'true'),
+            '}', 'run_cmd',
+        ))],
+        env={"PATH": os.environ["PATH"], "PERMEANT_INTEGRITY_RECOVERY_DRILL": "1", "PERMEANT_TRANSFER_QUANTIZATION": "qatq", flag: "1"},
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 1
+    assert "activity outside the fixture write gateway" in result.stderr
+
+
 def test_source_extract_url_preserves_explicit_extract_endpoint():
     script = RUNNER.read_text()
     assert 'if [[ "$base" == */extract ]]; then' in script

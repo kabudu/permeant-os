@@ -1764,6 +1764,7 @@ run_cmd() {
     1)
       [[ "$PERMEANT_TRANSFER_QUANTIZATION" != "fp8" ]] || die "integrity recovery requires exact transfer"
       [[ "$PERMEANT_REVERSE_RUNTIME_IMPORT" == "0" && "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME" == "0" ]] || die "integrity recovery cannot resume the suspect origin"
+      [[ "$PERMEANT_AGENT_ACTIVITY_RESUME" == "0" && "$PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH" == "0" ]] || die "integrity recovery cannot run activity outside the fixture write gateway"
       umask 077
       ;;
     *) die "PERMEANT_INTEGRITY_RECOVERY_DRILL must be 0 or 1" ;;

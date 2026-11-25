@@ -230,7 +230,8 @@ SQLite gateway advances its write epoch. The supervisor demonstrates a
 source write before the alert and rejection of the same lease after it.
 The transfer reads the off-host snapshot back over SSH, verifies the pinned
 digest and uses the restored file as the extractor input. This mode disallows
-reverse import and return-home activity.
+reverse import, return-home activity, and the separate Agent Memory Graph tool
+demo, which does not route its writes through the fixture gateway.
 
 The runner emits `integrity-recovery.json` after target cache attachment and
 exact continuation verification. It derives the first valid token time from
