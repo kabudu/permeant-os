@@ -91,7 +91,7 @@ workflow. It requires:
 The Rust crate publishing path requires:
 
 - `CARGO_REGISTRY_TOKEN`: crates.io API token scoped to the PermeantOS crates;
-- a protected `crates-io` GitHub environment.
+- a `crates-io` GitHub environment for the publishing job.
 
 The workflow imports the certificate into a temporary keychain, signs
 `permeant-cli` with `codesign --options runtime`, packages a macOS ZIP archive,
@@ -135,8 +135,8 @@ then `scripts/check-real-release-config.py` requires
 `release_mode = "production"`, the requested tag to match `release.toml`, and
 explicit publish flags for the requested targets.
 
-Release approvers must review `real-release-plan.json` before approving
-publication. The report records:
+Review `real-release-plan.json` before dispatching the workflow. Approvers must
+also review it before approving GitHub Release publication. The report records:
 
 - product tag and release mode;
 - Linux and macOS artifact targets and archive formats;
@@ -150,7 +150,8 @@ Release jobs use separate GitHub environments:
 - `apple-notarization` signs and submits the macOS bundle to Apple automatically
   after release validation. GitHub does not require a deployment reviewer for
   this job; Apple still evaluates the submitted bundle.
-- `crates-io` requires approval before publishing Rust crates.
+- `crates-io` publishes Rust crates automatically after release validation,
+  the Linux build, and Apple signing and notarization succeed.
 - `github-release` requires approval before creating the public GitHub Release.
 
 The publishing-policy checker permits `gh release create` and `cargo publish`
