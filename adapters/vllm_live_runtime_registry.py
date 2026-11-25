@@ -198,9 +198,24 @@ def _preview_flat_values(value: Any, limit: int = 8) -> list[float]:
 
     if hasattr(value, "detach") and hasattr(value, "reshape"):
         try:
-            flat = value.detach().cpu().reshape(-1)
-            count = min(limit, int(flat.numel()))
-            return [float(flat[index].item()) for index in range(count)]
+            tensor = value.detach()
+            count = min(limit, int(tensor.numel()))
+            if not count:
+                return []
+            if tensor.is_contiguous():
+                head = tensor.view(-1)[:count]
+            elif count <= tensor.shape[-1]:
+                head = tensor[(0,) * (tensor.ndim - 1) + (slice(0, count),)]
+            else:
+                # A flatten/reshape of a strided cache can copy the whole tensor.
+                # Index just the requested prefix in logical row-major order.
+                offsets = list(range(count))
+                indices = []
+                for dim in reversed(tensor.shape):
+                    indices.append([offset % dim for offset in offsets])
+                    offsets = [offset // dim for offset in offsets]
+                head = tensor[tuple(reversed(indices))]
+            return [float(item) for item in head.cpu().tolist()]
         except Exception:
             pass
 
@@ -594,13 +609,56 @@ def _allocate_target_block_ids(runtime: Any, target_block_count: int) -> tuple[l
         }
 
 
-def _write_combined_cache(cache: Any, layer: dict[str, Any], target_block_ids: list[int] | None = None) -> None:
+def _write_combined_tensor(
+    cache: Any, key: dict[str, Any], value: dict[str, Any], layout: dict[str, Any],
+    target_block_ids: list[int] | None,
+) -> None:
+    import torch
+
+    blocks, heads, dims, tokens = key["shape"]
+    tile = layout["tokens_per_target_block"]
+    tiles_per_block = tokens // tile
+    count = blocks * tiles_per_block
+    ids = list(range(count)) if target_block_ids is None else target_block_ids
+    if len(ids) != count or len(set(ids)) != count or any(not 0 <= idx < cache.shape[0] for idx in ids):
+        raise RuntimeError("invalid vLLM target block allocation")
+    if value["shape"] != [blocks, heads, tokens, dims]:
+        raise RuntimeError("incompatible key/value block shapes")
+    # The scalar path assigns Python floats to the target dtype. Float32 is
+    # the incoming tensor dtype, so preserve that conversion before transfer.
+    keys = torch.tensor(key["data"], dtype=torch.float32).reshape(key["shape"]).transpose(-1, -2)
+    values = torch.tensor(value["data"], dtype=torch.float32).reshape(value["shape"])
+
+    def split(tensor):
+        tensor = tensor.reshape(blocks, heads, tiles_per_block, tile, dims)
+        if layout["kind"].endswith("token_head_dim"):
+            return tensor.permute(0, 2, 3, 1, 4).reshape(count, tile, heads, dims)
+        return tensor.permute(0, 2, 1, 3, 4).reshape(count, heads, tile, dims)
+
+    packed = torch.stack((split(keys), split(values)), dim=1)
+    indices = torch.tensor(ids, dtype=torch.long, device=cache.device)
+    packed = packed.to(device=cache.device, dtype=cache.dtype)
+    cache.index_copy_(0, indices, packed)
+    if os.getenv("PERMEANT_RECOVERY_CHECKPOINT_SHA") and not torch.equal(
+        cache.index_select(0, indices), packed
+    ):
+        raise RuntimeError("vLLM recovery tensor readback does not match the staged values")
+
+
+def _write_combined_cache(cache: Any, layer: dict[str, Any], target_block_ids: list[int] | None = None) -> str:
     shape = _shape_of_storage(cache)
     key_source, value_source, block_size, kv_heads, head_dim, is_flat = _layer_block_views(layer)
     source_block_count = _source_block_count(key_source, is_flat)
 
     if len(shape) != 5 or shape[1] != 2:
         raise RuntimeError(f"unsupported combined kv_cache shape {shape}")
+
+    if is_flat and os.getenv("PERMEANT_VLLM_BATCH_KV_WRITES") == "1" and hasattr(cache, "index_copy_"):
+        layout = _combined_layout(shape, block_size, kv_heads, head_dim)
+        if layout["kind"] == "unsupported":
+            raise RuntimeError(f"unsupported combined kv_cache shape {shape}")
+        _write_combined_tensor(cache, key_source, value_source, layout, target_block_ids)
+        return "batched_torch"
 
     if shape[2] == block_size and shape[3] == kv_heads and shape[4] == head_dim:
         for block_index in range(source_block_count):
@@ -615,7 +673,7 @@ def _write_combined_cache(cache: Any, layer: dict[str, Any], target_block_ids: l
                         target_block_index = _target_block_id(block_index, target_block_ids)
                         cache[target_block_index][0][token_index][head_index][dim_index] = key_value
                         cache[target_block_index][1][token_index][head_index][dim_index] = value_value
-        return
+        return "scalar"
 
     if shape[2] == kv_heads and shape[3] == block_size and shape[4] == head_dim:
         for block_index in range(source_block_count):
@@ -630,7 +688,7 @@ def _write_combined_cache(cache: Any, layer: dict[str, Any], target_block_ids: l
                         target_block_index = _target_block_id(block_index, target_block_ids)
                         cache[target_block_index][0][head_index][token_index][dim_index] = key_value
                         cache[target_block_index][1][head_index][token_index][dim_index] = value_value
-        return
+        return "scalar"
 
     if shape[3] == kv_heads and shape[4] == head_dim and block_size % shape[2] == 0:
         tokens_per_target_block = shape[2]
@@ -649,7 +707,7 @@ def _write_combined_cache(cache: Any, layer: dict[str, Any], target_block_ids: l
                             value_value = value_source[block_index][head_index][token_index][dim_index]
                         cache[target_block_index][0][target_token_index][head_index][dim_index] = key_value
                         cache[target_block_index][1][target_token_index][head_index][dim_index] = value_value
-        return
+        return "scalar"
 
     if shape[2] == kv_heads and shape[4] == head_dim and block_size % shape[3] == 0:
         tokens_per_target_block = shape[3]
@@ -668,7 +726,7 @@ def _write_combined_cache(cache: Any, layer: dict[str, Any], target_block_ids: l
                             value_value = value_source[block_index][head_index][token_index][dim_index]
                         cache[target_block_index][0][head_index][target_token_index][dim_index] = key_value
                         cache[target_block_index][1][head_index][target_token_index][dim_index] = value_value
-        return
+        return "scalar"
 
     raise RuntimeError(
         "unsupported combined kv_cache layout "
@@ -729,6 +787,11 @@ def _write_separate_cache(cache_pair: Any, layer: dict[str, Any]) -> None:
 
 
 def _direct_register_into_kv_caches(runtime: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    from time import perf_counter_ns
+
+    registration_start = perf_counter_ns()
+    write_ns = probe_ns = target_summary_ns = 0
+    write_modes: dict[str, int] = {}
     kv_caches = _get_kv_caches(runtime)
     layer_map = _get_layer_map(runtime, kv_caches)
     written_layers: list[str] = []
@@ -737,6 +800,7 @@ def _direct_register_into_kv_caches(runtime: Any, payload: dict[str, Any]) -> di
     target_block_allocation: dict[str, Any] = {"mode": "not_allocated"}
 
     layers = payload.get("layers", [])
+    full_restore = bool(os.getenv("PERMEANT_RECOVERY_CHECKPOINT_SHA"))
     if layers:
         first_layer = layers[0]
         first_layer_index = first_layer.get("layer_index") if isinstance(first_layer, dict) else None
@@ -745,6 +809,9 @@ def _direct_register_into_kv_caches(runtime: Any, payload: dict[str, Any]) -> di
             if len(_shape_of_storage(first_cache)) == 5:
                 target_block_count = _combined_target_block_count(first_cache, first_layer)
                 target_block_ids, target_block_allocation = _allocate_target_block_ids(runtime, target_block_count)
+
+    if full_restore and (target_block_ids is None or os.getenv("PERMEANT_VLLM_BATCH_KV_WRITES") != "1"):
+        raise RuntimeError("full KV restore requires pooled slots and batched tensor writes")
 
     for layer in layers:
         layer_index = layer.get("layer_index")
@@ -755,20 +822,34 @@ def _direct_register_into_kv_caches(runtime: Any, payload: dict[str, Any]) -> di
         layer_name = layer_map[layer_index]
         cache = kv_caches[layer_name]
         shape = _shape_of_storage(cache)
+        write_start = perf_counter_ns()
         if len(shape) == 5:
-            _write_combined_cache(cache, layer, target_block_ids)
-            slot_probe = _combined_slot_samples(cache, layer, target_block_ids)
+            mode = _write_combined_cache(cache, layer, target_block_ids)
         else:
             _write_separate_cache(cache, layer)
-            slot_probe = {"layout": {"kind": "separate"}, "samples": [], "all_samples_match": None}
+            mode = "separate_scalar"
+        if full_restore and mode != "batched_torch":
+            raise RuntimeError("full KV restore requires batched tensor readback in every layer")
+        write_ns += perf_counter_ns() - write_start
+        write_modes[mode] = write_modes.get(mode, 0) + 1
+        probe_start = perf_counter_ns()
+        slot_probe = (
+            _combined_slot_samples(cache, layer, target_block_ids) if len(shape) == 5
+            else {"layout": {"kind": "separate"}, "samples": [], "all_samples_match": None}
+        )
+        probe_ns += perf_counter_ns() - probe_start
+        summary_start = perf_counter_ns()
+        target_summary = _cache_storage_summary(cache)
+        target_summary_ns += perf_counter_ns() - summary_start
         written_layers.append(layer_name)
         written_layer_summaries.append(
             {
                 "layer_index": layer_index,
                 "layer_name": layer_name,
                 "source": _prepared_layer_summary(layer),
-                "target": _cache_storage_summary(cache),
+                "target": target_summary,
                 "slot_probe": slot_probe,
+                "full_tensor_verified": full_restore,
             }
         )
 
@@ -777,6 +858,13 @@ def _direct_register_into_kv_caches(runtime: Any, payload: dict[str, Any]) -> di
         "written_layers": written_layers,
         "written_layer_summaries": written_layer_summaries,
         "target_block_allocation": target_block_allocation,
+        "registration_profile": {
+            "write_modes": write_modes,
+            "writes_ms": write_ns / 1_000_000,
+            "slot_probes_ms": probe_ns / 1_000_000,
+            "target_summary_ms": target_summary_ns / 1_000_000,
+            "total_ms": (perf_counter_ns() - registration_start) / 1_000_000,
+        },
     }
 
 

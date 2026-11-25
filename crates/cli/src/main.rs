@@ -1,3 +1,5 @@
+mod integrity_drill;
+
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -12,7 +14,7 @@ use permeant_injector::KVConnectorBase_V1;
 use permeant_orchestrator::{MigrationOrchestrator, ResourcePolicy};
 use permeant_transpiler::{
     canonical_to_vllm_block_key, canonical_to_vllm_block_value, compute_optimal_scale,
-    decode_qatq_phase2_transfer, dequantize_e4m3_scaled, encode_qatq_exact_f32le_transfer,
+    decode_qatq_phase2_transfer, dequantize_e4m3_scaled, encode_qatq_exact_f32le_transfer_profiled,
     quantize_e4m3_scaled, Tensor, QATQ_EXACT_F32LE_STORAGE, QATQ_PHASE2_STORAGE,
     RAW_F32LE_PASS_THROUGH_STORAGE,
 };
@@ -60,6 +62,35 @@ impl TransferCodec {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    #[command(hide = true)]
+    IntegrityToolSigner { state_dir: PathBuf },
+    #[command(hide = true)]
+    IntegrityGatewayProbe {
+        state_dir: PathBuf,
+        #[arg(long)]
+        completed: bool,
+        #[arg(long, conflicts_with = "completed")]
+        interrupt_activation: bool,
+        #[arg(long, conflicts_with_all = ["completed", "interrupt_activation"])]
+        interrupt_completion: bool,
+        #[arg(long, conflicts_with_all = ["completed", "interrupt_activation", "interrupt_completion"])]
+        contend: Option<u64>,
+        #[arg(long, conflicts_with_all = ["completed", "interrupt_activation", "interrupt_completion", "contend", "file_effect"])]
+        fence: bool,
+        #[arg(long, conflicts_with_all = ["completed", "interrupt_activation", "interrupt_completion", "contend"])]
+        file_effect: bool,
+    },
+    /// Exercise integrity-triggered recovery and compare exact codecs locally
+    IntegrityDrill {
+        #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u8).range(1..=20))]
+        trials: u8,
+        /// Optional non-sensitive checkpoint tensor in little-endian f32 format
+        #[arg(long)]
+        fixture: Option<PathBuf>,
+        /// Create a new directory for persisted gateway state and reload it during recovery
+        #[arg(long)]
+        gateway_state_dir: Option<PathBuf>,
+    },
     /// Start a migration daemon target listener
     Daemon {
         #[arg(short, long, default_value = "127.0.0.1:9099")]
@@ -67,6 +98,9 @@ enum Commands {
     },
     /// Run a complete local simulation of KV Cache migration
     SimMigrate {
+        /// Inject a fault into a shadow copy before migrating the verified cache
+        #[arg(long, conflicts_with = "quant")]
+        integrity_recovery_drill: bool,
         #[arg(short, long, default_value = "127.0.0.1:9099")]
         target_addr: String,
         #[arg(short, long, default_value_t = 8192)]
@@ -101,11 +135,45 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::IntegrityToolSigner { state_dir } => {
+            integrity_drill::run_tool_signer(&state_dir)?
+        }
+        Commands::IntegrityGatewayProbe {
+            state_dir,
+            completed,
+            interrupt_activation,
+            interrupt_completion,
+            contend,
+            fence,
+            file_effect,
+        } => {
+            if interrupt_activation {
+                integrity_drill::interrupt_activation(&state_dir)?;
+            } else if interrupt_completion {
+                integrity_drill::interrupt_completion(&state_dir)?;
+            } else if let Some(operation) = contend {
+                integrity_drill::contend_for_operation(&state_dir, operation)?;
+            } else if fence {
+                integrity_drill::fence_shared_gateway(&state_dir)?;
+            } else if file_effect {
+                integrity_drill::execute_file_effect(&state_dir)?;
+            } else {
+                integrity_drill::probe_gateway(&state_dir, completed)?;
+            }
+        }
+        Commands::IntegrityDrill {
+            trials,
+            fixture,
+            gateway_state_dir,
+        } => {
+            integrity_drill::run(trials, fixture.as_deref(), gateway_state_dir.as_deref())?;
+        }
         Commands::Daemon { addr } => {
             println!("Starting PermeantOS Hypervisor Daemon on {}...", addr);
             run_daemon(&addr).await?;
         }
         Commands::SimMigrate {
+            integrity_recovery_drill,
             target_addr,
             seq_len,
             quant,
@@ -129,6 +197,7 @@ async fn main() -> Result<()> {
                 selected_codec,
                 agent_graph_manifest.as_deref(),
                 None,
+                integrity_recovery_drill,
             )
             .await?;
         }
@@ -235,6 +304,15 @@ async fn handle_migration_connection(
             serde_json::from_slice(&plaintext).context("Failed to deserialize USXF header")?;
 
         validate_header(&header).context("USXF metadata validation failed")?;
+        if let Some(digest) = recovery_checkpoint_digest()? {
+            let expected_ids =
+                checkpoint_block_ids(&digest, header.seq_len.div_ceil(header.block_size));
+            if header.block_hashes != expected_ids {
+                bail!(
+                    "Recovery block identities do not match the trusted checkpoint and positions"
+                );
+            }
+        }
         println!(
             "[Daemon] Header verified. Model Identity: {}. Config Hash: {}",
             header.model_architecture, header.model_identity.config_hash
@@ -302,14 +380,13 @@ async fn handle_migration_connection(
                     }
                 }
                 Some(other) => bail!("Unsupported transfer quantization scheme: {other}"),
-                None => {
-                    let mut floats = vec![0.0f32; data.len() / 4];
-                    for (i, chunk) in data.chunks_exact(4).enumerate() {
-                        let bytes: [u8; 4] = chunk.try_into()?;
-                        floats[i] = f32::from_be_bytes(bytes);
-                    }
-                    floats
-                }
+                None => data
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .copied()
+                    .map(f32::from_be_bytes)
+                    .collect::<Vec<_>>(),
             };
 
             if decrypted_data.len() != expected_float_count {
@@ -385,14 +462,24 @@ async fn handle_migration_connection(
         msg = recv_message(socket).await?;
     }
 
-    println!("[Daemon] Injecting staged blocks into KVConnectorBase_V1...");
-    for (hash, tensors) in accumulated_blocks {
-        injector.inject_block_tensors(hash, tensors)?;
-    }
-
     if let MigrationMessage::CommitRequest = msg {
+        let inject_start = std::time::Instant::now();
+        println!("[Daemon] Injecting staged blocks into KVConnectorBase_V1...");
+        // The header owns the logical order. Legacy repeated token hashes
+        // still register once; recovery IDs have already been checked above.
+        for hash in &header.block_hashes {
+            if let Some(tensors) = accumulated_blocks.remove(hash) {
+                injector.inject_block_tensors(hash.clone(), tensors)?;
+            }
+        }
+        let inject_ms = elapsed_ms(inject_start);
         println!("[Daemon] Commit requested. Running numerical continuation validation...");
+        let verify_start = std::time::Instant::now();
         injector.verify_continuation(&header.block_hashes)?;
+        println!(
+            "[Daemon] Commit profile: inject_ms={inject_ms:.3} verify_ms={:.3}",
+            elapsed_ms(verify_start)
+        );
 
         println!("[Daemon] Validation passed. Committing migration state.");
         send_message(
@@ -409,6 +496,48 @@ async fn handle_migration_connection(
     } else {
         bail!("Protocol violation: Expected CommitRequest");
     }
+}
+
+fn recovery_checkpoint_digest() -> Result<Option<String>> {
+    std::env::var_os("PERMEANT_RECOVERY_CHECKPOINT_SHA")
+        .map(|value| {
+            let digest = value
+                .into_string()
+                .map_err(|_| anyhow::anyhow!("Recovery checkpoint digest is not UTF-8"))?;
+            if digest.len() != 64
+                || !digest
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            {
+                bail!("Recovery checkpoint digest must be 64 lowercase SHA-256 hex digits");
+            }
+            Ok(digest)
+        })
+        .transpose()
+}
+
+// These identifiers bind placement to a verified checkpoint. They are not
+// per-block data digests or vLLM's prompt-token prefix-cache hashes.
+fn checkpoint_block_ids(digest: &str, count: usize) -> Vec<String> {
+    (0..count)
+        .map(|position| {
+            compute_sha256(format!("permeant/recovery-kv/v1:{digest}:{position}").as_bytes())
+        })
+        .collect()
+}
+
+#[test]
+fn recovery_block_ids_distinguish_every_position_and_checkpoint() {
+    let old_ids = compute_token_block_hashes(&[42; 1920], 256);
+    assert_eq!(old_ids.iter().collect::<HashSet<_>>().len(), 2);
+
+    let checkpoint = "a".repeat(64);
+    let ids = checkpoint_block_ids(&checkpoint, 8);
+    assert_eq!(ids.iter().collect::<HashSet<_>>().len(), 8);
+    assert_eq!(ids, checkpoint_block_ids(&checkpoint, 8));
+    assert!(checkpoint_block_ids(&"b".repeat(64), 8)
+        .iter()
+        .all(|id| !ids.contains(id)));
 }
 
 fn validate_payload_chunk_metadata(
@@ -513,6 +642,7 @@ struct MigrationManifest {
     handshake_time_ms: f64,
     header_time_ms: f64,
     transfer_time_ms: f64,
+    streaming_profile: StreamingProfile,
     commit_time_ms: f64,
     total_time_ms: f64,
     effective_bandwidth_gbps: f64,
@@ -521,6 +651,92 @@ struct MigrationManifest {
     error_message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     agent_graph: Option<AgentGraphManifest>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    integrity_recovery: Option<IntegrityRecoveryEvidence>,
+}
+
+#[derive(Clone, Copy, Default, serde::Serialize)]
+struct StreamingProfile {
+    window_chunks: usize,
+    layout_ms: f64,
+    baseline_codec_ms: f64,
+    payload_codec_ms: f64,
+    send_ms: f64,
+    ack_wait_ms: f64,
+    ack_batches: usize,
+    peak_unacknowledged_payload_bytes: usize,
+    compression_detail: StreamingCompressionDetail,
+}
+
+#[derive(Clone, Copy, Default, serde::Serialize)]
+struct StreamingCompressionDetail {
+    comparator_pack_f32le_ms: f64,
+    comparator_zstd_level3_ms: f64,
+    comparator_lz4_ms: f64,
+    qatq_pack_f32le_ms: f64,
+    qatq_library_ms: f64,
+    qatq_chunks: u64,
+}
+
+const LEGACY_STREAM_WINDOW: usize = 8;
+const MAX_STREAM_WINDOW: usize = 32;
+const MAX_WIDE_WINDOW_PAYLOAD_BYTES: usize = 4 * 1024 * 1024;
+
+fn validate_stream_window(window: usize) -> Result<()> {
+    anyhow::ensure!(
+        (1..=MAX_STREAM_WINDOW).contains(&window),
+        "stream window must be 1–{MAX_STREAM_WINDOW} chunks"
+    );
+    Ok(())
+}
+
+fn wide_window_needs_drain(window: usize, pending_bytes: usize, next_bytes: usize) -> Result<bool> {
+    if window <= LEGACY_STREAM_WINDOW {
+        return Ok(false);
+    }
+    anyhow::ensure!(
+        next_bytes <= MAX_WIDE_WINDOW_PAYLOAD_BYTES,
+        "payload exceeds the wide stream window's 4 MiB budget; use a window of 8 or less"
+    );
+    Ok(pending_bytes > MAX_WIDE_WINDOW_PAYLOAD_BYTES - next_bytes)
+}
+
+fn elapsed_ms(start: std::time::Instant) -> f64 {
+    start.elapsed().as_secs_f64() * 1000.0
+}
+
+async fn drain_chunk_acks(socket: &mut TcpStream, pending: &mut Vec<u32>) -> Result<()> {
+    for expected in pending.drain(..) {
+        match timeout(Duration::from_secs(30), recv_message(socket)).await?? {
+            MigrationMessage::ChunkAck { chunk_index } if chunk_index == expected => {}
+            other => bail!("Unexpected response for chunk {expected}: {other:?}"),
+        }
+    }
+    Ok(())
+}
+
+async fn drain_stream_batch(
+    socket: &mut TcpStream,
+    pending: &mut Vec<u32>,
+    pending_bytes: &mut usize,
+    profile: &mut StreamingProfile,
+) -> Result<()> {
+    if !pending.is_empty() {
+        let started = std::time::Instant::now();
+        drain_chunk_acks(socket, pending).await?;
+        profile.ack_wait_ms += elapsed_ms(started);
+        profile.ack_batches += 1;
+        *pending_bytes = 0;
+    }
+    Ok(())
+}
+
+#[derive(serde::Serialize)]
+struct IntegrityRecoveryEvidence {
+    checkpoint_sha256: String,
+    rejected_sha256: String,
+    alert_unix_ms: i64,
+    alert_to_manifest_ms: f64,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -635,16 +851,26 @@ struct TransferCompressionBaselineStats {
 }
 
 impl TransferCompressionBaselineStats {
-    fn record_f32_chunk(&mut self, values: &[f32]) -> Result<()> {
-        let mut raw = Vec::with_capacity(values.len() * 4);
+    fn record_f32_chunk(
+        &mut self,
+        values: &[f32],
+        detail: &mut StreamingCompressionDetail,
+    ) -> Result<()> {
+        let started = std::time::Instant::now();
+        let mut raw = Vec::with_capacity(std::mem::size_of_val(values));
         for value in values {
             raw.extend_from_slice(&value.to_le_bytes());
         }
         self.raw_f32le_bytes += raw.len() as u64;
+        detail.comparator_pack_f32le_ms += elapsed_ms(started);
+        let started = std::time::Instant::now();
         self.zstd_raw_f32le_bytes += zstd::bulk::compress(&raw, 3)
             .context("failed to zstd-compress raw f32 transfer chunk")?
             .len() as u64;
+        detail.comparator_zstd_level3_ms += elapsed_ms(started);
+        let started = std::time::Instant::now();
         self.lz4_raw_f32le_bytes += lz4_flex::compress_prepend_size(&raw).len() as u64;
+        detail.comparator_lz4_ms += elapsed_ms(started);
         Ok(())
     }
 
@@ -848,7 +1074,14 @@ async fn run_starter_demo(
 
     let manifest_path = timeout(
         timeout_duration,
-        run_sim_migrate(&target_addr, seq_len, transfer_codec, None, Some(out_dir)),
+        run_sim_migrate(
+            &target_addr,
+            seq_len,
+            transfer_codec,
+            None,
+            Some(out_dir),
+            false,
+        ),
     )
     .await
     .context("starter demo timed out while running local migration")??;
@@ -1291,7 +1524,11 @@ impl QatqDecisionStats {
     }
 }
 
-fn encode_payload(data: &[f32], transfer_codec: TransferCodec) -> Result<EncodedPayload> {
+fn encode_payload(
+    data: &[f32],
+    transfer_codec: TransferCodec,
+    detail: &mut StreamingCompressionDetail,
+) -> Result<EncodedPayload> {
     match transfer_codec {
         TransferCodec::None => {
             let mut bytes = Vec::with_capacity(data.len() * 4);
@@ -1311,7 +1548,10 @@ fn encode_payload(data: &[f32], transfer_codec: TransferCodec) -> Result<Encoded
             })
         }
         TransferCodec::Qatq => {
-            let transfer = encode_qatq_exact_f32le_transfer(data)?;
+            let (transfer, timing) = encode_qatq_exact_f32le_transfer_profiled(data)?;
+            detail.qatq_pack_f32le_ms += timing.pack.as_secs_f64() * 1000.0;
+            detail.qatq_library_ms += timing.library.as_secs_f64() * 1000.0;
+            detail.qatq_chunks += 1;
             let codec = PayloadCodecMetadata {
                 transfer_codec: "qatq".to_string(),
                 storage: transfer.storage_name().to_string(),
@@ -1326,13 +1566,68 @@ fn encode_payload(data: &[f32], transfer_codec: TransferCodec) -> Result<Encoded
     }
 }
 
+fn verify_shadow_checkpoint(
+    cache: &HashMap<String, Tensor>,
+) -> Result<(String, String, i64, std::time::Instant)> {
+    let mut names: Vec<_> = cache.keys().collect();
+    names.sort_unstable();
+    let mut trusted = Vec::with_capacity(names.len());
+    let mut candidate = Vec::with_capacity(names.len());
+    let mut injected = false;
+    for name in names {
+        let tensor = &cache[name];
+        let mut bytes: Vec<_> = tensor
+            .data
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect();
+        let digest = compute_sha256(&bytes);
+        trusted.push((name, &tensor.shape, digest.clone()));
+        if !injected && !bytes.is_empty() {
+            bytes[0] ^= 1;
+            candidate.push((name, &tensor.shape, compute_sha256(&bytes)));
+            injected = true;
+        } else {
+            candidate.push((name, &tensor.shape, digest));
+        }
+    }
+    if !injected {
+        bail!("cannot inject integrity fault into an empty checkpoint");
+    }
+    let trusted = compute_sha256(&serde_json::to_vec(&trusted)?);
+    let rejected = compute_sha256(&serde_json::to_vec(&candidate)?);
+    if trusted == rejected {
+        bail!("injected checkpoint fault was not detected");
+    }
+    Ok((
+        trusted,
+        rejected,
+        Utc::now().timestamp_millis(),
+        std::time::Instant::now(),
+    ))
+}
+
+#[cfg(test)]
+#[test]
+fn shadow_checkpoint_keeps_verified_tensor_bytes() {
+    let cache = HashMap::from([("layer.0.key".to_owned(), Tensor::new(vec![1.0], vec![1]))]);
+    let (trusted, rejected, _, _) = verify_shadow_checkpoint(&cache).unwrap();
+    assert_ne!(trusted, rejected);
+    assert_eq!(cache["layer.0.key"].data, [1.0]);
+    assert!(verify_shadow_checkpoint(&HashMap::new()).is_err());
+}
+
 async fn run_sim_migrate(
     target_addr_str: &str,
     seq_len: usize,
     transfer_codec: TransferCodec,
     agent_graph_manifest_path: Option<&str>,
     manifest_out_dir: Option<&Path>,
+    integrity_recovery_drill: bool,
 ) -> Result<String> {
+    if integrity_recovery_drill && transfer_codec == TransferCodec::Fp8 {
+        bail!("integrity recovery requires exact transfer");
+    }
     let total_start = std::time::Instant::now();
     let run_id = format!(
         "migration-{}-{}",
@@ -1361,6 +1656,19 @@ async fn run_sim_migrate(
 
     println!("Step 1: Extracting local agent KV cache state...");
     let extracted_cache = extract_kv_cache(seq_len, n_layers, n_kv_heads, head_dim)?;
+    let integrity = integrity_recovery_drill
+        .then(|| verify_shadow_checkpoint(&extracted_cache))
+        .transpose()?;
+    let integrity_evidence = || {
+        integrity.as_ref().map(
+            |(trusted, rejected, wall, alert)| IntegrityRecoveryEvidence {
+                checkpoint_sha256: trusted.clone(),
+                rejected_sha256: rejected.clone(),
+                alert_unix_ms: *wall,
+                alert_to_manifest_ms: alert.elapsed().as_secs_f64() * 1000.0,
+            },
+        )
+    };
     println!(
         "Extracted cache: {} tensors (Layers 0-{} keys/values)",
         extracted_cache.len(),
@@ -1413,7 +1721,10 @@ async fn run_sim_migrate(
     println!("Step 3: Building USXF Header...");
     let header_start = std::time::Instant::now();
     let dummy_tokens = vec![42u32; seq_len];
-    let block_hashes = compute_token_block_hashes(&dummy_tokens, block_size);
+    let block_hashes = match recovery_checkpoint_digest()? {
+        Some(digest) => checkpoint_block_ids(&digest, seq_len.div_ceil(block_size)),
+        None => compute_token_block_hashes(&dummy_tokens, block_size),
+    };
     let block_hash_count = block_hashes.len();
 
     // Compute a dummy checksum of the payload data
@@ -1494,9 +1805,22 @@ async fn run_sim_migrate(
     let mut chunks_sent = 0u64;
     let mut qatq_decision_stats = QatqDecisionStats::default();
     let mut baseline_compression_stats = TransferCompressionBaselineStats::default();
+    let window = match std::env::var("PERMEANT_STREAM_WINDOW_CHUNKS") {
+        Ok(value) => value.parse::<usize>().context("invalid stream window")?,
+        Err(std::env::VarError::NotPresent) => 1,
+        Err(error) => return Err(error.into()),
+    };
+    validate_stream_window(window)?;
+    let mut streaming_profile = StreamingProfile {
+        window_chunks: window,
+        ..Default::default()
+    };
+    let mut pending = Vec::with_capacity(window);
+    let mut pending_bytes = 0usize;
     let transfer_start = std::time::Instant::now();
 
     for layer_idx in 0..n_layers {
+        let layout_start = std::time::Instant::now();
         let key_name = format!("layer.{}.key", layer_idx);
         let value_name = format!("layer.{}.value", layer_idx);
         let key_tensor =
@@ -1507,6 +1831,7 @@ async fn run_sim_migrate(
         // Transpile to vLLM blocks
         let vllm_key = canonical_to_vllm_block_key(&key_tensor, block_size)?;
         let vllm_value = canonical_to_vllm_block_value(&value_tensor, block_size)?;
+        streaming_profile.layout_ms += elapsed_ms(layout_start);
 
         // Stream each block
         for block_idx in 0..expected_blocks {
@@ -1522,54 +1847,87 @@ async fn run_sim_migrate(
             let v_start = block_idx * v_block_size;
             let v_data = &vllm_value.data[v_start..(v_start + v_block_size)];
 
-            baseline_compression_stats.record_f32_chunk(k_data)?;
-            baseline_compression_stats.record_f32_chunk(v_data)?;
+            let baseline_start = std::time::Instant::now();
+            baseline_compression_stats
+                .record_f32_chunk(k_data, &mut streaming_profile.compression_detail)?;
+            baseline_compression_stats
+                .record_f32_chunk(v_data, &mut streaming_profile.compression_detail)?;
+            streaming_profile.baseline_codec_ms += elapsed_ms(baseline_start);
 
             // Format data payload (with optional quantization)
-            let k_payload = encode_payload(k_data, transfer_codec)?;
-            let v_payload = encode_payload(v_data, transfer_codec)?;
+            let codec_start = std::time::Instant::now();
+            let k_payload = encode_payload(
+                k_data,
+                transfer_codec,
+                &mut streaming_profile.compression_detail,
+            )?;
+            let v_payload = encode_payload(
+                v_data,
+                transfer_codec,
+                &mut streaming_profile.compression_detail,
+            )?;
+            streaming_profile.payload_codec_ms += elapsed_ms(codec_start);
 
             qatq_decision_stats.record(&k_payload);
             qatq_decision_stats.record(&v_payload);
 
             total_transferred_bytes += (k_payload.data.len() + v_payload.data.len()) as u64;
 
-            // Send Key chunk
-            let crc32_k = compute_crc32(&k_payload.data);
-            send_message(
-                &mut socket,
-                &MigrationMessage::PayloadChunk {
-                    chunk_index: block_idx as u32,
-                    layer_index: layer_idx as u32,
-                    tensor_name: format!("layer.{}.key", layer_idx),
-                    codec: k_payload.codec,
-                    data: k_payload.data,
-                    crc32: crc32_k,
-                },
-            )
-            .await?;
-            chunks_sent += 1;
-            let _ack_k = recv_message(&mut socket).await?;
-
-            // Send Value chunk
-            let crc32_v = compute_crc32(&v_payload.data);
-            send_message(
-                &mut socket,
-                &MigrationMessage::PayloadChunk {
-                    chunk_index: block_idx as u32,
-                    layer_index: layer_idx as u32,
-                    tensor_name: format!("layer.{}.value", layer_idx),
-                    codec: v_payload.codec,
-                    data: v_payload.data,
-                    crc32: crc32_v,
-                },
-            )
-            .await?;
-            chunks_sent += 1;
-            let _ack_v = recv_message(&mut socket).await?;
+            for (name, payload) in [(&key_name, k_payload), (&value_name, v_payload)] {
+                let payload_bytes = payload.data.len();
+                if wide_window_needs_drain(window, pending_bytes, payload_bytes)? {
+                    drain_stream_batch(
+                        &mut socket,
+                        &mut pending,
+                        &mut pending_bytes,
+                        &mut streaming_profile,
+                    )
+                    .await?;
+                }
+                let send_start = std::time::Instant::now();
+                let chunk_index = block_idx as u32;
+                let crc32 = compute_crc32(&payload.data);
+                send_message(
+                    &mut socket,
+                    &MigrationMessage::PayloadChunk {
+                        chunk_index,
+                        layer_index: layer_idx as u32,
+                        tensor_name: name.clone(),
+                        codec: payload.codec,
+                        data: payload.data,
+                        crc32,
+                    },
+                )
+                .await?;
+                streaming_profile.send_ms += elapsed_ms(send_start);
+                chunks_sent += 1;
+                pending.push(chunk_index);
+                pending_bytes = pending_bytes
+                    .checked_add(payload_bytes)
+                    .context("unacknowledged payload byte count overflow")?;
+                streaming_profile.peak_unacknowledged_payload_bytes = streaming_profile
+                    .peak_unacknowledged_payload_bytes
+                    .max(pending_bytes);
+                if pending.len() == window {
+                    drain_stream_batch(
+                        &mut socket,
+                        &mut pending,
+                        &mut pending_bytes,
+                        &mut streaming_profile,
+                    )
+                    .await?;
+                }
+            }
         }
     }
-    let transfer_time = transfer_start.elapsed().as_secs_f64() * 1000.0;
+    drain_stream_batch(
+        &mut socket,
+        &mut pending,
+        &mut pending_bytes,
+        &mut streaming_profile,
+    )
+    .await?;
+    let transfer_time = elapsed_ms(transfer_start);
 
     let uncompressed_bytes = (n_layers * 2 * n_kv_heads * head_dim * seq_len * 4) as u64; // float32 = 4 bytes
     let compression_ratio = ratio(total_transferred_bytes, uncompressed_bytes);
@@ -1645,6 +2003,7 @@ async fn run_sim_migrate(
                     handshake_time_ms: handshake_time,
                     header_time_ms: header_time,
                     transfer_time_ms: transfer_time,
+                    streaming_profile,
                     commit_time_ms: 0.0,
                     total_time_ms: total_time,
                     effective_bandwidth_gbps,
@@ -1652,6 +2011,7 @@ async fn run_sim_migrate(
                     success: false,
                     error_message: Some(error_text.clone()),
                     agent_graph: agent_graph_manifest,
+                    integrity_recovery: integrity_evidence(),
                 };
                 let filename = write_migration_manifest(&manifest, manifest_out_dir)?;
                 println!("Saved failed migration benchmark manifest: {}", filename);
@@ -1724,6 +2084,7 @@ async fn run_sim_migrate(
                 handshake_time_ms: handshake_time,
                 header_time_ms: header_time,
                 transfer_time_ms: transfer_time,
+                streaming_profile,
                 commit_time_ms: commit_time,
                 total_time_ms: total_time,
                 effective_bandwidth_gbps,
@@ -1731,6 +2092,7 @@ async fn run_sim_migrate(
                 success: true,
                 error_message: None,
                 agent_graph: agent_graph_manifest.clone(),
+                integrity_recovery: integrity_evidence(),
             };
 
             let filename = write_migration_manifest(&manifest, manifest_out_dir)?;
@@ -1779,6 +2141,7 @@ async fn run_sim_migrate(
                 handshake_time_ms: handshake_time,
                 header_time_ms: header_time,
                 transfer_time_ms: transfer_time,
+                streaming_profile,
                 commit_time_ms: commit_time,
                 total_time_ms: total_time,
                 effective_bandwidth_gbps,
@@ -1786,6 +2149,7 @@ async fn run_sim_migrate(
                 success: false,
                 error_message: Some(error_text.clone()),
                 agent_graph: agent_graph_manifest,
+                integrity_recovery: integrity_evidence(),
             };
             let filename = write_migration_manifest(&manifest, manifest_out_dir)?;
             println!("Saved failed migration benchmark manifest: {}", filename);
@@ -1824,6 +2188,71 @@ fn run_inspect(file_path: &str) -> Result<()> {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn wide_windows_bound_total_unacknowledged_payload() -> Result<()> {
+        assert!(validate_stream_window(8).is_ok());
+        assert!(validate_stream_window(32).is_ok());
+        assert!(validate_stream_window(0).is_err());
+        assert!(validate_stream_window(33).is_err());
+        let limit = MAX_WIDE_WINDOW_PAYLOAD_BYTES;
+        assert!(!wide_window_needs_drain(32, limit - 1, 1)?);
+        assert!(wide_window_needs_drain(32, limit, 1)?);
+        assert!(wide_window_needs_drain(32, 0, limit + 1).is_err());
+        assert!(!wide_window_needs_drain(8, 0, limit + 1)?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn drain_stream_batch_counts_only_successful_nonempty_batches() -> Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+        let client = async {
+            let mut socket = TcpStream::connect(addr).await?;
+            let mut profile = StreamingProfile::default();
+            let mut pending = (0..32).collect();
+            let mut pending_bytes = 32 * 4096;
+            drain_stream_batch(&mut socket, &mut pending, &mut pending_bytes, &mut profile).await?;
+            assert!(pending.is_empty());
+            assert_eq!(pending_bytes, 0);
+            drain_stream_batch(&mut socket, &mut pending, &mut pending_bytes, &mut profile).await?;
+            assert_eq!(profile.ack_batches, 1);
+            Ok::<_, anyhow::Error>(())
+        };
+        let server = async {
+            let (mut socket, _) = listener.accept().await?;
+            for chunk_index in 0..32 {
+                send_message(&mut socket, &MigrationMessage::ChunkAck { chunk_index }).await?;
+            }
+            Ok::<_, anyhow::Error>(())
+        };
+        tokio::try_join!(client, server)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn chunk_ack_window_rejects_out_of_order_ack() -> Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+        let client = async {
+            let mut socket = TcpStream::connect(addr).await?;
+            let mut pending = vec![0, 1];
+            let error = drain_chunk_acks(&mut socket, &mut pending)
+                .await
+                .unwrap_err();
+            assert!(error
+                .to_string()
+                .contains("Unexpected response for chunk 1"));
+            Ok::<_, anyhow::Error>(())
+        };
+        let server = async {
+            let (mut socket, _) = listener.accept().await?;
+            send_message(&mut socket, &MigrationMessage::ChunkAck { chunk_index: 0 }).await?;
+            send_message(&mut socket, &MigrationMessage::ChunkAck { chunk_index: 2 }).await
+        };
+        tokio::try_join!(client, server)?;
+        Ok(())
+    }
 
     fn temp_manifest_path(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!(

@@ -52,6 +52,23 @@ jobs:
       - name: Run starter migration demo
         run: cargo run --locked --bin permeant-cli -- starter-demo --seq-len 128 --out-dir /tmp/permeantos-starter-demo --timeout-seconds 30
 
+      - name: Verify integrity recovery across process exits
+        run: |
+          trial_dir="$(mktemp -d)"
+          cargo run --locked --bin permeant-cli -- integrity-drill --trials 1 --gateway-state-dir "$trial_dir/evidence" > "$trial_dir/report.json"
+          jq -e '
+            .checkpoint_authentication == "ed25519-session-generation-and-sha256"
+            and .gateway_interrupted_activation_probe
+            and .gateway_interrupted_completion_probe
+            and .gateway_concurrent_completion_probe
+            and .gateway_concurrent_fence_probe
+            and .gateway_unresolved_write_probe
+            and .gateway_signed_receipt_probe
+            and .gateway_file_effect_probe
+            and .gateway_tool_process_signer_probe
+            and (.samples | length == 5 and all(.restored_generation == 1 and .checkpoint_rollback_generations == 1))
+          ' "$trial_dir/report.json"
+
       - name: Verify crate package dry run
         run: scripts/check-crate-packaging.py --json-out /tmp/permeantos-crate-packaging.json
 

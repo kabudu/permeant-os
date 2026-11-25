@@ -31,6 +31,19 @@ Environment overrides:
   PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH default: 0; approve gated local publish proof
   PERMEANT_AGENT_ACTIVITY_RETURN_HOME default: 0; verify AWS-updated graph and continue on origin
   PERMEANT_REVERSE_RUNTIME_IMPORT    default: 0; import vLLM target decode boundary back into MLX origin
+  PERMEANT_INTEGRITY_RECOVERY_DRILL   default: 0; opt in to exact checkpoint fault and recovery proof
+  PERMEANT_RECOVERY_FAILURE_PROBES   default: 0; probe failure and recovery on the same target
+  PERMEANT_BUILD_PROFILE             default: debug (debug, release); use matching local and target build profiles
+  PERMEANT_VLLM_MODEL_REVISION       optional full Git SHA for the target model and tokenizer
+  PERMEANT_TARGET_GIT_TREE           optional Git tree for the remote workspace build (defaults to HEAD)
+  PERMEANT_RECOVERY_FAST_PATH        default: 0; use the configured send window and batched tensor writes
+  PERMEANT_STREAM_WINDOW_CHUNKS      default in fast recovery: 8; allowed 1–32
+  PERMEANT_FULL_KV_RESTORE           default: 0; require all checkpoint positions and imported prefix reuse
+  PERMEANT_BINARY_INJECTOR          default: 0; use bounded binary tensor handoff within the target host
+  PERMEANT_RECOVERY_SSH_REUSE        default: 0; reuse one authenticated SSH connection during the recovery drill
+  PERMEANT_RECOVERY_CHECKPOINT_CODEC default: none; use zstd for the off-host recovery artifact (not the migration payload)
+  PERMEANT_RECOVERY_DEFER_DIAGNOSTICS default: 0; fetch non-gating diagnostics after recovery task verification
+  PERMEANT_EXPECTED_CHECKPOINT_SHA   optional SHA-256 of the baseline extractor response
   PERMEANT_MIGRATION_TRANSPORT       default: production-wss (production-wss, ssh-tunnel)
   PERMEANT_PRODUCTION_TRANSPORT_PORT default: 29443
   PERMEANT_LOCAL_TUNNEL_PORT         default: 39099
@@ -68,6 +81,25 @@ PERMEANT_AGENT_ACTIVITY_RESUME="${PERMEANT_AGENT_ACTIVITY_RESUME:-0}"
 PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH="${PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH:-0}"
 PERMEANT_AGENT_ACTIVITY_RETURN_HOME="${PERMEANT_AGENT_ACTIVITY_RETURN_HOME:-0}"
 PERMEANT_REVERSE_RUNTIME_IMPORT="${PERMEANT_REVERSE_RUNTIME_IMPORT:-0}"
+PERMEANT_INTEGRITY_RECOVERY_DRILL="${PERMEANT_INTEGRITY_RECOVERY_DRILL:-0}"
+PERMEANT_RECOVERY_FAILURE_PROBES="${PERMEANT_RECOVERY_FAILURE_PROBES:-0}"
+PERMEANT_BUILD_PROFILE="${PERMEANT_BUILD_PROFILE:-debug}"
+PERMEANT_VLLM_MODEL_REVISION="${PERMEANT_VLLM_MODEL_REVISION:-}"
+if [[ -n "$PERMEANT_VLLM_MODEL_REVISION" && ! "$PERMEANT_VLLM_MODEL_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+  printf 'error: PERMEANT_VLLM_MODEL_REVISION must be a full Git SHA\n' >&2
+  exit 1
+fi
+case "$PERMEANT_BUILD_PROFILE" in
+  debug) CARGO_PROFILE_FLAG= ;;
+  release) CARGO_PROFILE_FLAG=--release ;;
+  *) printf 'error: PERMEANT_BUILD_PROFILE must be debug or release\n' >&2; exit 1 ;;
+esac
+PERMEANT_RECOVERY_FAST_PATH="${PERMEANT_RECOVERY_FAST_PATH:-0}"
+PERMEANT_FULL_KV_RESTORE="${PERMEANT_FULL_KV_RESTORE:-0}"
+PERMEANT_BINARY_INJECTOR="${PERMEANT_BINARY_INJECTOR:-0}"
+PERMEANT_RECOVERY_SSH_REUSE="${PERMEANT_RECOVERY_SSH_REUSE:-0}"
+PERMEANT_RECOVERY_CHECKPOINT_CODEC="${PERMEANT_RECOVERY_CHECKPOINT_CODEC:-none}"
+PERMEANT_RECOVERY_DEFER_DIAGNOSTICS="${PERMEANT_RECOVERY_DEFER_DIAGNOSTICS:-0}"
 PERMEANT_MIGRATION_TRANSPORT="${PERMEANT_MIGRATION_TRANSPORT:-production-wss}"
 PERMEANT_PRODUCTION_TRANSPORT_PORT="${PERMEANT_PRODUCTION_TRANSPORT_PORT:-29443}"
 PERMEANT_LOCAL_TUNNEL_PORT="${PERMEANT_LOCAL_TUNNEL_PORT:-39099}"
@@ -83,6 +115,9 @@ PREFIX=""
 KEY_NAME=""
 PEM_FILE=""
 KNOWN_HOSTS_FILE=""
+RECOVERY_SSH_DIR=""
+RECOVERY_SSH_HOST=""
+SSH_CONTROL_OPTIONS=(-o ControlPath=none)
 REMOTE_SETUP_SCRIPT=""
 REMOTE_START_SCRIPT=""
 TARGET_PROBE_LOCAL=""
@@ -140,16 +175,18 @@ PY
 json_set() {
   local file="$1"
   local key="$2"
-  local value="$3"
-  python3 - "$file" "$key" "$value" <<'PY'
+  python3 - "$file" "$key" "${3-}" "$#" <<'PY'
 import json, sys
-path, key, value = sys.argv[1], sys.argv[2], sys.argv[3]
+path, key, value, argc = sys.argv[1:]
 try:
     with open(path) as f:
         data = json.load(f)
 except FileNotFoundError:
     data = {}
-data[key] = value
+if argc == "2":
+    data.pop(key, None)
+else:
+    data[key] = value
 with open(path, "w") as f:
     json.dump(data, f, indent=2, sort_keys=True)
     f.write("\n")
@@ -217,17 +254,23 @@ PY
 
 refresh_source_continuation() {
   log "refreshing source continuation from live exporter"
+  local capture=/dev/null
+  if [[ "$PERMEANT_INTEGRITY_RECOVERY_DRILL" == "1" ]]; then
+    capture="$RUN_DIR/checkpoint.capture.json"
+  fi
   curl -fsS \
     --max-time 900 \
     -H 'Content-Type: application/json' \
     --data "{\"seq_len\":$PERMEANT_SEQ_LEN}" \
-    "$(source_extract_url)" >/dev/null
+    "$(source_extract_url)" >"$capture"
   validate_source_continuation_file
 }
 
 load_state() {
   STATE_FILE="${1:-$STATE_FILE}"
   [[ -f "$STATE_FILE" ]] || die "state file not found: $STATE_FILE"
+  AWS_REGION="$(json_get "$STATE_FILE" region)"
+  [[ -n "$AWS_REGION" ]] || die "region missing from state file: $STATE_FILE"
   RUN_ID="$(json_get "$STATE_FILE" run_id)"
   PREFIX="$(json_get "$STATE_FILE" prefix)"
   KEY_NAME="$(json_get "$STATE_FILE" key_name)"
@@ -278,6 +321,7 @@ ssh_target() {
   ip="$(public_ip)"
   [[ -n "$ip" ]] || die "public IP not available"
   ssh \
+    "${SSH_CONTROL_OPTIONS[@]}" \
     -o BatchMode=yes \
     -o StrictHostKeyChecking=yes \
     -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" \
@@ -292,6 +336,7 @@ scp_to_target() {
   ip="$(public_ip)"
   [[ -n "$ip" ]] || die "public IP not available"
   scp \
+    "${SSH_CONTROL_OPTIONS[@]}" \
     -o BatchMode=yes \
     -o StrictHostKeyChecking=yes \
     -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" \
@@ -306,11 +351,49 @@ scp_from_target() {
   ip="$(public_ip)"
   [[ -n "$ip" ]] || die "public IP not available"
   scp \
+    "${SSH_CONTROL_OPTIONS[@]}" \
     -o BatchMode=yes \
     -o StrictHostKeyChecking=yes \
     -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" \
     -i "$PEM_FILE" \
     "ubuntu@$ip:$src" "$dst"
+}
+
+start_recovery_ssh_master() {
+  local ip
+  ip="$(public_ip)"
+  [[ -n "$ip" ]] || die "public IP not available for recovery SSH"
+  RECOVERY_SSH_HOST="ubuntu@$ip"
+  # Use a short private path: Unix-domain sockets have platform-specific length limits.
+  RECOVERY_SSH_DIR="$(mktemp -d /tmp/permeant-recovery-ssh.XXXXXX)"
+  local socket="$RECOVERY_SSH_DIR/master"
+  ssh -fMN -S "$socket" \
+    -o ControlPersist=90 -o ConnectTimeout=10 -o BatchMode=yes \
+    -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" \
+    -o ClearAllForwardings=yes -o ForwardAgent=no -o ForwardX11=no \
+    -i "$PEM_FILE" "$RECOVERY_SSH_HOST"
+  ssh -S "$socket" -O check "$RECOVERY_SSH_HOST" >/dev/null 2>&1
+  SSH_CONTROL_OPTIONS=(-o "ControlPath=$socket" -o ControlMaster=no)
+  json_set "$STATE_FILE" recovery_ssh_control_dir "$RECOVERY_SSH_DIR"
+}
+
+stop_recovery_ssh_master() {
+  [[ -n "$RECOVERY_SSH_DIR" ]] || return 0
+  SSH_CONTROL_OPTIONS=(-o ControlPath=none)
+  local socket="$RECOVERY_SSH_DIR/master"
+  if [[ -S "$socket" ]]; then
+    ssh -S "$socket" -O exit "$RECOVERY_SSH_HOST" >/dev/null 2>&1 || true
+  fi
+  local attempt
+  for attempt in {1..10}; do
+    if rmdir "$RECOVERY_SSH_DIR" 2>/dev/null; then
+      RECOVERY_SSH_DIR=""
+      return 0
+    fi
+    sleep 0.1
+  done
+  log "recovery SSH control directory not yet clean: $RECOVERY_SSH_DIR"
+  return 1
 }
 
 create_state() {
@@ -347,6 +430,8 @@ data = {
   "ami_id": "$AWS_AMI_ID",
   "validation_profile": "$PERMEANT_VALIDATION_PROFILE",
   "model": "$PERMEANT_MODEL",
+  "target_model_revision": "$PERMEANT_VLLM_MODEL_REVISION",
+  "build_profile": "$PERMEANT_BUILD_PROFILE",
   "model_family": "$PERMEANT_MODEL_FAMILY",
   "source_runtime": "$PERMEANT_SOURCE_RUNTIME",
   "target_runtime": "$PERMEANT_TARGET_RUNTIME",
@@ -631,10 +716,10 @@ preflight_cmd() {
 
   if [[ "$PERMEANT_PREFLIGHT_SKIP_BUILD" == "1" ]]; then
     check_status skip "local:permeant_cli" "skipped by PERMEANT_PREFLIGHT_SKIP_BUILD=1" >> "$checks_file"
-  elif [[ -x "$ROOT_DIR/target/debug/permeant-cli" ]]; then
-    check_status pass "local:permeant_cli" "target/debug/permeant-cli exists" >> "$checks_file"
+  elif [[ -x "$ROOT_DIR/target/$PERMEANT_BUILD_PROFILE/permeant-cli" ]]; then
+    check_status pass "local:permeant_cli" "target/$PERMEANT_BUILD_PROFILE/permeant-cli exists" >> "$checks_file"
   else
-    check_status fail "local:permeant_cli" "missing local target/debug/permeant-cli; run cargo build before E2E" >> "$checks_file"
+    check_status fail "local:permeant_cli" "missing local target/$PERMEANT_BUILD_PROFILE/permeant-cli; run cargo build before E2E" >> "$checks_file"
   fi
 
   if [[ "$PERMEANT_PREFLIGHT_SKIP_SOURCE" == "1" ]]; then
@@ -774,6 +859,13 @@ provision() {
   local ip
   ip="$(aws ec2 describe-instances --region "$AWS_REGION" --instance-ids "$instance" --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)"
   json_set "$STATE_FILE" public_ip "$ip"
+  local attached
+  attached="$(aws ec2 describe-instances --region "$AWS_REGION" --instance-ids "$instance" --query 'Reservations[0].Instances[0].[BlockDeviceMappings[0].Ebs.VolumeId,NetworkInterfaces[0].NetworkInterfaceId]' --output text)"
+  local root_volume primary_eni
+  read -r root_volume primary_eni <<< "$attached"
+  [[ "$root_volume" == vol-* && "$primary_eni" == eni-* ]] || die "could not identify attached test resources"
+  json_set "$STATE_FILE" root_volume_id "$root_volume"
+  json_set "$STATE_FILE" primary_eni_id "$primary_eni"
 
   log "waiting for SSH on $ip"
   : > "$KNOWN_HOSTS_FILE"
@@ -827,6 +919,8 @@ generate_production_transport_certs() {
     printf 'basicConstraints=critical,CA:FALSE\n'
     printf 'keyUsage=critical,digitalSignature,keyEncipherment\n'
     printf 'extendedKeyUsage=serverAuth\n'
+    printf 'subjectKeyIdentifier=hash\n'
+    printf 'authorityKeyIdentifier=keyid:always\n'
   } > "$PRODUCTION_TRANSPORT_CERT_DIR/server.ext"
   openssl x509 -req \
     -in "$PRODUCTION_TRANSPORT_CERT_DIR/server.csr" \
@@ -847,6 +941,8 @@ generate_production_transport_certs() {
     printf 'basicConstraints=critical,CA:FALSE\n'
     printf 'keyUsage=critical,digitalSignature,keyEncipherment\n'
     printf 'extendedKeyUsage=clientAuth\n'
+    printf 'subjectKeyIdentifier=hash\n'
+    printf 'authorityKeyIdentifier=keyid:always\n'
   } > "$PRODUCTION_TRANSPORT_CERT_DIR/client.ext"
   openssl x509 -req \
     -in "$PRODUCTION_TRANSPORT_CERT_DIR/client.csr" \
@@ -858,6 +954,10 @@ generate_production_transport_certs() {
     -sha256 \
     -extfile "$PRODUCTION_TRANSPORT_CERT_DIR/client.ext" >/dev/null 2>&1
   chmod 600 "$PRODUCTION_TRANSPORT_CERT_DIR"/*.key
+  openssl verify -x509_strict -purpose sslserver -verify_hostname permeant-target \
+    -CAfile "$PRODUCTION_TRANSPORT_CERT_DIR/ca.crt" "$PRODUCTION_TRANSPORT_CERT_DIR/server.crt"
+  openssl verify -x509_strict -purpose sslclient \
+    -CAfile "$PRODUCTION_TRANSPORT_CERT_DIR/ca.crt" "$PRODUCTION_TRANSPORT_CERT_DIR/client.crt"
   json_set "$STATE_FILE" production_transport_cert_dir "$PRODUCTION_TRANSPORT_CERT_DIR"
 }
 
@@ -899,7 +999,7 @@ export PATH=/home/ubuntu/.cargo/bin:$PATH
 export CARGO_HTTP_MULTIPLEXING=false
 cd /home/ubuntu/permeant-os
 for attempt in 1 2 3; do
-  if cargo build; then
+  if cargo build --locked ${1:+"$1"}; then
     break
   fi
   if [[ "$attempt" == "3" ]]; then
@@ -923,12 +1023,15 @@ REMOTE_SETUP
 set -euo pipefail
 mkdir -p /tmp/permeant-vllm-state /tmp/permeant-logs
 pkill -f vllm_runtime_receiver.py || true
-pkill -f 'permeant-cli daemon --addr 127.0.0.1:29099' || true
+if [[ "\${1:-}" != receiver-only ]]; then
+  pkill -f 'permeant-cli daemon --addr 127.0.0.1:29099' || true
+fi
 export PATH=/home/ubuntu/permeant-os/.venv/bin:/home/ubuntu/.cargo/bin:\$PATH
 export VLLM_ENABLE_V1_MULTIPROCESSING=0
 export PERMEANT_VLLM_CONSUMER_HOOK=/home/ubuntu/permeant-os/adapters/vllm_real_runtime_consumer.py:consume
 export PERMEANT_VLLM_RUNTIME_TARGET=/home/ubuntu/permeant-os/adapters/vllm_real_runtime_target.py:get_runtime
 export PERMEANT_VLLM_MODEL='$PERMEANT_MODEL'
+export PERMEANT_VLLM_MODEL_REVISION='$PERMEANT_VLLM_MODEL_REVISION'
 export PERMEANT_VLLM_MAX_MODEL_LEN='$PERMEANT_VLLM_MAX_MODEL_LEN'
 export PERMEANT_VLLM_CONTINUATION_PROMPT='PermeantOS continuation probe'
 export PERMEANT_VLLM_CONTINUATION_PROMPT_FROM_SOURCE=1
@@ -939,13 +1042,33 @@ export PERMEANT_VLLM_RUNTIME_STATE_FILE=/tmp/permeant-vllm-runtime-state.json
 export PERMEANT_VLLM_RUNTIME_PROBE_FILE=/tmp/permeant-vllm-runtime-probe.json
 export PERMEANT_VLLM_REVERSE_EXPORT_FILE=/tmp/permeant-vllm-reverse-runtime-state.json
 export PERMEANT_VLLM_SLOT_SAMPLE_LIMIT=4
-nohup /home/ubuntu/permeant-os/.venv/bin/python /home/ubuntu/permeant-os/adapters/vllm_runtime_receiver.py --host 127.0.0.1 --port 29100 --state-dir /tmp/permeant-vllm-state >/tmp/permeant-logs/receiver.log 2>&1 &
+warm_args=()
+if [[ '$PERMEANT_INTEGRITY_RECOVERY_DRILL' == '1' ]]; then
+  export PERMEANT_VLLM_RUNTIME_TARGET=vllm_real_runtime_target:get_runtime
+  export PERMEANT_VLLM_RECOVERY_METRICS=1
+  export PERMEANT_VLLM_BATCH_KV_WRITES='$PERMEANT_RECOVERY_FAST_PATH'
+  if [[ '$PERMEANT_FULL_KV_RESTORE' == '1' ]]; then
+    export PERMEANT_RECOVERY_CHECKPOINT_SHA='${PERMEANT_EXPECTED_CHECKPOINT_SHA:-}'
+  fi
+  warm_args+=(--warm-runtime)
+fi
+if [[ '$PERMEANT_BINARY_INJECTOR' == '1' ]]; then
+  warm_args+=(--binary-recovery)
+fi
+export PERMEANT_INJECTOR_PROFILE=1
+nohup /home/ubuntu/permeant-os/.venv/bin/python /home/ubuntu/permeant-os/adapters/vllm_runtime_receiver.py --host 127.0.0.1 --port 29100 --state-dir /tmp/permeant-vllm-state "\${warm_args[@]}" >/tmp/permeant-logs/receiver.log 2>&1 &
+receiver_pid=\$!
+printf '%s\n' "\$receiver_pid" > /tmp/permeant-logs/receiver.pid
 export PERMEANT_INJECTOR_MODE=json_command
+if [[ '$PERMEANT_BINARY_INJECTOR' == '1' ]]; then
+  export PERMEANT_INJECTOR_MODE=binary_command
+fi
 export PERMEANT_INJECTOR_CMD='/home/ubuntu/permeant-os/.venv/bin/python /home/ubuntu/permeant-os/adapters/vllm_injector.py'
 export PERMEANT_INJECTOR_HOOK=/home/ubuntu/permeant-os/adapters/vllm_hook_template.py:injector_hook
 export PERMEANT_VLLM_RUNTIME_HOOK=/home/ubuntu/permeant-os/adapters/vllm_http_runtime_hook.py:runtime_hook
 export PERMEANT_VLLM_RUNTIME_URL=http://127.0.0.1:29100
-nohup /home/ubuntu/permeant-os/target/debug/permeant-cli daemon --addr 127.0.0.1:29099 >/tmp/permeant-logs/daemon.log 2>&1 &
+if [[ "\${1:-}" != receiver-only ]]; then
+nohup /home/ubuntu/permeant-os/target/$PERMEANT_BUILD_PROFILE/permeant-cli daemon --addr 127.0.0.1:29099 >/tmp/permeant-logs/daemon.log 2>&1 &
 if [[ '$PERMEANT_MIGRATION_TRANSPORT' == 'production-wss' ]]; then
   nohup /home/ubuntu/permeant-os/.venv/bin/python /home/ubuntu/permeant-os/adapters/production_transport_proxy.py server \
     --listen-host 0.0.0.0 \
@@ -957,7 +1080,19 @@ if [[ '$PERMEANT_MIGRATION_TRANSPORT' == 'production-wss' ]]; then
     --cafile '$TARGET_PRODUCTION_TRANSPORT_CERT_DIR/ca.crt' \
     >/tmp/permeant-logs/production-transport-server.log 2>&1 &
 fi
+fi
 sleep 5
+if [[ '$PERMEANT_INTEGRITY_RECOVERY_DRILL' == '1' ]]; then
+  for attempt in \$(seq 1 300); do
+    grep -q 'runtime receiver listening' /tmp/permeant-logs/receiver.log && break
+    kill -0 "\$receiver_pid" 2>/dev/null || break
+    sleep 2
+  done
+  if ! grep -q 'runtime receiver listening' /tmp/permeant-logs/receiver.log; then
+    tail -40 /tmp/permeant-logs/receiver.log >&2
+    exit 1
+  fi
+fi
 tail -40 /tmp/permeant-logs/receiver.log || true
 tail -40 /tmp/permeant-logs/daemon.log || true
 tail -40 /tmp/permeant-logs/production-transport-server.log || true
@@ -967,12 +1102,20 @@ REMOTE_START
 }
 
 copy_repo_and_setup() {
-  log "copying committed repository snapshot to target"
+  local tree
+  tree="$(git -C "$ROOT_DIR" rev-parse --verify "${PERMEANT_TARGET_GIT_TREE:-HEAD}^{tree}")"
+  log "copying repository tree $tree to target"
+  json_set "$STATE_FILE" target_git_tree "$tree"
   ssh_target 'rm -rf /home/ubuntu/permeant-os && mkdir -p /home/ubuntu/permeant-os'
-  git -C "$ROOT_DIR" archive --format=tar HEAD | ssh_target 'tar -xf - -C /home/ubuntu/permeant-os'
+  git -C "$ROOT_DIR" archive --format=tar "$tree" | ssh_target 'tar -xf - -C /home/ubuntu/permeant-os'
+  if [[ "$PERMEANT_INTEGRITY_RECOVERY_DRILL" == "1" && -z "${PERMEANT_TARGET_GIT_TREE:-}" ]]; then
+    scp_to_target "$ROOT_DIR/adapters/vllm_runtime_receiver.py" /home/ubuntu/permeant-os/adapters/vllm_runtime_receiver.py
+    scp_to_target "$ROOT_DIR/adapters/vllm_real_runtime_target.py" /home/ubuntu/permeant-os/adapters/vllm_real_runtime_target.py
+    scp_to_target "$ROOT_DIR/scripts/live-recovery-gateway.py" /home/ubuntu/permeant-os/scripts/live-recovery-gateway.py
+  fi
   scp_to_target "$REMOTE_SETUP_SCRIPT" /home/ubuntu/permeant-remote-setup.sh
   log "running target setup"
-  ssh_target 'bash /home/ubuntu/permeant-remote-setup.sh'
+  ssh_target "bash /home/ubuntu/permeant-remote-setup.sh $CARGO_PROFILE_FLAG"
 }
 
 copy_agent_graph_package_to_target() {
@@ -1002,7 +1145,7 @@ start_target() {
   scp_to_target "$PERMEANT_SOURCE_CONTINUATION_FILE" /home/ubuntu/permeant-source-continuation.json
   scp_to_target "$REMOTE_START_SCRIPT" /home/ubuntu/permeant-remote-start.sh
   log "starting receiver and daemon"
-  ssh_target 'bash /home/ubuntu/permeant-remote-start.sh'
+  ssh_target "bash /home/ubuntu/permeant-remote-start.sh ${1:-}"
 }
 
 start_tunnel() {
@@ -1047,6 +1190,163 @@ stop_tunnel() {
   fi
 }
 
+recovery_gateway() {
+  ssh_target "python3 /home/ubuntu/permeant-os/scripts/live-recovery-gateway.py /home/ubuntu/recovery-authority/gateway.sqlite $1"
+}
+
+recovery_clock_sample() {
+  local now='import time; print(time.time_ns())'
+  local before remote after
+  before="$(python3 -c "$now")"
+  remote="$(ssh_target "python3 -c '$now'")"
+  after="$(python3 -c "$now")"
+  printf '%s %s %s\n' "$before" "$remote" "$after"
+}
+
+record_recovery_phase() {
+  python3 -c 'import sys, time; print(sys.argv[1], time.monotonic_ns(), sep="\t")' "$1" \
+    >> "$RUN_DIR/recovery-phases.tsv"
+}
+
+assert_recovery_write_denied() {
+  local lease="$1" report="$2"
+  printf '{"lease":"%s","id":"recovered-task","token":0}\n' "$lease" \
+    | recovery_gateway write > "$report" || return 1
+  [[ "$(json_get "$report" status)" == lease_rejected && "$(json_get "$report" epoch)" == 2 ]]
+}
+
+restore_trusted_checkpoint() {
+  local remote_path="$1" destination="$2"
+  local download="$destination.download"
+  [[ ! -e "$destination" && ! -e "$download" ]] || return 1
+  scp_from_target "$remote_path" "$download" || { rm -f -- "$download"; return 1; }
+  if [[ "$destination" == "$RUN_DIR/checkpoint.restore.json" ]]; then
+    record_recovery_phase checkpoint_downloaded || return 1
+  fi
+  if [[ "$PERMEANT_RECOVERY_CHECKPOINT_CODEC" == "zstd" ]]; then
+    python3 "$ROOT_DIR/scripts/restore-zstd-checkpoint.py" \
+      "$download" "$destination" "$CHECKPOINT_ARTIFACT_BYTES" "$CHECKPOINT_ARTIFACT_SHA" \
+      "$CHECKPOINT_PLAINTEXT_BYTES" "$CHECKPOINT_SHA" || { rm -f -- "$download"; return 2; }
+    rm -- "$download"
+  else
+    local actual
+    actual="$(shasum -a 256 "$download" | cut -d ' ' -f 1)" || return 1
+    if [[ "$actual" != "$CHECKPOINT_SHA" ]]; then
+      rm -- "$download" || return 1
+      return 2
+    fi
+    mv -- "$download" "$destination"
+  fi
+}
+
+probe_untrusted_checkpoints() {
+  local trusted="$1" authority=/home/ubuntu/recovery-authority corrupt destination rc
+  corrupt="$authority/checkpoint.corrupt"
+  destination="$RUN_DIR/checkpoint.rejected.json"
+  ssh_target "test ! -e '$authority/checkpoint.missing' && cp '$trusted' '$corrupt' && python3 -c 'import sys
+with open(sys.argv[1], \"r+b\") as artifact:
+    byte = artifact.read(1)
+    artifact.seek(0)
+    artifact.write(bytes([byte[0] ^ 1]))' '$corrupt'"
+  rc=0
+  restore_trusted_checkpoint "$authority/checkpoint.missing" "$destination" || rc=$?
+  [[ "$rc" == 1 && ! -e "$destination" && ! -e "$destination.download" ]] || die "missing checkpoint probe did not fail closed"
+  assert_recovery_write_denied "$SOURCE_WRITE_LEASE" "$RUN_DIR/source-write-after-missing-checkpoint.json" || die "source write escaped fence"
+  assert_recovery_write_denied "$TARGET_WRITE_LEASE" "$RUN_DIR/target-write-after-missing-checkpoint.json" || die "target activated with missing checkpoint"
+  record_recovery_phase missing_checkpoint_rejected
+  rc=0
+  restore_trusted_checkpoint "$corrupt" "$destination" || rc=$?
+  [[ "$rc" == 2 && ! -e "$destination" && ! -e "$destination.download" ]] || die "corrupt checkpoint probe did not fail at verification"
+  assert_recovery_write_denied "$SOURCE_WRITE_LEASE" "$RUN_DIR/source-write-after-corrupt-checkpoint.json" || die "source write escaped fence"
+  assert_recovery_write_denied "$TARGET_WRITE_LEASE" "$RUN_DIR/target-write-after-corrupt-checkpoint.json" || die "target activated with corrupt checkpoint"
+  record_recovery_phase corrupt_checkpoint_rejected
+}
+
+probe_receiver_interruption() {
+  local before after
+  before="$(ssh_target 'cat /tmp/permeant-logs/receiver.pid')"
+  [[ "$before" =~ ^[1-9][0-9]+$ ]] || die "invalid target receiver PID"
+  ssh_target "kill -KILL $before && python3 -c 'import errno, socket, time
+for _ in range(25):
+    with socket.socket() as probe:
+        probe.settimeout(1)
+        if probe.connect_ex((\"127.0.0.1\", 29100)) == errno.ECONNREFUSED:
+            break
+    time.sleep(0.2)
+else:
+    raise SystemExit(\"target receiver did not stop\")'"
+  assert_recovery_write_denied "$SOURCE_WRITE_LEASE" "$RUN_DIR/source-write-after-receiver-exit.json" || die "source write escaped fence"
+  assert_recovery_write_denied "$TARGET_WRITE_LEASE" "$RUN_DIR/target-write-after-receiver-exit.json" || die "target activated while receiver was down"
+  record_recovery_phase receiver_exit_fenced
+  start_target receiver-only
+  after="$(ssh_target 'cat /tmp/permeant-logs/receiver.pid')"
+  [[ "$after" =~ ^[1-9][0-9]+$ && "$after" != "$before" ]] || die "target receiver did not restart"
+  record_recovery_phase receiver_restarted
+}
+
+prepare_trusted_recovery() {
+  local capture="$RUN_DIR/checkpoint.capture.json"
+  CHECKPOINT_PLAINTEXT_BYTES="$(wc -c < "$capture" | tr -d '[:space:]')"
+  CHECKPOINT_ARTIFACT_BYTES="$CHECKPOINT_PLAINTEXT_BYTES"
+  CHECKPOINT_ARTIFACT_SHA="$CHECKPOINT_SHA"
+  ssh_target 'umask 077; mkdir /home/ubuntu/recovery-authority'
+  if [[ "$PERMEANT_RECOVERY_CHECKPOINT_CODEC" == "zstd" ]]; then
+    local packed="$RUN_DIR/checkpoint.capture.zst"
+    local remote_path=/home/ubuntu/recovery-authority/checkpoint.zst
+    (( CHECKPOINT_PLAINTEXT_BYTES > 0 && CHECKPOINT_PLAINTEXT_BYTES <= 512 * 1024 * 1024 )) || die "checkpoint outside Zstd restore bounds"
+    zstd -q -3 -c -- "$capture" > "$packed"
+    CHECKPOINT_ARTIFACT_BYTES="$(wc -c < "$packed" | tr -d '[:space:]')"
+    (( CHECKPOINT_ARTIFACT_BYTES > 0 && CHECKPOINT_ARTIFACT_BYTES < CHECKPOINT_PLAINTEXT_BYTES )) || die "Zstd checkpoint did not shrink"
+    CHECKPOINT_ARTIFACT_SHA="$(shasum -a 256 "$packed" | cut -d ' ' -f 1)"
+    scp_to_target "$packed" "$remote_path"
+    [[ "$(ssh_target 'sha256sum /home/ubuntu/recovery-authority/checkpoint.zst' | cut -d ' ' -f 1)" == "$CHECKPOINT_ARTIFACT_SHA" ]] || die "off-host compressed checkpoint digest mismatch"
+    rm -- "$packed"
+  else
+    scp_to_target "$capture" /home/ubuntu/recovery-authority/checkpoint.json
+    [[ "$(ssh_target 'sha256sum /home/ubuntu/recovery-authority/checkpoint.json' | cut -d ' ' -f 1)" == "$CHECKPOINT_SHA" ]] || die "off-host checkpoint digest mismatch"
+  fi
+  # A shadow candidate is held separately from the checkpoint on the target.
+  python3 - "$capture" <<'PY'
+import sys
+with open(sys.argv[1], "r+b") as candidate:
+    first = candidate.read(1)
+    if not first:
+        raise SystemExit("empty checkpoint")
+    candidate.seek(0)
+    candidate.write(bytes([first[0] ^ 1]))
+PY
+  SOURCE_WRITE_LEASE="$(openssl rand -hex 32)"
+  TARGET_WRITE_LEASE="$(openssl rand -hex 32)"
+  printf '{"source":"%s","target":"%s"}\n' "$SOURCE_WRITE_LEASE" "$TARGET_WRITE_LEASE" | recovery_gateway init >/dev/null
+  printf '{"lease":"%s","id":"source-before-alert","token":0}\n' "$SOURCE_WRITE_LEASE" \
+    | recovery_gateway write > "$RUN_DIR/source-write-before.json"
+  [[ "$(json_get "$RUN_DIR/source-write-before.json" status)" == completed ]] || die "source lease could not write before alert"
+}
+
+trigger_trusted_recovery() {
+  recovery_clock_sample > "$RUN_DIR/recovery-clock-before.txt"
+  REJECTED_CHECKPOINT_SHA="$(shasum -a 256 "$RUN_DIR/checkpoint.capture.json" | cut -d ' ' -f 1)"
+  [[ "$REJECTED_CHECKPOINT_SHA" != "$CHECKPOINT_SHA" ]] || die "shadow corruption was not detected"
+  read -r RECOVERY_ALERT_NS RECOVERY_ALERT_MONOTONIC_NS < <(
+    python3 -c 'import time; print(time.time_ns(), time.monotonic_ns())'
+  )
+  printf 'alert\t%s\n' "$RECOVERY_ALERT_MONOTONIC_NS" > "$RUN_DIR/recovery-phases.tsv"
+  printf '{}\n' | recovery_gateway fence > "$RUN_DIR/source-fence.json"
+  [[ "$(json_get "$RUN_DIR/source-fence.json" epoch)" == 2 ]] || die "source fence did not advance epoch"
+  record_recovery_phase fence_verified
+  assert_recovery_write_denied "$SOURCE_WRITE_LEASE" "$RUN_DIR/source-write-after.json" || die "source write was not fenced"
+  record_recovery_phase stale_source_write_rejected
+  local remote_path=/home/ubuntu/recovery-authority/checkpoint.json
+  if [[ "$PERMEANT_RECOVERY_CHECKPOINT_CODEC" == "zstd" ]]; then
+    remote_path=/home/ubuntu/recovery-authority/checkpoint.zst
+  fi
+  if [[ "${PERMEANT_RECOVERY_FAILURE_PROBES:-0}" == "1" ]]; then
+    probe_untrusted_checkpoints "$remote_path"
+  fi
+  restore_trusted_checkpoint "$remote_path" "$RUN_DIR/checkpoint.restore.json" || die "trusted off-host checkpoint could not be verified"
+  record_recovery_phase checkpoint_verified
+}
+
 run_migration() {
   log "running migration"
   (
@@ -1071,8 +1371,11 @@ run_migration() {
     export PERMEANT_MODEL_HEAD_DIM="${PERMEANT_MODEL_HEAD_DIM:-}"
     export PERMEANT_MODEL_HIDDEN_SIZE="${PERMEANT_MODEL_HIDDEN_SIZE:-}"
     export PERMEANT_MODEL_BLOCK_SIZE="${PERMEANT_MODEL_BLOCK_SIZE:-}"
+    if [[ "$PERMEANT_RECOVERY_FAST_PATH" == "1" ]]; then
+      export PERMEANT_STREAM_WINDOW_CHUNKS="${PERMEANT_STREAM_WINDOW_CHUNKS:-8}"
+    fi
     local migrate_cmd=(
-      ./target/debug/permeant-cli
+      "./target/$PERMEANT_BUILD_PROFILE/permeant-cli"
       sim-migrate
       --target-addr "127.0.0.1:$PERMEANT_LOCAL_TUNNEL_PORT"
       --seq-len "$PERMEANT_SEQ_LEN"
@@ -1083,6 +1386,13 @@ run_migration() {
     if [[ -n "$PERMEANT_AGENT_GRAPH_MANIFEST" ]]; then
       migrate_cmd+=(--agent-graph-manifest "$PERMEANT_AGENT_GRAPH_MANIFEST")
     fi
+    if [[ "$PERMEANT_INTEGRITY_RECOVERY_DRILL" == "1" ]]; then
+      export PERMEANT_EXTRACTOR_FIXTURE="$RUN_DIR/checkpoint.restore.json"
+      unset PERMEANT_EXTRACTOR_HOOK PERMEANT_MLX_RUNTIME_URL
+      if [[ "$PERMEANT_FULL_KV_RESTORE" == "1" ]]; then
+        export PERMEANT_RECOVERY_CHECKPOINT_SHA="$CHECKPOINT_SHA"
+      fi
+    fi
     "${migrate_cmd[@]}" | tee "$RUN_DIR/migration.log"
   )
   local manifest
@@ -1091,14 +1401,24 @@ run_migration() {
   json_set "$STATE_FILE" manifest "$manifest"
 }
 
-collect_artifacts() {
-  log "collecting target artifacts"
+collect_fidelity_probe() {
+  scp_from_target /tmp/permeant-vllm-runtime-probe.json "$TARGET_PROBE_LOCAL" || return 1
+  [[ -s "$TARGET_PROBE_LOCAL" ]] || { log "target fidelity probe is empty"; return 1; }
+}
+
+collect_target_diagnostics() {
+  log "collecting optional target diagnostics"
   mkdir -p "$TARGET_LOG_DIR"
-  scp_from_target /tmp/permeant-vllm-runtime-probe.json "$TARGET_PROBE_LOCAL" || true
   scp_from_target /tmp/permeant-vllm-reverse-runtime-state.json "$TARGET_REVERSE_RUNTIME_STATE_LOCAL" || true
   scp_from_target /tmp/permeant-logs/receiver.log "$TARGET_LOG_DIR/receiver.log" || true
   scp_from_target /tmp/permeant-logs/daemon.log "$TARGET_LOG_DIR/daemon.log" || true
   scp_from_target /tmp/permeant-logs/production-transport-server.log "$TARGET_LOG_DIR/production-transport-server.log" || true
+}
+
+collect_artifacts() {
+  log "collecting target artifacts"
+  collect_fidelity_probe || true
+  collect_target_diagnostics
 }
 
 analyze_artifacts() {
@@ -1364,37 +1684,69 @@ STATUS
 cleanup_cmd() {
   load_state "${1:-$PERMEANT_STATE_DIR/latest/state.json}"
   log "cleanup starting for $RUN_ID"
+  json_set "$STATE_FILE" cleanup_verified_at || return 1
   stop_tunnel
-  local id sg key
+  local ssh_cleanup_failed=0
+  stop_recovery_ssh_master || ssh_cleanup_failed=1
+  local id sg key count
   id="$(instance_id)"
   sg="$(security_group_id)"
   key="$KEY_NAME"
   if [[ -n "$id" ]]; then
     local current_state
-    current_state="$(aws ec2 describe-instances --region "$AWS_REGION" --instance-ids "$id" --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null || true)"
-    if [[ "$current_state" != "terminated" && "$current_state" != "" ]]; then
+    current_state="$(aws ec2 describe-instances --region "$AWS_REGION" --filters "Name=instance-id,Values=$id" --query 'Reservations[0].Instances[0].State.Name' --output text)" || return 1
+    if [[ "$current_state" != "terminated" && "$current_state" != "None" ]]; then
+      [[ -n "$current_state" ]] || die "AWS did not return an instance state for $id"
       log "terminating instance $id"
-      aws ec2 terminate-instances --region "$AWS_REGION" --instance-ids "$id" >/dev/null || true
-      aws ec2 wait instance-terminated --region "$AWS_REGION" --instance-ids "$id" || true
+      aws ec2 terminate-instances --region "$AWS_REGION" --instance-ids "$id" >/dev/null || return 1
+      aws ec2 wait instance-terminated --region "$AWS_REGION" --instance-ids "$id" || return 1
     fi
   fi
   if [[ -n "$sg" ]]; then
-    log "deleting security group $sg"
-    aws ec2 delete-security-group --region "$AWS_REGION" --group-id "$sg" 2>/dev/null || true
+    count="$(aws ec2 describe-security-groups --region "$AWS_REGION" --filters "Name=group-id,Values=$sg" --query 'length(SecurityGroups)' --output text)" || return 1
+    if [[ "$count" == "1" ]]; then
+      log "deleting security group $sg"
+      aws ec2 delete-security-group --region "$AWS_REGION" --group-id "$sg" >/dev/null || return 1
+      count="$(aws ec2 describe-security-groups --region "$AWS_REGION" --filters "Name=group-id,Values=$sg" --query 'length(SecurityGroups)' --output text)" || return 1
+    fi
+    [[ "$count" == "0" ]] || die "could not verify security group deletion: $sg"
   fi
   if [[ -n "$key" ]]; then
-    log "deleting key pair $key"
-    aws ec2 delete-key-pair --region "$AWS_REGION" --key-name "$key" 2>/dev/null || true
+    count="$(aws ec2 describe-key-pairs --region "$AWS_REGION" --filters "Name=key-name,Values=$key" --query 'length(KeyPairs)' --output text)" || return 1
+    if [[ "$count" == "1" ]]; then
+      log "deleting key pair $key"
+      aws ec2 delete-key-pair --region "$AWS_REGION" --key-name "$key" >/dev/null || return 1
+      count="$(aws ec2 describe-key-pairs --region "$AWS_REGION" --filters "Name=key-name,Values=$key" --query 'length(KeyPairs)' --output text)" || return 1
+    fi
+    [[ "$count" == "0" ]] || die "could not verify key pair deletion: $key"
   fi
-  rm -f "$PEM_FILE"
-  log "verifying cleanup"
-  if [[ -n "$sg" ]]; then
-    aws ec2 describe-security-groups --region "$AWS_REGION" --group-ids "$sg" >/dev/null 2>&1 && die "security group still exists: $sg" || true
+  [[ "$ssh_cleanup_failed" == "0" ]] || die "recovery SSH control directory still exists"
+  local volume eni attempt
+  volume="$(json_get "$STATE_FILE" root_volume_id)"
+  eni="$(json_get "$STATE_FILE" primary_eni_id)"
+  if [[ -n "$volume" ]]; then
+    for attempt in {1..12}; do
+      count="$(aws ec2 describe-volumes --region "$AWS_REGION" --filters "Name=volume-id,Values=$volume" --query 'length(Volumes)' --output text)" || return 1
+      [[ "$count" == 0 ]] && break
+      if [[ "$attempt" != 12 ]]; then sleep 5; fi
+    done
+    [[ "$count" == 0 ]] || die "could not verify root volume deletion: $volume"
   fi
-  if [[ -n "$key" ]]; then
-    aws ec2 describe-key-pairs --region "$AWS_REGION" --key-names "$key" >/dev/null 2>&1 && die "key pair still exists: $key" || true
+  if [[ -n "$eni" ]]; then
+    count="$(aws ec2 describe-network-interfaces --region "$AWS_REGION" --filters "Name=network-interface-id,Values=$eni" --query 'length(NetworkInterfaces)' --output text)" || return 1
+    [[ "$count" == 0 ]] || die "could not verify network interface deletion: $eni"
   fi
-  json_set "$STATE_FILE" cleanup_verified_at "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  if [[ -n "$RUN_DIR" && "$RUN_DIR" == */"$RUN_ID" ]]; then
+    rm -f -- "$RUN_DIR/checkpoint.capture.json" "$RUN_DIR/checkpoint.capture.zst" \
+      "$RUN_DIR/checkpoint.restore.json" "$RUN_DIR/checkpoint.restore.json.download" \
+      "$RUN_DIR/checkpoint.rejected.json.download" || return 1
+  fi
+  if [[ -n "$RUN_DIR" && "$PRODUCTION_TRANSPORT_CERT_DIR" == "$RUN_DIR/production-transport-certs" ]]; then
+    rm -f -- "$PRODUCTION_TRANSPORT_CERT_DIR/ca.key" "$PRODUCTION_TRANSPORT_CERT_DIR/client.key" \
+      "$PRODUCTION_TRANSPORT_CERT_DIR/server.key" || return 1
+  fi
+  rm -f "$PEM_FILE" || return 1
+  json_set "$STATE_FILE" cleanup_verified_at "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" || return 1
   log "cleanup complete"
 }
 
@@ -1406,29 +1758,261 @@ run_cmd() {
   need scp
   need ssh
   need ssh-keyscan
-  [[ -x "$ROOT_DIR/target/debug/permeant-cli" ]] || die "missing local target/debug/permeant-cli; build locally before running"
+  [[ -x "$ROOT_DIR/target/$PERMEANT_BUILD_PROFILE/permeant-cli" ]] || die "missing local target/$PERMEANT_BUILD_PROFILE/permeant-cli; build locally before running"
+  case "$PERMEANT_INTEGRITY_RECOVERY_DRILL" in
+    0) ;;
+    1)
+      [[ "$PERMEANT_TRANSFER_QUANTIZATION" != "fp8" ]] || die "integrity recovery requires exact transfer"
+      [[ "$PERMEANT_REVERSE_RUNTIME_IMPORT" == "0" && "$PERMEANT_AGENT_ACTIVITY_RETURN_HOME" == "0" ]] || die "integrity recovery cannot resume the suspect origin"
+      [[ "$PERMEANT_AGENT_ACTIVITY_RESUME" == "0" && "$PERMEANT_AGENT_ACTIVITY_APPROVE_PUBLISH" == "0" ]] || die "integrity recovery cannot run activity outside the fixture write gateway"
+      umask 077
+      ;;
+    *) die "PERMEANT_INTEGRITY_RECOVERY_DRILL must be 0 or 1" ;;
+  esac
+  case "$PERMEANT_RECOVERY_FAST_PATH:$PERMEANT_INTEGRITY_RECOVERY_DRILL" in
+    0:*|1:1) ;;
+    *) die "PERMEANT_RECOVERY_FAST_PATH must be 0 or enabled with the integrity recovery drill" ;;
+  esac
+  if [[ "$PERMEANT_RECOVERY_FAST_PATH" == "1" ]]; then
+    [[ "${PERMEANT_STREAM_WINDOW_CHUNKS:-8}" =~ ^([1-9]|[12][0-9]|3[0-2])$ ]] \
+      || die "PERMEANT_STREAM_WINDOW_CHUNKS must be between 1 and 32"
+  fi
+  case "$PERMEANT_FULL_KV_RESTORE:$PERMEANT_RECOVERY_FAST_PATH" in
+    0:*) ;;
+    1:1)
+      [[ "${PERMEANT_EXPECTED_CHECKPOINT_SHA:-}" =~ ^[0-9a-f]{64}$ ]] || die "full KV restore requires a pinned checkpoint SHA-256"
+      ;;
+    *) die "PERMEANT_FULL_KV_RESTORE must be 0 or enabled with the fast recovery path" ;;
+  esac
+
+  case "$PERMEANT_BINARY_INJECTOR:$PERMEANT_FULL_KV_RESTORE" in
+    0:*|1:1) ;;
+    *) die "PERMEANT_BINARY_INJECTOR requires the full KV restore drill" ;;
+  esac
+  case "$PERMEANT_RECOVERY_SSH_REUSE:$PERMEANT_INTEGRITY_RECOVERY_DRILL" in
+    0:*|1:1) ;;
+    *) die "PERMEANT_RECOVERY_SSH_REUSE requires the integrity recovery drill" ;;
+  esac
+  case "$PERMEANT_RECOVERY_CHECKPOINT_CODEC:$PERMEANT_INTEGRITY_RECOVERY_DRILL" in
+    none:*) ;;
+    zstd:1) need zstd ;;
+    *) die "PERMEANT_RECOVERY_CHECKPOINT_CODEC must be none, or zstd with the integrity recovery drill" ;;
+  esac
+  case "$PERMEANT_RECOVERY_DEFER_DIAGNOSTICS:$PERMEANT_INTEGRITY_RECOVERY_DRILL" in
+    0:*|1:1) ;;
+    *) die "PERMEANT_RECOVERY_DEFER_DIAGNOSTICS requires the integrity recovery drill" ;;
+  esac
+  case "$PERMEANT_RECOVERY_FAILURE_PROBES:$PERMEANT_INTEGRITY_RECOVERY_DRILL" in
+    0:*|1:1) ;;
+    *) die "PERMEANT_RECOVERY_FAILURE_PROBES requires the integrity recovery drill" ;;
+  esac
 
   create_state
   rm -f "$PERMEANT_STATE_DIR/latest"
   ln -s "$RUN_DIR" "$PERMEANT_STATE_DIR/latest"
   log "state file: $STATE_FILE"
+  trap '( if [[ -n "$(public_ip)" ]]; then collect_artifacts; fi ) || true; cleanup_cmd "$STATE_FILE" || true' EXIT
   refresh_source_continuation
+  if [[ "$PERMEANT_INTEGRITY_RECOVERY_DRILL" == "1" ]]; then
+    CHECKPOINT_SHA="$(shasum -a 256 "$RUN_DIR/checkpoint.capture.json" | cut -d ' ' -f 1)"
+    [[ -z "${PERMEANT_EXPECTED_CHECKPOINT_SHA:-}" || "$CHECKPOINT_SHA" == "$PERMEANT_EXPECTED_CHECKPOINT_SHA" ]] || die "checkpoint differs from expected baseline"
+  fi
   discover_network
   write_remote_scripts
-  trap 'collect_artifacts || true; cleanup_cmd "$STATE_FILE" || true' EXIT
   provision
   generate_production_transport_certs
   copy_repo_and_setup
+  if [[ "$PERMEANT_INTEGRITY_RECOVERY_DRILL" == "1" ]]; then
+    prepare_trusted_recovery
+  fi
   copy_production_transport_certs_to_target
   copy_agent_graph_package_to_target
   start_target
   start_tunnel
+  if [[ "$PERMEANT_INTEGRITY_RECOVERY_DRILL" == "1" ]]; then
+    if [[ "$PERMEANT_RECOVERY_SSH_REUSE" == "1" ]]; then
+      start_recovery_ssh_master
+    fi
+    trigger_trusted_recovery
+    if [[ "$PERMEANT_RECOVERY_FAILURE_PROBES" == "1" ]]; then
+      probe_receiver_interruption
+    fi
+    record_recovery_phase migration_start
+  fi
   run_migration
-  collect_artifacts
+  if [[ "$PERMEANT_INTEGRITY_RECOVERY_DRILL" == "1" ]]; then
+    record_recovery_phase migration_committed
+  fi
+  local continuation_observed_ms=""
+  if [[ "$PERMEANT_RECOVERY_DEFER_DIAGNOSTICS" == "1" ]]; then
+    log "collecting required fidelity probe"
+    collect_fidelity_probe
+  else
+    collect_artifacts
+  fi
+  if [[ "$PERMEANT_INTEGRITY_RECOVERY_DRILL" == "1" ]]; then
+    continuation_observed_ms="$(python3 -c 'import time; print(time.time_ns() // 1000000)')"
+    if [[ "$PERMEANT_RECOVERY_DEFER_DIAGNOSTICS" == "1" ]]; then
+      record_recovery_phase fidelity_probe_collected
+    else
+      record_recovery_phase artifacts_collected
+    fi
+  fi
   analyze_artifacts
   enforce_qatq_live_compression_gate
+  if [[ "$PERMEANT_INTEGRITY_RECOVERY_DRILL" == "1" ]]; then
+    python3 - "$RUN_DIR/fidelity-analysis.json" "$RUN_DIR/fidelity-horizons.json" "$TARGET_PROBE_LOCAL" "$PERMEANT_RECOVERY_FAST_PATH" "$PERMEANT_FULL_KV_RESTORE" "$PERMEANT_CONTINUATION_MAX_TOKENS" "$PERMEANT_SEQ_LEN" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+analysis, horizons, probe = (json.loads(Path(name).read_text()) for name in sys.argv[1:4])
+if analysis.get("vllm_prefix_cache_seed_success") is not True or not analysis.get("vllm_prefix_cache_seeded_block_count"):
+    raise SystemExit("integrity recovery did not attach migrated state to target prefix cache")
+if horizons.get("max_complete_exact_horizon", 0) < 1:
+    raise SystemExit("integrity recovery did not verify target continuation")
+if sys.argv[4] == "1":
+    blocks = [event for event in probe["events"] if event["event"] == "register_permeant_block"]
+    if not blocks or any(event["registration_profile"]["write_modes"] != {"batched_torch": event["layer_count"]} for event in blocks):
+        raise SystemExit("the optimized run did not use batched tensor writes for every layer")
+    if not all(layer["slot_probe"]["all_samples_match"] is True
+               for event in blocks for layer in event["written_layer_summaries"]):
+        raise SystemExit("optimized KV writes failed slot verification")
+if sys.argv[5] == "1":
+    event = next(item for item in probe["events"] if item["event"] == "generate_continuation")
+    seed = event["decode_attachment"]["attachment_attempt"]["prefix_cache_seed"]
+    expected = (int(sys.argv[7]) - 1) // seed["target_block_size"] * seed["target_block_size"]
+    if (horizons["max_complete_exact_horizon"] != int(sys.argv[6])
+        or seed["logical_block_hashes"] != [block["hash"] for block in blocks]
+        or seed["baseline_cache_reset"] is not True
+        or event["num_cached_tokens"] != expected
+        or not all(layer["full_tensor_verified"] is True
+                   for block in blocks for layer in block["written_layer_summaries"])):
+        raise SystemExit("full KV restore did not prove all positions, prefix reuse and fidelity")
+PY
+    record_recovery_phase fidelity_verified
+  fi
   run_reverse_runtime_import
   run_agent_activity_resume
+  if [[ "$PERMEANT_INTEGRITY_RECOVERY_DRILL" == "1" ]]; then
+    local task_token
+    task_token="$(python3 - "$TARGET_PROBE_LOCAL" "$PERMEANT_SOURCE_CONTINUATION_FILE" <<'PY'
+import json, sys
+from pathlib import Path
+events = json.loads(Path(sys.argv[1]).read_text())["events"]
+event = next(item for item in reversed(events) if item["event"] == "generate_continuation")
+baseline = next(item for item in reversed(events) if item["event"] == "baseline_continuation")
+source = json.loads(Path(sys.argv[2]).read_text())
+if not isinstance(event.get("first_token_unix_ns"), int):
+    raise SystemExit("vLLM did not provide first-token timing")
+first = event["token_ids"][0]
+if first != source["token_ids"][0] or first != baseline["token_ids"][0]:
+    raise SystemExit("first token disagrees with the source or target baseline")
+print(int(first))
+PY
+)"
+    local task_request
+    task_request="$(printf '{"lease":"%s","id":"recovered-task","token":%s}' "$TARGET_WRITE_LEASE" "$task_token")"
+    printf '{"epoch":2}\n' | recovery_gateway activate > "$RUN_DIR/target-activation.json"
+    [[ "$(json_get "$RUN_DIR/target-activation.json" status)" == active && "$(json_get "$RUN_DIR/target-activation.json" epoch)" == 2 ]] || die "target activation did not commit"
+    record_recovery_phase target_activated
+    if [[ "$PERMEANT_RECOVERY_FAILURE_PROBES" == "1" ]]; then
+      # Drop the first response: the retry must return the committed row, not execute again.
+      printf '%s\n' "$task_request" | recovery_gateway write >/dev/null
+      printf '%s\n' "$task_request" | recovery_gateway write > "$RUN_DIR/recovered-task.json"
+      [[ "$(json_get "$RUN_DIR/recovered-task.json" status)" == duplicate ]] || die "retry after lost reply ran the task again"
+      record_recovery_phase task_retry_reconciled
+    else
+      printf '%s\n' "$task_request" | recovery_gateway write > "$RUN_DIR/recovered-task.json"
+      [[ "$(json_get "$RUN_DIR/recovered-task.json" status)" == completed ]] || die "recovered task did not commit"
+    fi
+    [[ "$(json_get "$RUN_DIR/recovered-task.json" committed_token)" == "$task_token" ]] || die "durable task receipt has an unexpected token"
+    record_recovery_phase task_commit_observed
+    printf '%s\n' "$task_request" | recovery_gateway write > "$RUN_DIR/recovered-task-replay.json"
+    [[ "$(json_get "$RUN_DIR/recovered-task-replay.json" status)" == duplicate ]] || die "recovered task did not commit exactly once"
+    [[ "$(json_get "$RUN_DIR/recovered-task-replay.json" committed_unix_ns)" == "$(json_get "$RUN_DIR/recovered-task.json" committed_unix_ns)" ]] || die "replay changed the durable task receipt"
+    record_recovery_phase task_replay_rejected
+    recovery_clock_sample > "$RUN_DIR/recovery-clock-after.txt"
+    if [[ "$PERMEANT_RECOVERY_DEFER_DIAGNOSTICS" == "1" ]]; then
+      collect_target_diagnostics
+      record_recovery_phase diagnostics_collection_finished
+    fi
+    python3 - "$ROOT_DIR/$(json_get "$STATE_FILE" manifest)" "$RUN_DIR" "$continuation_observed_ms" "$RECOVERY_ALERT_NS" "$CHECKPOINT_SHA" "$REJECTED_CHECKPOINT_SHA" "$PERMEANT_RECOVERY_SSH_REUSE" "$PERMEANT_RECOVERY_CHECKPOINT_CODEC" "$CHECKPOINT_ARTIFACT_BYTES" "$CHECKPOINT_PLAINTEXT_BYTES" "$CHECKPOINT_ARTIFACT_SHA" "$PERMEANT_RECOVERY_DEFER_DIAGNOSTICS" <<'PY' | tee "$RUN_DIR/integrity-recovery.json"
+import json
+import sys
+from pathlib import Path
+
+manifest = json.loads(Path(sys.argv[1]).read_text())
+run = Path(sys.argv[2])
+fidelity = json.loads((run / "fidelity-horizons.json").read_text())
+if manifest.get("success") is not True or manifest.get("phase_status") != "committed":
+    raise SystemExit("integrity recovery migration did not commit")
+if fidelity.get("max_complete_exact_horizon", 0) < 1:
+    raise SystemExit("integrity recovery did not verify target continuation")
+alert = int(sys.argv[4])
+observed = int(sys.argv[3]) - alert // 1_000_000
+events = json.loads((run / "vllm-runtime-probe.json").read_text())["events"]
+decode = next(item for item in reversed(events) if item["event"] == "generate_continuation")
+seed = decode["decode_attachment"]["attachment_attempt"]["prefix_cache_seed"]
+task = json.loads((run / "recovered-task.json").read_text())
+before = [int(x) for x in (run / "recovery-clock-before.txt").read_text().split()]
+after = [int(x) for x in (run / "recovery-clock-after.txt").read_text().split()]
+# Bound the remote clock offset, assuming it did not jump outside the two samples.
+low = min(remote - end for _, remote, end in (before, after))
+high = max(remote - start for start, remote, _ in (before, after))
+if high < low or high - low > 5_000_000_000:
+    raise SystemExit("clock offset uncertainty exceeds five seconds")
+offset = (low + high) // 2
+first_ms = (decode["first_token_unix_ns"] - offset - alert) / 1_000_000
+task_ms = (task["committed_unix_ns"] - offset - alert) / 1_000_000
+if not 0 <= first_ms <= task_ms:
+    raise SystemExit("invalid recovery milestone ordering")
+phases = {}
+last = start = None
+for line in (run / "recovery-phases.tsv").read_text().splitlines():
+    phase, raw = line.split("\t")
+    mark = int(raw)
+    if (last is not None and mark < last) or phase in phases:
+        raise SystemExit("invalid recovery phase timeline")
+    if start is None:
+        if phase != "alert":
+            raise SystemExit("missing recovery alert phase")
+        start = mark
+    phases[phase] = (mark - start) / 1_000_000
+    last = mark
+print(json.dumps({
+    "schema": "permeantos-live-integrity-recovery-v1",
+    "checkpoint_sha256": sys.argv[5],
+    "rejected_sha256": sys.argv[6],
+    "off_host_checkpoint_verified": True,
+    "stale_source_write_rejected": True,
+    "target_task_replay_rejected": True,
+    "failure_probes_exercised": "task_retry_reconciled" in phases,
+    "target_runtime_prewarmed": True,
+    "exact_continuation_tokens": fidelity["max_complete_exact_horizon"],
+    "alert_to_observed_verified_continuation_ms": observed,
+    "alert_to_first_valid_token_ms": first_ms,
+    "alert_to_first_completed_task_ms": task_ms,
+    "cross_host_clock_uncertainty_ms": (high - low) / 2_000_000,
+    "recovery_ssh_reuse_enabled": sys.argv[7] == "1",
+    "checkpoint_restore_codec": sys.argv[8],
+    "checkpoint_artifact_bytes": int(sys.argv[9]),
+    "checkpoint_plaintext_bytes": int(sys.argv[10]),
+    "checkpoint_artifact_sha256": sys.argv[11],
+    "recovery_diagnostics_deferred": sys.argv[12] == "1",
+    "orchestration_milestone_ms_since_alert": phases,
+    "transferred_payload_bytes": manifest["transferred_bytes"],
+    "codec": manifest["transfer_quantization"],
+    **({
+        "logical_blocks_verified": len(seed["logical_block_hashes"]),
+        "physical_slots_verified": seed["allocated_slot_count"],
+        "seeded_prefix_blocks": seed["seeded_block_count"],
+        "reused_prefix_tokens": decode["num_cached_tokens"],
+        "baseline_prefix_cache_reset": seed["baseline_cache_reset"],
+    } if "logical_block_hashes" in seed else {}),
+}, indent=2))
+PY
+  fi
   run_agent_activity_return_home
   cleanup_cmd "$STATE_FILE"
   trap - EXIT

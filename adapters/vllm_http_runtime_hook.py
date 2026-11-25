@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+from time import perf_counter
 import urllib.error
 import urllib.request
 from typing import Any
 
 from runtime_adapter_utils import AdapterError, normalize_injector_response
+from vllm_binary_blocks import CONTENT_TYPE
 
 
 def _base_url() -> str:
@@ -18,8 +21,8 @@ def _base_url() -> str:
     return value.rstrip("/")
 
 
-def _headers() -> dict[str, str]:
-    headers = {"Content-Type": "application/json"}
+def _headers(content_type: str) -> dict[str, str]:
+    headers = {"Content-Type": content_type}
     token = os.getenv("PERMEANT_VLLM_RUNTIME_TOKEN")
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -27,11 +30,23 @@ def _headers() -> dict[str, str]:
 
 
 def _post_json(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    started = perf_counter()
     body = json.dumps(payload).encode("utf-8")
+    return _post_body(path, body, "application/json", encode_ms=(perf_counter() - started) * 1000)
+
+
+def post_binary_block(body: bytes) -> dict[str, Any]:
+    return _post_body("/inject_binary_block", body, CONTENT_TYPE, strict=True)
+
+
+def _post_body(
+    path: str, body: bytes, content_type: str, *, encode_ms: float = 0, strict: bool = False
+) -> dict[str, Any]:
+    started = perf_counter()
     request = urllib.request.Request(
         f"{_base_url()}{path}",
         data=body,
-        headers=_headers(),
+        headers=_headers(content_type),
         method="POST",
     )
     timeout_seconds = float(os.getenv("PERMEANT_VLLM_RUNTIME_TIMEOUT", "900"))
@@ -43,11 +58,19 @@ def _post_json(path: str, payload: dict[str, Any]) -> dict[str, Any]:
         raise AdapterError(f"runtime hook HTTP {exc.code}: {detail}") from exc
     except urllib.error.URLError as exc:
         raise AdapterError(f"runtime hook connection failure: {exc}") from exc
+    if os.getenv("PERMEANT_INJECTOR_PROFILE") == "1":
+        print(
+            f"[Injector HTTP] request_bytes={len(body)} encode_ms={encode_ms:.3f}"
+            f" round_trip_ms={(perf_counter() - started) * 1000:.3f}",
+            file=sys.stderr,
+        )
 
     try:
         payload = json.loads(raw) if raw else {"success": True}
     except json.JSONDecodeError as exc:
         raise AdapterError(f"runtime hook returned invalid JSON: {exc}") from exc
+    if strict and (not raw or not isinstance(payload, dict) or type(payload.get("success")) is not bool):
+        raise AdapterError("binary injector response must explicitly acknowledge success or failure")
     return normalize_injector_response(payload)
 
 

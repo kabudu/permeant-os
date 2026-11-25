@@ -75,7 +75,7 @@ EVIDENCE: tuple[EvidenceRecord, ...] = (
         ),
         limitations=(
             "This validates the recorded Qwen2.5 MLX-to-vLLM AWS path; additional models and runtime adapters still need standalone-QATQ live validation.",
-            "The recorded AWS run used a sibling QATQ checkout before crates.io publication; current PermeantOS builds consume the published qatq 0.1.1 crate.",
+            "The recorded AWS run used a sibling QATQ checkout before crates.io publication. PermeantOS subsequently adopted the published crate.",
             "The vLLM adapter relies on runtime internals that may change between vLLM versions.",
         ),
     ),
@@ -144,7 +144,7 @@ EVIDENCE: tuple[EvidenceRecord, ...] = (
         ci_jobs=(),
         limitations=(
             "This is a local standalone compression proof; the live AWS proof is tracked separately.",
-            "The recorded local proof used a sibling QATQ checkout before crates.io publication; current PermeantOS builds consume the published qatq 0.1.1 crate.",
+            "The recorded local proof used a sibling QATQ checkout before crates.io publication. PermeantOS subsequently adopted the published crate.",
             "The timing numbers were captured from a local debug build and should not be treated as final release-performance figures.",
         ),
     ),

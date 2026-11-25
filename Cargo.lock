@@ -543,6 +543,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lz4_flex"
+version = "0.14.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f56455fff36934a9500d69062aec1c77037179b6f0669e4d5d6b72b84722d6a3"
+dependencies = [
+ "twox-hash",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -616,19 +625,20 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
- "lz4_flex",
+ "lz4_flex 0.13.1",
  "permeant-extractor",
  "permeant-injector",
  "permeant-orchestrator",
  "permeant-transpiler",
  "permeant-transport",
+ "qatq",
  "rand",
  "serde",
  "serde_json",
  "thiserror",
  "tokio",
  "usxf-core",
- "zstd",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -757,12 +767,12 @@ dependencies = [
 
 [[package]]
 name = "qatq"
-version = "0.1.1"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d38a13032f7db9664d699c8325c3fc0399d6a556480cbc965b68269f62a6cc3"
+checksum = "b4d1f73c7aca615a0bce9ef191b558c0447648cba7e08aea95f78e1e10502f48"
 dependencies = [
- "lz4_flex",
- "zstd",
+ "lz4_flex 0.14.2",
+ "zstd 0.14.5",
 ]
 
 [[package]]
@@ -1255,7 +1265,16 @@ version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
 dependencies = [
- "zstd-safe",
+ "zstd-safe 7.2.4",
+]
+
+[[package]]
+name = "zstd"
+version = "0.14.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "465cb081cac3a28a84ef547702dba1fe0f4a9f22e4e57a0b675ceee028c2af80"
+dependencies = [
+ "zstd-safe 8.4.0",
 ]
 
 [[package]]
@@ -1268,10 +1287,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "zstd-sys"
-version = "2.0.16+zstd.1.5.7"
+name = "zstd-safe"
+version = "8.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91e19ebc2adc8f83e43039e79776e3fda8ca919132d68a1fed6a5faca2683748"
+checksum = "9b09bddd92c53b91833f4df03e0ea07e02d8367cfcd15a3b9acda94fc273f793"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-sys"
+version = "2.2.0+zstd.1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3f4089cda6dda4dc43c43dd9f8964140064fd2f752f3da46c3a483c3c175160"
 dependencies = [
  "cc",
  "pkg-config",

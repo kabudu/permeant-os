@@ -234,6 +234,8 @@ mod tests {
             f32::INFINITY,
         ];
         let encoded = quant::encode_qatq_exact_f32le_transfer(&floats).unwrap();
+        let (profiled, _) = quant::encode_qatq_exact_f32le_transfer_profiled(&floats).unwrap();
+        assert_eq!(profiled, encoded);
 
         assert_eq!(encoded.storage_name(), quant::QATQ_EXACT_F32LE_STORAGE);
         assert_eq!(encoded.strategy_name(), Some("qatq-exact"));
