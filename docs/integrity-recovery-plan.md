@@ -253,11 +253,13 @@ arbitrary external tools remain separate work.
 - [x] Separate the source fence from target activation. The fixture gateway
   denies both leases after fencing and enables target writes only after the
   runner verifies the exact continuation and validates its first token.
-- [ ] On one disposable `g4dn.xlarge`, run the release-built source and
+- [x] On one disposable `g4dn.xlarge`, exercise the release-built source and
   target with the previously pinned 1,920-token checkpoint, QATQ 0.4.5,
   Qwen2.5-0.5B-Instruct revision `7ae557604adf67be50417f59c2c2f167def9a775`,
   and vLLM 0.23.0. Verify all recovery gates and cleanup.
-- [ ] Require green PR CI and the repository packaging checks before tagging.
+- [x] Pass PR CI and Linux release-artifact validation for the preview code.
+- [ ] Require an approving review and a zero-exit smoke run from an immutable
+  checkout of the final candidate before tagging.
 
 Use `cargo build --release --locked --bin permeant-cli` on the origin and
 set `PERMEANT_BUILD_PROFILE=release` on the runner. Set
@@ -278,6 +280,38 @@ this mode include those deliberate interruptions and must not be compared to
 ordinary recovery timings as a regression test. If interrupted, run
 `scripts/aws-real-runtime-e2e.sh cleanup <state.json>` using the printed
 state file; do not restart the origin or remove a fence to work around a failure.
+
+On 25 November 2026, live run `20261125-131348` exercised commit
+`f61ca50` with release binaries on Apple Silicon (Rust 1.97.0) and one
+`g4dn.xlarge` with a Tesla T4 (Rust 1.100.0, driver 580.159.04). It used
+the pinned model and tokenizer, WSS/mTLS, the 32-chunk streaming window,
+and the bounded off-host Zstd restore. The source checkpoint SHA-256 was
+`1258e812de2f8982ff5aa16aa2feb82dc8804aabe60aad0c134438e28046d481`.
+
+| Preview fault drill | Result |
+| --- | --- |
+| Missing and same-length corrupt archives | Both rejected without publishing a restored checkpoint or allowing either lease to write |
+| Receiver killed before activation | Both leases rejected while the port was closed; fresh receiver recovered on the same host |
+| Exact migration | All eight logical blocks verified, 1,904 prefix tokens reused, and 128 continuation token IDs matched MLX and native vLLM |
+| Lost task reply | Retry and replay returned the original durable token and timestamp; neither executed a second write |
+| Migration payload | 13,320,355 bytes in 384 exact QATQ chunks; no pass-through |
+| Alert to first valid token | 60.54 s, including the deliberate faults and restart |
+| Alert to first completed fixture task | 66.20 s, with cross-host clock uncertainty of ±0.13 s |
+
+The release-built migration from start to commit took 16.15 s in this run;
+it is not an alert-relative latency baseline. The later PR changes to satisfy
+stable Clippy and reject the unrelated tool demo were checked separately in
+PR CI. The GPU outcome above applies to the recorded revision.
+
+Independent AWS queries confirmed instance termination and the absence of
+the root volume, primary network interface, security group and key pair.
+The transient local checkpoints, keys, SSH control socket and listeners were
+gone. The runner wrote all evidence, logged successful cleanup and printed
+`run complete`, but then exited 2: its launch checkout was edited during the
+long-running process and Bash resumed reading from a stale file offset. A
+small shell reproduction confirmed the mechanism, and the unchanged cleanup
+command subsequently exited zero. Use a dedicated checkout that is not edited
+or switched while running the final smoke test.
 
 ### Live QATQ v0.4.5 comparison
 
