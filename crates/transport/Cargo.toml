@@ -1,6 +1,6 @@
 [package]
 name = "permeant-transport"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "PermeantOS secure migration transport frames and negotiation"
 license.workspace = true
@@ -15,7 +15,7 @@ anyhow.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 crc32fast.workspace = true
-usxf-core = { version = "0.1.0", path = "../usxf-core" }
+usxf-core = { version = "0.2.0", path = "../usxf-core" }
 ed25519-dalek.workspace = true
 
 [dev-dependencies]

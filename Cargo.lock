@@ -620,7 +620,7 @@ dependencies = [
 
 [[package]]
 name = "permeant-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -643,7 +643,7 @@ dependencies = [
 
 [[package]]
 name = "permeant-extractor"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "permeant-transpiler",
@@ -653,7 +653,7 @@ dependencies = [
 
 [[package]]
 name = "permeant-injector"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "permeant-transpiler",
@@ -663,7 +663,7 @@ dependencies = [
 
 [[package]]
 name = "permeant-orchestrator"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -678,7 +678,7 @@ dependencies = [
 
 [[package]]
 name = "permeant-qatq-migration"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "qatq",
  "serde",
@@ -688,7 +688,7 @@ dependencies = [
 
 [[package]]
 name = "permeant-transpiler"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "qatq",
@@ -699,7 +699,7 @@ dependencies = [
 
 [[package]]
 name = "permeant-transport"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1068,7 +1068,7 @@ dependencies = [
 
 [[package]]
 name = "usxf-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes-gcm",
  "anyhow",

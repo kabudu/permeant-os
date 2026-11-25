@@ -1,6 +1,6 @@
 [package]
 name = "permeant-orchestrator"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "PermeantOS migration orchestration and two-phase commit coordination"
 license.workspace = true
@@ -15,6 +15,6 @@ chrono.workspace = true
 tokio.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
-usxf-core = { version = "0.1.0", path = "../usxf-core" }
-permeant-transpiler = { version = "0.1.0", path = "../transpiler" }
-permeant-transport = { version = "0.1.0", path = "../transport" }
+usxf-core = { version = "0.2.0", path = "../usxf-core" }
+permeant-transpiler = { version = "0.2.0", path = "../transpiler" }
+permeant-transport = { version = "0.2.0", path = "../transport" }

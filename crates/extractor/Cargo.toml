@@ -1,6 +1,6 @@
 [package]
 name = "permeant-extractor"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "PermeantOS source-runtime extraction adapter boundary"
 license.workspace = true
@@ -12,4 +12,4 @@ readme.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-permeant-transpiler = { version = "0.1.0", path = "../transpiler" }
+permeant-transpiler = { version = "0.2.0", path = "../transpiler" }

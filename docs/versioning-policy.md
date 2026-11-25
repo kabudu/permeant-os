@@ -33,7 +33,7 @@ repository has wheel/sdist validation and PyPI ownership.
 Milestone tags are validated with `--release-kind milestone`: they may use the
 roadmap suffix while package versions remain pinned by `release.toml`. Future
 package/product releases are validated with `--release-kind product`: the tag
-must equal `product_tag` in `release.toml`, currently `v0.1.0`.
+must equal `product_tag` in `release.toml`.
 
 The repository now has release-artifact and release-validation paths for
 release validation. `scripts/build-release-artifacts.py` creates

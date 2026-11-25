@@ -31,8 +31,8 @@ def test_release_manifest_versions_are_consistent():
         report = json.loads(report_path.read_text())
         assert report["schema_version"] == "permeantos-release-version-consistency-v0"
         assert report["ok"] is True
-        assert report["product_version"] == "0.1.0"
-        assert report["product_tag"] == "v0.1.0"
+        assert report["product_version"] == "0.2.0"
+        assert report["product_tag"] == "v0.2.0"
         assert report["publishing_enabled"] is True
         checks = {check["name"]: check for check in report["checks"]}
         assert checks["release-manifest-schema"]["ok"] is True
@@ -44,7 +44,7 @@ def test_release_manifest_versions_are_consistent():
 
 
 def test_product_release_tag_must_match_manifest():
-    result = run_checker("--release-version", "v0.1.0", "--release-kind", "product")
+    result = run_checker("--release-version", "v0.2.0", "--release-kind", "product")
 
     assert result.returncode == 0, result.stderr + result.stdout
     report = json.loads(result.stdout)
