@@ -115,7 +115,7 @@ def test_cleanup_requires_successful_aws_verification(tmp_path, case):
     }))
     pem = tmp_path / "temporary.pem"
     pem.write_text("fixture only")
-    functions = "\n".join(shell_function(name) for name in ("json_set", "cleanup_cmd"))
+    functions = "\n".join(shell_function(name) for name in ("json_get", "json_set", "cleanup_cmd"))
     setup = """
         load_state() { RUN_ID=fixture; AWS_REGION=us-east-1; KEY_NAME=key-fixture; RUN_DIR=''; PRODUCTION_TRANSPORT_CERT_DIR=''; }
         stop_tunnel() { :; }
